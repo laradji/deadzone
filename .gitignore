@@ -1,6 +1,8 @@
 /deadzone
+/deadzone-server
 /deadzone.db
 /.envrc
 .DS_Store
 .mcp.json
 CLAUDE.md
+.claude/

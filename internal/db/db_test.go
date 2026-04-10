@@ -17,7 +17,7 @@ func TestOpen_CreatesDocsTable(t *testing.T) {
 	defer d.Close()
 
 	// Verify FTS5 table exists by inserting a row
-	_, err = d.Exec(`INSERT INTO docs(lib, title, content) VALUES (?, ?, ?)`,
+	_, err = d.Exec(`INSERT INTO docs(lib_id, title, content) VALUES (?, ?, ?)`,
 		"testlib", "Hello World", "some content")
 	if err != nil {
 		t.Fatalf("INSERT into docs: %v", err)
@@ -33,9 +33,9 @@ func TestInsert(t *testing.T) {
 	defer d.Close()
 
 	docs := []db.Doc{
-		{Lib: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
-		{Lib: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
-		{Lib: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
+		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
+		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
+		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 
 	for _, doc := range docs {
@@ -63,9 +63,9 @@ func TestSearch_ReturnsRelevantSnippets(t *testing.T) {
 	defer d.Close()
 
 	docs := []db.Doc{
-		{Lib: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
-		{Lib: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
-		{Lib: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
+		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
+		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
+		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 	for _, doc := range docs {
 		if err := db.Insert(d, doc); err != nil {
@@ -83,7 +83,7 @@ func TestSearch_ReturnsRelevantSnippets(t *testing.T) {
 
 	// All results should mention "server" in title or content
 	for _, r := range results {
-		t.Logf("result: lib=%s title=%q", r.Lib, r.Title)
+		t.Logf("result: lib_id=%s title=%q", r.LibID, r.Title)
 	}
 }
 
@@ -96,8 +96,8 @@ func TestSearch_FiltersByLib(t *testing.T) {
 	defer d.Close()
 
 	docs := []db.Doc{
-		{Lib: "go-sdk", Title: "Server setup", Content: "Create a new MCP server"},
-		{Lib: "libsql", Title: "SQL server", Content: "Connect to a database server"},
+		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server"},
+		{LibID: "libsql", Title: "SQL server", Content: "Connect to a database server"},
 	}
 	for _, doc := range docs {
 		if err := db.Insert(d, doc); err != nil {
@@ -110,8 +110,8 @@ func TestSearch_FiltersByLib(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	for _, r := range results {
-		if r.Lib != "go-sdk" {
-			t.Errorf("filter failed: got lib=%q, expected go-sdk", r.Lib)
+		if r.LibID != "go-sdk" {
+			t.Errorf("filter failed: got lib_id=%q, expected go-sdk", r.LibID)
 		}
 	}
 }
@@ -125,7 +125,7 @@ func TestSearch_UnicodeContent(t *testing.T) {
 	defer d.Close()
 
 	if err := db.Insert(d, db.Doc{
-		Lib: "testlib", Title: "Unicode doc", Content: "Créer un serveur MCP avec Go",
+		LibID: "testlib", Title: "Unicode doc", Content: "Créer un serveur MCP avec Go",
 	}); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
