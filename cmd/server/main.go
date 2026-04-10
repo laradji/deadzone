@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/laradji/deadzone/internal/db"
+	"github.com/laradji/deadzone/internal/embed"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -32,11 +33,13 @@ const (
 	defaultTokens = 5000
 	minTokens     = 1000
 	charsPerToken = 4
+	searchK       = 10
 )
 
-func makeSearchHandler(d *sql.DB) func(context.Context, *mcp.CallToolRequest, SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
+func makeSearchHandler(d *sql.DB, e embed.Embedder) func(context.Context, *mcp.CallToolRequest, SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
-		docs, err := db.Search(d, input.Query, input.LibID)
+		queryVec := e.Embed(input.Query)
+		docs, err := db.SearchByEmbedding(d, queryVec, input.LibID, searchK)
 		if err != nil {
 			return nil, SearchDocsOutput{}, err
 		}
@@ -74,7 +77,7 @@ func makeSearchHandler(d *sql.DB) func(context.Context, *mcp.CallToolRequest, Se
 }
 
 func main() {
-	dbPath := flag.String("db", "deadzone.db", "path to libSQL database file")
+	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
 	flag.Parse()
 
 	d, err := db.Open(*dbPath)
@@ -83,11 +86,13 @@ func main() {
 	}
 	defer d.Close()
 
+	e := embed.NewStub()
+
 	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: "v0.1.0"}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_docs",
 		Description: "Search documentation snippets for a library. Use lib_id in /org/project format to filter by library.",
-	}, makeSearchHandler(d))
+	}, makeSearchHandler(d, e))
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatal(err)

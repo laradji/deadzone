@@ -2,7 +2,12 @@
 
 A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic search over third-party library documentation, indexed locally with [Turso](https://turso.tech) vector storage.
 
-> **Status:** early MVP, currently pivoting from FTS5 (exact-term) to a pure vector retrieval pipeline. See the [roadmap](https://github.com/laradji/deadzone/issues).
+> **Status:** early MVP. Vector search is wired end-to-end on a CGO-free
+> [tursogo](https://github.com/tursodatabase/turso/tree/main/bindings/go)
+> driver, currently backed by a **deterministic stub embedder** (hash-based
+> bag-of-tokens) until a real model lands — see
+> [#2](https://github.com/laradji/deadzone/issues/2). Full
+> [roadmap](https://github.com/laradji/deadzone/issues).
 
 Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
 
@@ -26,9 +31,9 @@ Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and
 | | |
 |---|---|
 | Language | Go 1.26.2 (pinned via [`mise`](https://mise.jdx.dev)) |
-| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB` + `vector_distance_cos`) |
-| Driver | [`tursodatabase/go-libsql`](https://github.com/tursodatabase/go-libsql) — CGO required today, [migration to CGO-free `tursogo`](https://github.com/laradji/deadzone/issues/13) tracked |
-| Embeddings | TBD (see issue [#2](https://github.com/laradji/deadzone/issues/2)) |
+| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(64)` + `vector_distance_cos`) |
+| Driver | [`turso.tech/database/tursogo`](https://pkg.go.dev/turso.tech/database/tursogo) — **CGO-free**, via [`purego`](https://github.com/ebitengine/purego) |
+| Embeddings | Deterministic stub (hash-based bag-of-tokens with camelCase splitting). Real model tracked in [#2](https://github.com/laradji/deadzone/issues/2) |
 | Protocol | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
 
 ## Quick start
@@ -37,15 +42,15 @@ Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and
 # 1. Install Go via mise (project-pinned)
 mise install
 
-# 2. Build
-CGO_ENABLED=1 go build ./...
+# 2. Build — no CGO required
+go build ./...
 
 # 3. Scrape and index a library
-CGO_ENABLED=1 go run ./cmd/scraper -db deadzone.db
+go run ./cmd/scraper -db deadzone.db
 # → indexes the modelcontextprotocol/go-sdk docs
 
 # 4. Run the MCP server
-CGO_ENABLED=1 go run ./cmd/server -db deadzone.db
+go run ./cmd/server -db deadzone.db
 ```
 
 ### Wire it into an MCP client
@@ -58,8 +63,7 @@ Add to your client's MCP config (Claude Code, Cursor, etc.):
     "deadzone": {
       "type": "stdio",
       "command": "/path/to/deadzone-server",
-      "args": ["-db", "/path/to/deadzone.db"],
-      "env": { "CGO_ENABLED": "1" }
+      "args": ["-db", "/path/to/deadzone.db"]
     }
   }
 }
@@ -75,11 +79,11 @@ deadzone/
 │   ├── server/    # MCP server entrypoint (search_docs tool)
 │   └── scraper/   # CLI: fetch, embed & index a library's docs
 ├── internal/
-│   ├── db/        # Turso schema and vector queries
-│   ├── scraper/   # Markdown fetcher + parser (H2-split, fence-aware)
-│   └── search/    # (placeholder for retrieval logic)
+│   ├── db/        # Turso schema and vector queries (F32_BLOB + vector_distance_cos)
+│   ├── embed/     # Embedder interface + deterministic stub implementation
+│   └── scraper/   # Markdown fetcher + parser (H2-split, fence-aware)
 └── docs/
-    └── research/  # Design notes (Context7 analysis, etc.)
+    └── research/  # Design notes (Context7 analysis, tursogo migration, etc.)
 ```
 
 ## Why vector search
