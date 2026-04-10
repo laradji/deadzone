@@ -128,4 +128,16 @@ Tracked on the [GitHub issues board](https://github.com/laradji/deadzone/issues)
 
 ## License
 
-TBD.
+Deadzone is licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE) for the third-party attributions that ship with the binary.
+
+## Content rights (scraped documentation)
+
+The Apache 2.0 license above covers the **Deadzone source code only**. It does **not** grant any rights over the third-party documentation that the scraper indexes. Each documentation source you point Deadzone at — whether through a `github-md` source or a `scrape-via-agent` source — remains the property of its original authors and is governed by whatever license those authors chose for it.
+
+In practice this means:
+
+- Running `deadzone scrape` against a public doc site is subject to that site's Terms of Service.
+- A pre-built `pack` distributed via the project's GitHub Releases is bound by the original content's license, not by Apache 2.0. The manifest in `artifacts/manifest.yaml` records each source's `lib_id` so you can trace back to the upstream license if needed.
+- Redistributing scraped content outside Deadzone's local search use case may require permission from the original authors.
+
+If you're indexing your own content for personal use, none of this matters. If you're considering distributing a Deadzone pack publicly, do the homework on each source first.

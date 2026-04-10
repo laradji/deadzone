@@ -1,0 +1,52 @@
+Deadzone
+Copyright 2026 Nacer Laradji
+
+This product is licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain
+a copy of the License in the LICENSE file in the root of this repository, or at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+
+----
+
+This product includes software developed by third parties:
+
+- knights-analytics/hugot              (Apache License 2.0)
+  https://github.com/knights-analytics/hugot
+
+- gomlx/gomlx                          (Apache License 2.0)
+  https://github.com/gomlx/gomlx
+
+- gomlx/onnx-gomlx                     (Apache License 2.0)
+  https://github.com/gomlx/onnx-gomlx
+
+- gomlx/go-huggingface                 (Apache License 2.0)
+  https://github.com/gomlx/go-huggingface
+
+- modelcontextprotocol/go-sdk          (Apache License 2.0)
+  https://github.com/modelcontextprotocol/go-sdk
+
+- ebitengine/purego                    (Apache License 2.0)
+  https://github.com/ebitengine/purego
+
+- viant/afs                            (Apache License 2.0)
+  https://github.com/viant/afs
+
+- tursodatabase/turso (tursogo driver) (MIT License)
+  https://github.com/tursodatabase/turso
+
+The full dependency tree and per-dependency licenses can be regenerated with:
+
+    go-licenses report ./cmd/server ./cmd/scraper
+
+----
+
+Documentation content indexed by Deadzone is the property of its respective
+authors and remains under the licenses chosen by those authors. Deadzone's
+Apache 2.0 license covers the Deadzone source code only — it does not grant
+any rights over the third-party documentation indexed by the scraper.
