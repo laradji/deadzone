@@ -77,16 +77,22 @@ func makeSearchHandler(d *db.DB, e embed.Embedder) func(context.Context, *mcp.Ca
 
 func main() {
 	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
-	embedderKind := flag.String("embedder", embed.KindStub, "embedder to use (valid: stub)")
+	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	flag.Parse()
 
-	// Phase 1 only knows about "stub", so the embedder is fully
-	// determined by the flag. db.Open then validates the embedder's
-	// reported meta against whatever the database was created with;
-	// a mismatch fails fast and tells the user to rebuild.
+	// db.Open validates the embedder's reported meta against whatever
+	// the database was created with; a mismatch fails fast and tells
+	// the user to rebuild against a fresh file.
 	e, err := embed.New(*embedderKind)
 	if err != nil {
 		log.Fatalf("embedder: %v", err)
+	}
+	if c, ok := e.(interface{ Close() error }); ok {
+		defer func() {
+			if err := c.Close(); err != nil {
+				log.Printf("embedder close: %v", err)
+			}
+		}()
 	}
 
 	d, err := db.Open(*dbPath, db.Meta{

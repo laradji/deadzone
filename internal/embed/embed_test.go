@@ -3,11 +3,50 @@ package embed_test
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
 	"testing"
 
 	"github.com/laradji/deadzone/internal/embed"
 )
+
+// testEmbedder is a single Hugot instance shared by every test in the
+// package. NewHugot is expensive (downloads + loads the model + warms up
+// the GoMLX session) so amortizing it across the whole package via
+// TestMain brings per-test overhead down to roughly the cost of one
+// pipeline run.
+var testEmbedder *embed.Hugot
+
+func TestMain(m *testing.M) {
+	// Use the production cache dir so the model is reused across runs
+	// (and across packages) instead of being re-downloaded into a fresh
+	// temp dir on every `go test` invocation.
+	e, err := embed.NewHugot(embed.DefaultHugotModel, hugotTestCacheDir())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: NewHugot: %v\n", err)
+		os.Exit(1)
+	}
+	testEmbedder = e
+	code := m.Run()
+	_ = e.Close()
+	os.Exit(code)
+}
+
+// hugotTestCacheDir picks a cache directory for tests. Honors
+// DEADZONE_HUGOT_CACHE so CI can pin the cache to a workspace-local path
+// that gets restored from a Github Actions cache, falling back to the
+// system default otherwise.
+func hugotTestCacheDir() string {
+	if dir := os.Getenv("DEADZONE_HUGOT_CACHE"); dir != "" {
+		return dir
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ".deadzone-cache/models"
+	}
+	return cache + "/deadzone/models"
+}
 
 // cosineDistance mirrors what vector_distance_cos computes on the DB side:
 // 1 - (a·b) / (||a|| * ||b||). Lower values mean closer vectors.
@@ -30,111 +69,73 @@ func floatsToBytes(v []float32) []byte {
 	return buf.Bytes()
 }
 
-func TestStub_Deterministic(t *testing.T) {
-	e := embed.NewStub()
+func TestHugot_Deterministic(t *testing.T) {
 	inputs := []string{
-		"",
 		"hello world",
 		"Register tools using mcp.AddTool",
 		"Créer un serveur MCP",
 	}
 	for _, in := range inputs {
-		a := e.Embed(in)
-		b := e.Embed(in)
+		a := testEmbedder.Embed(in)
+		b := testEmbedder.Embed(in)
 		if !bytes.Equal(floatsToBytes(a), floatsToBytes(b)) {
 			t.Errorf("Embed(%q) not deterministic across calls", in)
 		}
 	}
 }
 
-func TestStub_Dim(t *testing.T) {
-	e := embed.NewStub()
-	cases := []string{"", "x", "hello world", "Register tools using mcp.AddTool"}
+func TestHugot_Dim(t *testing.T) {
+	cases := []string{"x", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
-		v := e.Embed(c)
-		if len(v) != e.Dim() {
-			t.Errorf("Embed(%q) len = %d, want %d", c, len(v), e.Dim())
+		v := testEmbedder.Embed(c)
+		if len(v) != testEmbedder.Dim() {
+			t.Errorf("Embed(%q) len = %d, want %d", c, len(v), testEmbedder.Dim())
 		}
 	}
 }
 
-func TestStub_Metadata(t *testing.T) {
-	e := embed.NewStub()
-	if got := e.Kind(); got != "stub" {
-		t.Errorf("Kind() = %q, want %q", got, "stub")
+func TestHugot_Metadata(t *testing.T) {
+	if got := testEmbedder.Kind(); got != "hugot" {
+		t.Errorf("Kind() = %q, want %q", got, "hugot")
 	}
-	if got := e.Dim(); got <= 0 {
+	if got := testEmbedder.Dim(); got <= 0 {
 		t.Errorf("Dim() = %d, want > 0", got)
 	}
-	if got := e.ModelVersion(); got == "" {
+	if got := testEmbedder.ModelVersion(); got == "" {
 		t.Error("ModelVersion() returned empty string")
+	}
+	if got := testEmbedder.ModelVersion(); got != embed.DefaultHugotModel {
+		t.Errorf("ModelVersion() = %q, want %q", got, embed.DefaultHugotModel)
 	}
 }
 
-func TestNew(t *testing.T) {
-	t.Run("stub", func(t *testing.T) {
-		e, err := embed.New("stub")
-		if err != nil {
-			t.Fatalf("New(stub): %v", err)
-		}
-		if e.Kind() != "stub" {
-			t.Errorf("Kind() = %q, want %q", e.Kind(), "stub")
-		}
-	})
-
-	t.Run("unknown kind", func(t *testing.T) {
-		if _, err := embed.New("does-not-exist"); err == nil {
-			t.Fatal("expected error for unknown kind, got nil")
-		}
-	})
-}
-
-func TestStub_UnitNorm(t *testing.T) {
-	e := embed.NewStub()
-	cases := []string{"", "a", "hello world", "Register tools using mcp.AddTool", "!!!"}
+func TestHugot_UnitNorm(t *testing.T) {
+	cases := []string{"a", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
-		v := e.Embed(c)
+		v := testEmbedder.Embed(c)
 		var sumSq float64
 		for _, x := range v {
 			sumSq += float64(x) * float64(x)
 		}
-		if math.Abs(sumSq-1) > 1e-6 {
+		// MiniLM through hugot's WithNormalization() option produces
+		// L2-normalized embeddings; allow a slightly looser epsilon
+		// than the stub since we're rounding through float32 ONNX
+		// inference rather than computing the norm in pure Go.
+		if math.Abs(sumSq-1) > 1e-4 {
 			t.Errorf("Embed(%q) ||v||^2 = %v, want ~1", c, sumSq)
 		}
 	}
 }
 
-func TestStub_EmptyString(t *testing.T) {
-	e := embed.NewStub()
-	v := e.Embed("")
-	if v == nil {
-		t.Fatal("Embed(\"\") returned nil")
-	}
-	if len(v) != e.Dim() {
-		t.Fatalf("Embed(\"\") len = %d, want %d", len(v), e.Dim())
-	}
-	// All components must be finite (no NaN / Inf).
-	for i, x := range v {
-		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
-			t.Errorf("Embed(\"\")[%d] = %v, want finite", i, x)
-		}
-	}
-	// Must be unit-norm so cosine distance is well-defined.
-	var sumSq float64
-	for _, x := range v {
-		sumSq += float64(x) * float64(x)
-	}
-	if math.Abs(sumSq-1) > 1e-6 {
-		t.Errorf("Embed(\"\") ||v||^2 = %v, want ~1", sumSq)
-	}
-}
-
-func TestStub_TokenOverlap(t *testing.T) {
-	e := embed.NewStub()
-
-	query := e.Embed("register a tool")
-	relevant := e.Embed("Register tools using mcp.AddTool")
-	unrelated := e.Embed("Open a database with sql.Open")
+// TestHugot_SemanticOverlap is the real-embedder version of the stub's
+// token-overlap probe: a natural-language query should be semantically
+// closer to the relevant identifier-heavy doc than to an unrelated one.
+// With a 384-dim sentence-transformers model this is the actual semantic
+// retrieval property we care about, not a hash-collision artifact.
+func TestHugot_SemanticOverlap(t *testing.T) {
+	query := testEmbedder.Embed("register a tool")
+	relevant := testEmbedder.Embed("Register tools using mcp.AddTool")
+	unrelated := testEmbedder.Embed("Open a database with sql.Open")
 
 	distRelevant := cosineDistance(query, relevant)
 	distUnrelated := cosineDistance(query, unrelated)
@@ -145,14 +146,40 @@ func TestStub_TokenOverlap(t *testing.T) {
 	}
 }
 
-func TestStub_CamelCaseSplit(t *testing.T) {
-	e := embed.NewStub()
+func TestNew(t *testing.T) {
+	t.Run("hugot", func(t *testing.T) {
+		e, err := embed.New(embed.KindHugot)
+		if err != nil {
+			t.Fatalf("New(hugot): %v", err)
+		}
+		// New returns a fresh Hugot — close it to release the
+		// session it just allocated. The package-level testEmbedder
+		// is unaffected.
+		defer func() {
+			if c, ok := e.(interface{ Close() error }); ok {
+				_ = c.Close()
+			}
+		}()
+		if e.Kind() != "hugot" {
+			t.Errorf("Kind() = %q, want %q", e.Kind(), "hugot")
+		}
+		if e.Dim() <= 0 {
+			t.Errorf("Dim() = %d, want > 0", e.Dim())
+		}
+	})
 
-	camel := e.Embed("AddTool")
-	spaced := e.Embed("add tool")
-	unrelated := e.Embed("database connection")
+	t.Run("unknown kind", func(t *testing.T) {
+		if _, err := embed.New("does-not-exist"); err == nil {
+			t.Fatal("expected error for unknown kind, got nil")
+		}
+	})
 
-	if cosineDistance(camel, spaced) >= cosineDistance(camel, unrelated) {
-		t.Errorf("camelCase split failed: 'AddTool' should be closer to 'add tool' than to 'database connection'")
-	}
+	t.Run("stub kind no longer accepted", func(t *testing.T) {
+		// Phase 2 retired the stub. A user with stale config that
+		// still passes "stub" should get a clear error rather than
+		// a silent fallback.
+		if _, err := embed.New("stub"); err == nil {
+			t.Fatal("expected error for retired 'stub' kind, got nil")
+		}
+	})
 }
