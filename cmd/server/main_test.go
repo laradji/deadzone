@@ -11,13 +11,16 @@ import (
 )
 
 func TestHandleSearchDocs_ReturnsSnippets(t *testing.T) {
-	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	e := embed.NewStub()
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"), db.Meta{
+		EmbedderKind: e.Kind(),
+		EmbeddingDim: e.Dim(),
+		ModelVersion: e.ModelVersion(),
+	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer d.Close()
-
-	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "/modelcontextprotocol/go-sdk", Title: "Tool registration", Content: "Use mcp.AddTool to register tools on the server."},
 		{LibID: "/modelcontextprotocol/go-sdk", Title: "Server setup", Content: "Create a server with mcp.NewServer."},

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"log"
 
@@ -36,7 +35,7 @@ const (
 	searchK       = 10
 )
 
-func makeSearchHandler(d *sql.DB, e embed.Embedder) func(context.Context, *mcp.CallToolRequest, SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
+func makeSearchHandler(d *db.DB, e embed.Embedder) func(context.Context, *mcp.CallToolRequest, SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 		queryVec := e.Embed(input.Query)
 		docs, err := db.SearchByEmbedding(d, queryVec, input.LibID, searchK)
@@ -78,15 +77,27 @@ func makeSearchHandler(d *sql.DB, e embed.Embedder) func(context.Context, *mcp.C
 
 func main() {
 	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
+	embedderKind := flag.String("embedder", embed.KindStub, "embedder to use (valid: stub)")
 	flag.Parse()
 
-	d, err := db.Open(*dbPath)
+	// Phase 1 only knows about "stub", so the embedder is fully
+	// determined by the flag. db.Open then validates the embedder's
+	// reported meta against whatever the database was created with;
+	// a mismatch fails fast and tells the user to rebuild.
+	e, err := embed.New(*embedderKind)
+	if err != nil {
+		log.Fatalf("embedder: %v", err)
+	}
+
+	d, err := db.Open(*dbPath, db.Meta{
+		EmbedderKind: e.Kind(),
+		EmbeddingDim: e.Dim(),
+		ModelVersion: e.ModelVersion(),
+	})
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
 	defer d.Close()
-
-	e := embed.NewStub()
 
 	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: "v0.1.0"}, nil)
 	mcp.AddTool(s, &mcp.Tool{

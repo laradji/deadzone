@@ -52,10 +52,41 @@ func TestStub_Dim(t *testing.T) {
 	cases := []string{"", "x", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
 		v := e.Embed(c)
-		if len(v) != embed.Dim {
-			t.Errorf("Embed(%q) len = %d, want %d", c, len(v), embed.Dim)
+		if len(v) != e.Dim() {
+			t.Errorf("Embed(%q) len = %d, want %d", c, len(v), e.Dim())
 		}
 	}
+}
+
+func TestStub_Metadata(t *testing.T) {
+	e := embed.NewStub()
+	if got := e.Kind(); got != "stub" {
+		t.Errorf("Kind() = %q, want %q", got, "stub")
+	}
+	if got := e.Dim(); got <= 0 {
+		t.Errorf("Dim() = %d, want > 0", got)
+	}
+	if got := e.ModelVersion(); got == "" {
+		t.Error("ModelVersion() returned empty string")
+	}
+}
+
+func TestNew(t *testing.T) {
+	t.Run("stub", func(t *testing.T) {
+		e, err := embed.New("stub")
+		if err != nil {
+			t.Fatalf("New(stub): %v", err)
+		}
+		if e.Kind() != "stub" {
+			t.Errorf("Kind() = %q, want %q", e.Kind(), "stub")
+		}
+	})
+
+	t.Run("unknown kind", func(t *testing.T) {
+		if _, err := embed.New("does-not-exist"); err == nil {
+			t.Fatal("expected error for unknown kind, got nil")
+		}
+	})
 }
 
 func TestStub_UnitNorm(t *testing.T) {
@@ -79,8 +110,8 @@ func TestStub_EmptyString(t *testing.T) {
 	if v == nil {
 		t.Fatal("Embed(\"\") returned nil")
 	}
-	if len(v) != embed.Dim {
-		t.Fatalf("Embed(\"\") len = %d, want %d", len(v), embed.Dim)
+	if len(v) != e.Dim() {
+		t.Fatalf("Embed(\"\") len = %d, want %d", len(v), e.Dim())
 	}
 	// All components must be finite (no NaN / Inf).
 	for i, x := range v {

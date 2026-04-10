@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,13 +16,30 @@ func embedText(e embed.Embedder, d db.Doc) []float32 {
 	return e.Embed(d.Title + "\n" + d.Content)
 }
 
-func TestOpen_CreatesDocsTable(t *testing.T) {
+// metaFor extracts a db.Meta from an embed.Embedder. The same little
+// adapter is needed in cmd/scraper and cmd/server too; defining it as a
+// helper here keeps the tests readable.
+func metaFor(e embed.Embedder) db.Meta {
+	return db.Meta{
+		EmbedderKind: e.Kind(),
+		EmbeddingDim: e.Dim(),
+		ModelVersion: e.ModelVersion(),
+	}
+}
+
+func openStub(t *testing.T) *db.DB {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path)
+	d, err := db.Open(path, metaFor(embed.NewStub()))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+
+func TestOpen_CreatesDocsTable(t *testing.T) {
+	d := openStub(t)
 
 	// Verify the table exists by inserting through the real Insert path.
 	e := embed.NewStub()
@@ -32,12 +50,7 @@ func TestOpen_CreatesDocsTable(t *testing.T) {
 }
 
 func TestInsert(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer d.Close()
+	d := openStub(t)
 
 	e := embed.NewStub()
 	docs := []db.Doc{
@@ -62,26 +75,16 @@ func TestInsert(t *testing.T) {
 }
 
 func TestInsert_RejectsWrongDim(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer d.Close()
+	d := openStub(t)
 
-	err = db.Insert(d, db.Doc{LibID: "x", Title: "t", Content: "c"}, []float32{0.1, 0.2})
+	err := db.Insert(d, db.Doc{LibID: "x", Title: "t", Content: "c"}, []float32{0.1, 0.2})
 	if err == nil {
 		t.Fatal("expected error for wrong-dimension embedding, got nil")
 	}
 }
 
 func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer d.Close()
+	d := openStub(t)
 
 	e := embed.NewStub()
 	docs := []db.Doc{
@@ -111,12 +114,7 @@ func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
 }
 
 func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer d.Close()
+	d := openStub(t)
 
 	e := embed.NewStub()
 	docs := []db.Doc{
@@ -148,12 +146,7 @@ func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
 // semantic overlap (camelCase split + token bag), even though the query
 // uses natural language and the target snippet uses an identifier.
 func TestSearchByEmbedding_Acceptance(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer d.Close()
+	d := openStub(t)
 
 	e := embed.NewStub()
 	docs := []db.Doc{
@@ -179,6 +172,92 @@ func TestSearchByEmbedding_Acceptance(t *testing.T) {
 		for i, r := range results {
 			t.Logf("  #%d: [%s] %s", i+1, r.LibID, r.Title)
 		}
+	}
+}
+
+// TestDB_RejectsEmbedderMismatch is the meta-enforcement test from the
+// issue: a DB created with one embedder kind must refuse to be reopened
+// with a different one. The check fires at Open time so callers cannot
+// even reach an Insert with mismatched vectors.
+func TestDB_RejectsEmbedderMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	stub := embed.NewStub()
+	d, err := db.Open(path, metaFor(stub))
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	// Indexing one doc to confirm we are exercising a real, populated DB
+	// and not a degenerate empty file.
+	doc := db.Doc{LibID: "x", Title: "t", Content: "c"}
+	if err := db.Insert(d, doc, embedText(stub, doc)); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		meta db.Meta
+	}{
+		{
+			name: "different kind",
+			meta: db.Meta{EmbedderKind: "fake", EmbeddingDim: stub.Dim(), ModelVersion: stub.ModelVersion()},
+		},
+		{
+			name: "different dim",
+			meta: db.Meta{EmbedderKind: stub.Kind(), EmbeddingDim: stub.Dim() + 1, ModelVersion: stub.ModelVersion()},
+		},
+		{
+			name: "different model version",
+			meta: db.Meta{EmbedderKind: stub.Kind(), EmbeddingDim: stub.Dim(), ModelVersion: "stub-v2"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reopened, err := db.Open(path, tc.meta)
+			if err == nil {
+				reopened.Close()
+				t.Fatal("expected ErrEmbedderMismatch, got nil")
+			}
+			if !errors.Is(err, db.ErrEmbedderMismatch) {
+				t.Errorf("expected ErrEmbedderMismatch, got %v", err)
+			}
+		})
+	}
+}
+
+// TestDB_RoundtripsMeta verifies that the meta the embedder reports is
+// what gets persisted, and that reopening the DB exposes the same Meta
+// via the wrapper struct without the caller having to re-read the table.
+func TestDB_RoundtripsMeta(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	stub := embed.NewStub()
+	want := metaFor(stub)
+
+	d, err := db.Open(path, want)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	if d.Meta != want {
+		t.Errorf("first open Meta = %+v, want %+v", d.Meta, want)
+	}
+	doc := db.Doc{LibID: "lib", Title: "Title", Content: "Content"}
+	if err := db.Insert(d, doc, embedText(stub, doc)); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := db.Open(path, want)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer reopened.Close()
+	if reopened.Meta != want {
+		t.Errorf("reopened Meta = %+v, want %+v", reopened.Meta, want)
 	}
 }
 
