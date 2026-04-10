@@ -11,6 +11,16 @@ A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic s
 
 Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
 
+## Features
+
+- **Self-hosted** — local file database, no cloud dependency, no API key
+- **Single binary** — no CGO, no Python, no native libs to install
+- **Semantic search** — vector embeddings with cosine similarity via Turso's native vector support
+- **MCP native** — stdio protocol, plugs directly into Claude Code, Cursor, and other MCP clients
+- **Multi-library** — `/org/project` namespacing with first-class `lib_id` filtering
+- **Token-budget aware** — trims response size to fit the caller's context window
+- **Cross-platform** — pure Go, builds on Linux, macOS, and Windows
+
 ## What it does
 
 Deadzone exposes one MCP tool to clients (Claude Code, Cursor, etc.):
