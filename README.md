@@ -4,9 +4,9 @@ A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic s
 
 > **Status:** early MVP. Vector search is wired end-to-end on a CGO-free
 > [tursogo](https://github.com/tursodatabase/turso/tree/main/bindings/go)
-> driver, currently backed by a **deterministic stub embedder** (hash-based
-> bag-of-tokens) until a real model lands — see
-> [#2](https://github.com/laradji/deadzone/issues/2). Full
+> driver, with embeddings produced by [hugot](https://github.com/knights-analytics/hugot)
+> running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+> on a pure-Go GoMLX backend (no CGO, no Python). Full
 > [roadmap](https://github.com/laradji/deadzone/issues).
 
 Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
@@ -41,9 +41,9 @@ Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and
 | | |
 |---|---|
 | Language | Go 1.26.2 (pinned via [`mise`](https://mise.jdx.dev)) |
-| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(64)` + `vector_distance_cos`) |
+| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(384)` + `vector_distance_cos`; column width tracks the embedder's dimension) |
 | Driver | [`turso.tech/database/tursogo`](https://pkg.go.dev/turso.tech/database/tursogo) — **CGO-free**, via [`purego`](https://github.com/ebitengine/purego) |
-| Embeddings | Deterministic stub (hash-based bag-of-tokens with camelCase splitting). Real model tracked in [#2](https://github.com/laradji/deadzone/issues/2) |
+| Embeddings | [hugot](https://github.com/knights-analytics/hugot) running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (384-dim) on the pure-Go GoMLX backend — no CGO, no Python |
 | Protocol | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
 
 ## Quick start
@@ -58,6 +58,9 @@ go build ./...
 # 3. Scrape and index a library
 go run ./cmd/scraper -db deadzone.db
 # → indexes the modelcontextprotocol/go-sdk docs
+# → first run downloads the MiniLM-L6-v2 model (~90 MB) into the
+#   per-user cache (macOS: ~/Library/Caches/deadzone/models, Linux:
+#   $XDG_CACHE_HOME/deadzone/models). Subsequent runs reuse it.
 
 # 4. Run the MCP server
 go run ./cmd/server -db deadzone.db
@@ -90,7 +93,7 @@ deadzone/
 │   └── scraper/   # CLI: fetch, embed & index a library's docs
 ├── internal/
 │   ├── db/        # Turso schema and vector queries (F32_BLOB + vector_distance_cos)
-│   ├── embed/     # Embedder interface + deterministic stub implementation
+│   ├── embed/     # Embedder interface + hugot/MiniLM-L6-v2 implementation
 │   └── scraper/   # Markdown fetcher + parser (H2-split, fence-aware)
 └── docs/
     └── research/  # Design notes (Context7 analysis, tursogo migration, etc.)
