@@ -48,20 +48,24 @@ Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and
 
 ## Quick start
 
+Go 1.26.2 and [`just`](https://just.systems) are pinned via [`.mise.toml`](.mise.toml) and intentionally not on the system `PATH`. The repo ships a `justfile` that wraps every Go invocation in `mise exec --`, so you don't need to remember the prefix:
+
 ```bash
-# 1. Install Go via mise (project-pinned)
+# 1. Install the pinned toolchain — Go + just (one-time)
 mise install
 
 # 2. Build — no CGO required
-go build ./...
+just build             # = mise exec -- go build ./...
 
-# 3. Scrape and index a library
-go run ./cmd/scraper -db deadzone.db
+# 3. Scrape and index a library (defaults to ./deadzone.db)
+just scrape            # = mise exec -- go run ./cmd/scraper -db deadzone.db
 # → indexes the modelcontextprotocol/go-sdk docs
 
 # 4. Run the MCP server
-go run ./cmd/server -db deadzone.db
+just serve             # = mise exec -- go run ./cmd/server -db deadzone.db
 ```
+
+Run `just` (no args) to list every recipe. Override the DB path with positional args: `just scrape foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
 
 ### Wire it into an MCP client
 
