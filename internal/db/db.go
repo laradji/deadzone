@@ -1,11 +1,19 @@
 // Package db manages the local turso database that backs deadzone's
-// vector-based semantic search. Documents are stored as TEXT alongside a
-// fixed-dimension F32_BLOB embedding column; queries are ranked by
-// vector_distance_cos against the query's embedding.
+// vector-based semantic search. Documents are stored as TEXT alongside an
+// F32_BLOB embedding column whose width is set at Open time from the
+// embedder's reported Dim, and queries are ranked by vector_distance_cos
+// against the query's embedding.
+//
+// The package is intentionally embedder-agnostic: it does not import
+// internal/embed, and the embedder's identity travels through the Meta
+// struct supplied by the caller. The meta table records this identity in
+// the database itself so a binary opening an existing file can detect
+// (and refuse) a mismatch with the embedder it was asked to use.
 package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,10 +21,34 @@ import (
 	_ "turso.tech/database/tursogo"
 )
 
-// Dim is the fixed embedding dimension stored in the docs.embedding column.
-// Must stay in sync with internal/embed.Dim. Duplicated here to keep the
-// package graph one-way (db does not import embed).
-const Dim = 64
+// ErrEmbedderMismatch is returned by Open when the meta stored in an
+// existing database disagrees with the Meta the caller passed in. Callers
+// should treat this as fatal: there is no safe way to mix vectors produced
+// by different embedders in the same docs table. Wrap with errors.Is to
+// detect.
+var ErrEmbedderMismatch = errors.New("embedder metadata mismatch")
+
+// Meta describes the embedder a database was created with. It is written
+// to the meta table the first time a fresh DB is opened and cross-checked
+// on every subsequent open.
+//
+// Equality is by value: every field must match exactly for a reopen to be
+// accepted. Bumping ModelVersion in the embedder is therefore the standard
+// way to invalidate previously-indexed databases.
+type Meta struct {
+	EmbedderKind string
+	EmbeddingDim int
+	ModelVersion string
+}
+
+// DB wraps *sql.DB with the Meta the database was opened with so that
+// Insert and SearchByEmbedding can validate vector lengths without
+// re-reading the meta table on every call. *sql.DB is embedded so callers
+// can still use QueryRow, Exec, Close, etc. directly on a *DB.
+type DB struct {
+	*sql.DB
+	Meta Meta
+}
 
 // Doc represents a documentation snippet stored in the docs table.
 type Doc struct {
@@ -26,11 +58,24 @@ type Doc struct {
 }
 
 // Open opens (or creates) a local turso database at path and ensures the
-// docs schema is in place. tursogo's DSN is a bare path — the "file:"
-// prefix used by libSQL is NOT stripped and would create a file literally
-// named "file:<path>".
-func Open(path string) (*sql.DB, error) {
-	d, err := sql.Open("turso", path)
+// schema is in place. The meta argument describes the embedder the caller
+// intends to use:
+//
+//   - On a fresh database, the meta is persisted and the docs table is
+//     created with an F32_BLOB column whose width matches meta.EmbeddingDim.
+//   - On an existing database, the stored meta must equal the supplied
+//     meta — otherwise ErrEmbedderMismatch is returned, wrapped with the
+//     conflicting values so the user knows what to do (typically: rebuild
+//     the database with a fresh file).
+//
+// tursogo's DSN is a bare path — the "file:" prefix used by libSQL is NOT
+// stripped and would create a file literally named "file:<path>".
+func Open(path string, meta Meta) (*DB, error) {
+	if err := validateMeta(meta); err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+
+	raw, err := sql.Open("turso", path)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -39,29 +84,67 @@ func Open(path string) (*sql.DB, error) {
 	// potential driver-level races. Harmless for the MCP server's
 	// one-query-at-a-time workload.
 	// TODO: revisit once tursogo reaches a stable release.
-	d.SetMaxOpenConns(1)
+	raw.SetMaxOpenConns(1)
 
-	if _, err := d.Exec(`CREATE TABLE IF NOT EXISTS docs (
+	// The meta table is created unconditionally on every Open so even a
+	// freshly-created file is queryable for its embedder identity.
+	if _, err := raw.Exec(`CREATE TABLE IF NOT EXISTS meta (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`); err != nil {
+		raw.Close()
+		return nil, fmt.Errorf("create meta table: %w", err)
+	}
+
+	stored, hasMeta, err := readMeta(raw)
+	if err != nil {
+		raw.Close()
+		return nil, fmt.Errorf("read meta: %w", err)
+	}
+
+	if hasMeta {
+		if stored != meta {
+			raw.Close()
+			return nil, fmt.Errorf("%w: stored=%+v requested=%+v; use a fresh database file or rebuild with the matching embedder",
+				ErrEmbedderMismatch, stored, meta)
+		}
+	} else {
+		if err := writeMeta(raw, meta); err != nil {
+			raw.Close()
+			return nil, fmt.Errorf("write meta: %w", err)
+		}
+	}
+
+	// The docs table's vector width is determined by meta.EmbeddingDim.
+	// CREATE TABLE IF NOT EXISTS is safe across reopens because the
+	// mismatch check above has already guaranteed the dim hasn't changed
+	// since the table was first created.
+	docsSchema := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS docs (
 		id INTEGER PRIMARY KEY,
 		lib_id TEXT NOT NULL,
 		title TEXT NOT NULL,
 		content TEXT NOT NULL,
-		embedding F32_BLOB(64) NOT NULL
-	)`); err != nil {
+		embedding F32_BLOB(%d) NOT NULL
+	)`, meta.EmbeddingDim)
+	if _, err := raw.Exec(docsSchema); err != nil {
+		raw.Close()
 		return nil, fmt.Errorf("create docs table: %w", err)
 	}
-	if _, err := d.Exec(`CREATE INDEX IF NOT EXISTS idx_docs_lib_id ON docs(lib_id)`); err != nil {
+	if _, err := raw.Exec(`CREATE INDEX IF NOT EXISTS idx_docs_lib_id ON docs(lib_id)`); err != nil {
+		raw.Close()
 		return nil, fmt.Errorf("create lib_id index: %w", err)
 	}
 
-	return d, nil
+	return &DB{DB: raw, Meta: meta}, nil
 }
 
 // Insert stores a Doc along with its precomputed embedding. The embedding
-// must have exactly Dim components.
-func Insert(db *sql.DB, doc Doc, embedding []float32) error {
-	if len(embedding) != Dim {
-		return fmt.Errorf("insert doc: embedding length %d, want %d", len(embedding), Dim)
+// must have exactly db.Meta.EmbeddingDim components — the dimension travels
+// with the *DB rather than being a package-level constant so a single
+// binary can support multiple embedder kinds.
+func Insert(db *DB, doc Doc, embedding []float32) error {
+	if len(embedding) != db.Meta.EmbeddingDim {
+		return fmt.Errorf("insert doc: embedding length %d, want %d", len(embedding), db.Meta.EmbeddingDim)
 	}
 	_, err := db.Exec(
 		`INSERT INTO docs(lib_id, title, content, embedding) VALUES (?, ?, ?, vector(?))`,
@@ -75,10 +158,11 @@ func Insert(db *sql.DB, doc Doc, embedding []float32) error {
 
 // SearchByEmbedding returns the top-k Docs ranked by cosine distance to
 // queryVec (lower = more similar). If libID is non-empty, results are
-// filtered to that library. k defaults to 10 if <= 0.
-func SearchByEmbedding(db *sql.DB, queryVec []float32, libID string, k int) ([]Doc, error) {
-	if len(queryVec) != Dim {
-		return nil, fmt.Errorf("search: query vector length %d, want %d", len(queryVec), Dim)
+// filtered to that library. k defaults to 10 if <= 0. The query vector
+// must have db.Meta.EmbeddingDim components.
+func SearchByEmbedding(db *DB, queryVec []float32, libID string, k int) ([]Doc, error) {
+	if len(queryVec) != db.Meta.EmbeddingDim {
+		return nil, fmt.Errorf("search: query vector length %d, want %d", len(queryVec), db.Meta.EmbeddingDim)
 	}
 	if k <= 0 {
 		k = 10
@@ -122,6 +206,99 @@ func SearchByEmbedding(db *sql.DB, queryVec []float32, libID string, k int) ([]D
 		results = append(results, d)
 	}
 	return results, rows.Err()
+}
+
+// Meta table key names. Defined as constants to keep the read/write paths
+// in sync and to give callers a single place to look for "what does the
+// meta table actually contain".
+const (
+	metaKeyEmbedderKind = "embedder_kind"
+	metaKeyEmbeddingDim = "embedding_dim"
+	metaKeyModelVersion = "model_version"
+)
+
+func validateMeta(m Meta) error {
+	if m.EmbedderKind == "" {
+		return errors.New("meta.EmbedderKind must not be empty")
+	}
+	if m.EmbeddingDim <= 0 {
+		return fmt.Errorf("meta.EmbeddingDim must be > 0, got %d", m.EmbeddingDim)
+	}
+	if m.ModelVersion == "" {
+		return errors.New("meta.ModelVersion must not be empty")
+	}
+	return nil
+}
+
+// readMeta returns the stored Meta and a boolean indicating whether any
+// meta rows were found. A partially-populated meta table (some keys
+// present, others missing) is treated as a corrupt database and returns
+// an error rather than silently filling the gaps from the caller.
+func readMeta(raw *sql.DB) (Meta, bool, error) {
+	rows, err := raw.Query(`SELECT key, value FROM meta`)
+	if err != nil {
+		return Meta{}, false, err
+	}
+	defer rows.Close()
+
+	values := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return Meta{}, false, err
+		}
+		values[k] = v
+	}
+	if err := rows.Err(); err != nil {
+		return Meta{}, false, err
+	}
+
+	if len(values) == 0 {
+		return Meta{}, false, nil
+	}
+
+	kind, hasKind := values[metaKeyEmbedderKind]
+	dimStr, hasDim := values[metaKeyEmbeddingDim]
+	version, hasVersion := values[metaKeyModelVersion]
+	if !hasKind || !hasDim || !hasVersion {
+		return Meta{}, false, fmt.Errorf("meta table has unexpected keys %v; expected %s, %s, %s",
+			keysOf(values), metaKeyEmbedderKind, metaKeyEmbeddingDim, metaKeyModelVersion)
+	}
+
+	dim, err := strconv.Atoi(dimStr)
+	if err != nil {
+		return Meta{}, false, fmt.Errorf("parse %s=%q: %w", metaKeyEmbeddingDim, dimStr, err)
+	}
+
+	return Meta{
+		EmbedderKind: kind,
+		EmbeddingDim: dim,
+		ModelVersion: version,
+	}, true, nil
+}
+
+func writeMeta(raw *sql.DB, m Meta) error {
+	rows := []struct {
+		key, value string
+	}{
+		{metaKeyEmbedderKind, m.EmbedderKind},
+		{metaKeyEmbeddingDim, strconv.Itoa(m.EmbeddingDim)},
+		{metaKeyModelVersion, m.ModelVersion},
+	}
+	for _, r := range rows {
+		if _, err := raw.Exec(`INSERT INTO meta(key, value) VALUES (?, ?)`, r.key, r.value); err != nil {
+			return fmt.Errorf("write %s: %w", r.key, err)
+		}
+	}
+	return nil
+}
+
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // formatVector encodes a []float32 as a JSON array literal understood by

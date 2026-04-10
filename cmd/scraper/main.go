@@ -29,15 +29,26 @@ var goSDKURLs = []string{
 
 func main() {
 	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
+	embedderKind := flag.String("embedder", embed.KindStub, "embedder to use (valid: stub)")
 	flag.Parse()
 
-	d, err := db.Open(*dbPath)
+	e, err := embed.New(*embedderKind)
+	if err != nil {
+		log.Fatalf("embedder: %v", err)
+	}
+
+	// db.Open enforces meta consistency: if the database already exists
+	// and was indexed with a different embedder, it returns
+	// db.ErrEmbedderMismatch and we abort without touching the data.
+	d, err := db.Open(*dbPath, db.Meta{
+		EmbedderKind: e.Kind(),
+		EmbeddingDim: e.Dim(),
+		ModelVersion: e.ModelVersion(),
+	})
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
 	defer d.Close()
-
-	e := embed.NewStub()
 
 	src := scraper.Source{
 		LibID: goSDKLibID,
@@ -58,5 +69,5 @@ func main() {
 		}
 	}
 
-	log.Printf("indexed %d docs (dim=%d) for %s into %s", len(docs), embed.Dim, src.LibID, *dbPath)
+	log.Printf("indexed %d docs (embedder=%s dim=%d) for %s into %s", len(docs), e.Kind(), e.Dim(), src.LibID, *dbPath)
 }
