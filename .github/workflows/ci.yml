@@ -10,8 +10,8 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -20,8 +20,8 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - run: go build ./...
@@ -30,8 +30,8 @@ jobs:
     name: licenses
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       # google/go-licenses scans the dep tree and verifies that no
@@ -58,15 +58,15 @@ jobs:
       # helpers in internal/embed/embed_test.go honor this env var.
       DEADZONE_HUGOT_CACHE: ${{ github.workspace }}/.deadzone-cache/models
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       # Cache the ~90 MB MiniLM ONNX weights across runs. Keyed on
       # internal/embed/hugot.go so bumping DefaultHugotModel naturally
       # invalidates the cache.
       - name: Cache embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.DEADZONE_HUGOT_CACHE }}
           key: hugot-model-${{ runner.os }}-${{ hashFiles('internal/embed/hugot.go') }}
