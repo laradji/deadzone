@@ -29,12 +29,19 @@ var goSDKURLs = []string{
 
 func main() {
 	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
-	embedderKind := flag.String("embedder", embed.KindStub, "embedder to use (valid: stub)")
+	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	flag.Parse()
 
 	e, err := embed.New(*embedderKind)
 	if err != nil {
 		log.Fatalf("embedder: %v", err)
+	}
+	if c, ok := e.(interface{ Close() error }); ok {
+		defer func() {
+			if err := c.Close(); err != nil {
+				log.Printf("embedder close: %v", err)
+			}
+		}()
 	}
 
 	// db.Open enforces meta consistency: if the database already exists

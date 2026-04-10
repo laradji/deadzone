@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,37 @@ import (
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 )
+
+// testEmbedder is the package-level Hugot shared by every test in this
+// package. Built once in TestMain so the model download + GoMLX session
+// warm-up cost is amortized over the whole test run.
+var testEmbedder *embed.Hugot
+
+func TestMain(m *testing.M) {
+	e, err := embed.NewHugot(embed.DefaultHugotModel, hugotTestCacheDir())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: NewHugot: %v\n", err)
+		os.Exit(1)
+	}
+	testEmbedder = e
+	code := m.Run()
+	_ = e.Close()
+	os.Exit(code)
+}
+
+// hugotTestCacheDir picks a cache directory for tests. Honors
+// DEADZONE_HUGOT_CACHE so CI can pin the cache to a workspace-local path,
+// otherwise uses the system default so the model is reused across runs.
+func hugotTestCacheDir() string {
+	if dir := os.Getenv("DEADZONE_HUGOT_CACHE"); dir != "" {
+		return dir
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ".deadzone-cache/models"
+	}
+	return cache + "/deadzone/models"
+}
 
 // embedText is a small convenience that mirrors what the scraper and server
 // do in real life: embed "Title\nContent" into a single vector.
@@ -27,10 +59,10 @@ func metaFor(e embed.Embedder) db.Meta {
 	}
 }
 
-func openStub(t *testing.T) *db.DB {
+func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(path, metaFor(embed.NewStub()))
+	d, err := db.Open(path, metaFor(testEmbedder))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -39,20 +71,18 @@ func openStub(t *testing.T) *db.DB {
 }
 
 func TestOpen_CreatesDocsTable(t *testing.T) {
-	d := openStub(t)
+	d := openTestDB(t)
 
 	// Verify the table exists by inserting through the real Insert path.
-	e := embed.NewStub()
 	doc := db.Doc{LibID: "testlib", Title: "Hello World", Content: "some content"}
-	if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+	if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 }
 
 func TestInsert(t *testing.T) {
-	d := openStub(t)
+	d := openTestDB(t)
 
-	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
 		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
@@ -60,7 +90,7 @@ func TestInsert(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert %q: %v", doc.Title, err)
 		}
 	}
@@ -75,7 +105,7 @@ func TestInsert(t *testing.T) {
 }
 
 func TestInsert_RejectsWrongDim(t *testing.T) {
-	d := openStub(t)
+	d := openTestDB(t)
 
 	err := db.Insert(d, db.Doc{LibID: "x", Title: "t", Content: "c"}, []float32{0.1, 0.2})
 	if err == nil {
@@ -84,21 +114,20 @@ func TestInsert_RejectsWrongDim(t *testing.T) {
 }
 
 func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
-	d := openStub(t)
+	d := openTestDB(t)
 
-	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
 		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
 		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.SearchByEmbedding(d, e.Embed("create a server"), "", 10)
+	results, err := db.SearchByEmbedding(d, testEmbedder.Embed("create a server"), "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -114,20 +143,19 @@ func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
 }
 
 func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
-	d := openStub(t)
+	d := openTestDB(t)
 
-	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server"},
 		{LibID: "libsql", Title: "SQL server", Content: "Connect to a database server"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.SearchByEmbedding(d, e.Embed("server"), "go-sdk", 10)
+	results, err := db.SearchByEmbedding(d, testEmbedder.Embed("server"), "go-sdk", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -143,24 +171,23 @@ func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
 
 // TestSearchByEmbedding_Acceptance is the unit-test version of the issue's
 // acceptance criterion: "register a tool" finds the mcp.AddTool snippet via
-// semantic overlap (camelCase split + token bag), even though the query
-// uses natural language and the target snippet uses an identifier.
+// real semantic similarity, even though the query uses natural language and
+// the target snippet uses an identifier.
 func TestSearchByEmbedding_Acceptance(t *testing.T) {
-	d := openStub(t)
+	d := openTestDB(t)
 
-	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
 		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
 		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.SearchByEmbedding(d, e.Embed("register a tool"), "", 10)
+	results, err := db.SearchByEmbedding(d, testEmbedder.Embed("register a tool"), "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -182,15 +209,14 @@ func TestSearchByEmbedding_Acceptance(t *testing.T) {
 func TestDB_RejectsEmbedderMismatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 
-	stub := embed.NewStub()
-	d, err := db.Open(path, metaFor(stub))
+	d, err := db.Open(path, metaFor(testEmbedder))
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
 	// Indexing one doc to confirm we are exercising a real, populated DB
 	// and not a degenerate empty file.
 	doc := db.Doc{LibID: "x", Title: "t", Content: "c"}
-	if err := db.Insert(d, doc, embedText(stub, doc)); err != nil {
+	if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 	if err := d.Close(); err != nil {
@@ -203,15 +229,15 @@ func TestDB_RejectsEmbedderMismatch(t *testing.T) {
 	}{
 		{
 			name: "different kind",
-			meta: db.Meta{EmbedderKind: "fake", EmbeddingDim: stub.Dim(), ModelVersion: stub.ModelVersion()},
+			meta: db.Meta{EmbedderKind: "fake", EmbeddingDim: testEmbedder.Dim(), ModelVersion: testEmbedder.ModelVersion()},
 		},
 		{
 			name: "different dim",
-			meta: db.Meta{EmbedderKind: stub.Kind(), EmbeddingDim: stub.Dim() + 1, ModelVersion: stub.ModelVersion()},
+			meta: db.Meta{EmbedderKind: testEmbedder.Kind(), EmbeddingDim: testEmbedder.Dim() + 1, ModelVersion: testEmbedder.ModelVersion()},
 		},
 		{
 			name: "different model version",
-			meta: db.Meta{EmbedderKind: stub.Kind(), EmbeddingDim: stub.Dim(), ModelVersion: "stub-v2"},
+			meta: db.Meta{EmbedderKind: testEmbedder.Kind(), EmbeddingDim: testEmbedder.Dim(), ModelVersion: "made-up-model-v9"},
 		},
 	}
 	for _, tc := range cases {
@@ -233,8 +259,7 @@ func TestDB_RejectsEmbedderMismatch(t *testing.T) {
 // via the wrapper struct without the caller having to re-read the table.
 func TestDB_RoundtripsMeta(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
-	stub := embed.NewStub()
-	want := metaFor(stub)
+	want := metaFor(testEmbedder)
 
 	d, err := db.Open(path, want)
 	if err != nil {
@@ -244,7 +269,7 @@ func TestDB_RoundtripsMeta(t *testing.T) {
 		t.Errorf("first open Meta = %+v, want %+v", d.Meta, want)
 	}
 	doc := db.Doc{LibID: "lib", Title: "Title", Content: "Content"}
-	if err := db.Insert(d, doc, embedText(stub, doc)); err != nil {
+	if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 	if err := d.Close(); err != nil {
@@ -259,8 +284,4 @@ func TestDB_RoundtripsMeta(t *testing.T) {
 	if reopened.Meta != want {
 		t.Errorf("reopened Meta = %+v, want %+v", reopened.Meta, want)
 	}
-}
-
-func TestMain(m *testing.M) {
-	os.Exit(m.Run())
 }
