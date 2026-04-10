@@ -7,5 +7,10 @@
 .DS_Store
 .mcp.json
 CLAUDE.md
-.claude/
+# Ignore everything under .claude/ except the committed shared baseline.
+# `settings.json` is the shared (project-wide) Claude Code config; see
+# docs/agent-dx.md. `settings.local.json` and any other per-developer
+# files (hooks, sessions, ...) stay ignored.
+.claude/*
+!.claude/settings.json
 .emdash.json

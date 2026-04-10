@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(mise:*)",
+      "Bash(just:*)",
+      "Bash(go:*)",
+      "Bash(podman:*)",
+      "Bash(ls)",
+      "Bash(ls:*)",
+      "Bash(pwd)",
+      "Bash(which:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:pkg.go.dev)",
+      "WebFetch(domain:go.dev)",
+      "WebFetch(domain:modelcontextprotocol.io)",
+      "WebFetch(domain:turso.tech)",
+      "WebFetch(domain:docs.turso.tech)"
+    ]
+  }
+}
