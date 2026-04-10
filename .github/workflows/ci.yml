@@ -26,6 +26,29 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
 
+  licenses:
+    name: licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # google/go-licenses scans the dep tree and verifies that no
+      # transitive dependency carries a license type the project rejects.
+      # We disallow `forbidden` (GPL/AGPL/proprietary) and `restricted`
+      # (LGPL — incompatible with Go's static linking model). Permissive
+      # licenses (Apache 2.0 / MIT / BSD-2 / BSD-3) all pass.
+      #
+      # Adding a copyleft dep accidentally — directly or transitively
+      # via an upstream bump — fails this job and blocks the merge,
+      # which is the whole point. The audit recorded in #31's closing
+      # comment is the baseline this job protects.
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@latest
+      - name: Check transitive license types
+        run: go-licenses check ./cmd/server ./cmd/scraper --disallowed_types=forbidden,restricted
+
   test:
     name: test
     runs-on: ubuntu-latest
