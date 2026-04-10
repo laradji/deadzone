@@ -4,9 +4,9 @@ A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic s
 
 > **Status:** early MVP. Vector search is wired end-to-end on a CGO-free
 > [tursogo](https://github.com/tursodatabase/turso/tree/main/bindings/go)
-> driver, currently backed by a **deterministic stub embedder** (hash-based
-> bag-of-tokens) until a real model lands — see
-> [#2](https://github.com/laradji/deadzone/issues/2). Full
+> driver and a CGO-free [hugot](https://github.com/knights-analytics/hugot)
+> embedder running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+> on the pure-Go GoMLX backend. Full
 > [roadmap](https://github.com/laradji/deadzone/issues).
 
 Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
@@ -41,9 +41,9 @@ Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and
 | | |
 |---|---|
 | Language | Go 1.26.2 (pinned via [`mise`](https://mise.jdx.dev)) |
-| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(64)` + `vector_distance_cos`) |
+| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(N)` + `vector_distance_cos`, dim discovered from the embedder at first open) |
 | Driver | [`turso.tech/database/tursogo`](https://pkg.go.dev/turso.tech/database/tursogo) — **CGO-free**, via [`purego`](https://github.com/ebitengine/purego) |
-| Embeddings | Deterministic stub (hash-based bag-of-tokens with camelCase splitting). Real model tracked in [#2](https://github.com/laradji/deadzone/issues/2) |
+| Embeddings | [`hugot`](https://github.com/knights-analytics/hugot) running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (384-dim) on the pure-Go GoMLX backend — **CGO-free**, no Python |
 | Protocol | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
 
 ## Quick start
@@ -66,6 +66,14 @@ just serve             # = mise exec -- go run ./cmd/server -db deadzone.db
 ```
 
 Run `just` (no args) to list every recipe. Override the DB path with positional args: `just scrape foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
+
+> **First-run model download.** The first `just scrape` or `just serve` invocation downloads the MiniLM-L6-v2 ONNX weights (~90 MB) into the platform user-cache directory under `deadzone/models/`:
+>
+> - Linux: `$XDG_CACHE_HOME/deadzone/models` (or `~/.cache/deadzone/models`)
+> - macOS: `~/Library/Caches/deadzone/models`
+> - Windows: `%LOCALAPPDATA%\deadzone\models`
+>
+> Subsequent runs reuse the on-disk model. Set `DEADZONE_HUGOT_CACHE` to override the location (used by tests and CI to share a workspace-local cache).
 
 ### Wire it into an MCP client
 
@@ -94,7 +102,7 @@ deadzone/
 │   └── scraper/   # CLI: fetch, embed & index a library's docs
 ├── internal/
 │   ├── db/        # Turso schema and vector queries (F32_BLOB + vector_distance_cos)
-│   ├── embed/     # Embedder interface + deterministic stub implementation
+│   ├── embed/     # Embedder interface + hugot/MiniLM implementation
 │   └── scraper/   # Markdown fetcher + parser (H2-split, fence-aware)
 └── docs/
     └── research/  # Design notes (Context7 analysis, tursogo migration, etc.)
