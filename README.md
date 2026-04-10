@@ -114,6 +114,14 @@ LLM clients send natural-language queries — `"how to register a tool"` should 
 
 More background in [`docs/research/context7-analysis.md`](docs/research/context7-analysis.md).
 
+## Debugging
+
+Both binaries emit structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `cmd/server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `cmd/scraper` follows the same convention for consistency.
+
+- **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`), `scraper.indexed` summaries, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error.
+- **Server.** `cmd/server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`.
+- **Verbose mode.** Both binaries take `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
+
 ## Roadmap
 
 Tracked on the [GitHub issues board](https://github.com/laradji/deadzone/issues). Open issues are scoped via the `mvp`, `feature`, `research`, and `post-mvp` labels.
