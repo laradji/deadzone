@@ -65,7 +65,7 @@ func TestHandleSearchDocs_ReturnsSnippets(t *testing.T) {
 		}
 	}
 
-	handler := makeSearchHandler(d, testEmbedder)
+	handler := makeSearchHandler(d, testEmbedder, false)
 
 	t.Run("returns relevant snippets for semantic query", func(t *testing.T) {
 		_, out, err := handler(context.Background(), &mcp.CallToolRequest{}, SearchDocsInput{

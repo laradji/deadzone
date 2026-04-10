@@ -3,12 +3,18 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"fmt"
+	"log/slog"
+	"os"
+	"time"
 
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
+	"github.com/laradji/deadzone/internal/logs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+const serverVersion = "v0.1.0"
 
 // Library IDs follow the format /org/project (e.g. /hashicorp/terraform)
 type SearchDocsInput struct {
@@ -35,11 +41,14 @@ const (
 	searchK       = 10
 )
 
-func makeSearchHandler(d *db.DB, e embed.Embedder) func(context.Context, *mcp.CallToolRequest, SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
+func makeSearchHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Context, *mcp.CallToolRequest, SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
+		start := time.Now()
+
 		queryVec := e.Embed(input.Query)
 		docs, err := db.SearchByEmbedding(d, queryVec, input.LibID, searchK)
 		if err != nil {
+			slog.Error("search_docs failed", searchAttrs(input, verbose, "err", err.Error())...)
 			return nil, SearchDocsOutput{}, err
 		}
 
@@ -71,26 +80,59 @@ func makeSearchHandler(d *db.DB, e embed.Embedder) func(context.Context, *mcp.Ca
 			snippets = []Snippet{}
 		}
 
+		slog.Info("search_docs", searchAttrs(input, verbose,
+			"tokens", tokens,
+			"results", len(snippets),
+			"latency_ms", time.Since(start).Milliseconds(),
+		)...)
+
 		return nil, SearchDocsOutput{Snippets: snippets}, nil
 	}
 }
 
+// searchAttrs builds the slog key/value list shared between the success
+// and error log lines for search_docs. The verbose flag adds the raw
+// query text — gated because queries may contain user data routed
+// through the LLM and we don't want it in default logs.
+func searchAttrs(input SearchDocsInput, verbose bool, extra ...any) []any {
+	attrs := make([]any, 0, 4+len(extra))
+	attrs = append(attrs, "lib_id", input.LibID)
+	attrs = append(attrs, extra...)
+	if verbose {
+		attrs = append(attrs, "query", input.Query)
+	}
+	return attrs
+}
+
 func main() {
+	if err := run(); err != nil {
+		slog.Error("server fatal", "err", err.Error())
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
 	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
+	verbose := flag.Bool("verbose", false, "include the raw query text in per-call logs")
 	flag.Parse()
+
+	// Wire slog before any other work so subsequent error paths emit
+	// structured JSON to stderr — never stdout, which is the MCP
+	// JSON-RPC channel.
+	slog.SetDefault(logs.New(os.Stderr, *verbose))
 
 	// db.Open validates the embedder's reported meta against whatever
 	// the database was created with; a mismatch fails fast and tells
 	// the user to rebuild against a fresh file.
 	e, err := embed.New(*embedderKind)
 	if err != nil {
-		log.Fatalf("embedder: %v", err)
+		return fmt.Errorf("embedder: %w", err)
 	}
 	if c, ok := e.(interface{ Close() error }); ok {
 		defer func() {
 			if err := c.Close(); err != nil {
-				log.Printf("embedder close: %v", err)
+				slog.Warn("embedder close", "err", err.Error())
 			}
 		}()
 	}
@@ -101,17 +143,36 @@ func main() {
 		ModelVersion: e.ModelVersion(),
 	})
 	if err != nil {
-		log.Fatalf("open db: %v", err)
+		return fmt.Errorf("open db: %w", err)
 	}
 	defer d.Close()
 
-	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: "v0.1.0"}, nil)
+	// Read the doc count once at startup so operators see corpus size
+	// in the banner without having to run a separate query. Cheap on
+	// the corpora deadzone targets (a few hundred to a few thousand
+	// rows); revisit if this ever becomes hot.
+	var docCount int
+	if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&docCount); err != nil {
+		return fmt.Errorf("count docs: %w", err)
+	}
+
+	slog.Info("server.start",
+		"version", serverVersion,
+		"db_path", *dbPath,
+		"embedder_kind", e.Kind(),
+		"embedding_dim", e.Dim(),
+		"model_version", e.ModelVersion(),
+		"doc_count", docCount,
+	)
+
+	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: serverVersion}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_docs",
 		Description: "Search documentation snippets for a library. Use lib_id in /org/project format to filter by library.",
-	}, makeSearchHandler(d, e))
+	}, makeSearchHandler(d, e, *verbose))
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("mcp run: %w", err)
 	}
+	return nil
 }

@@ -96,7 +96,7 @@ func TestSemanticAcceptance(t *testing.T) {
 		}
 	}
 
-	handler := makeSearchHandler(d, testEmbedder)
+	handler := makeSearchHandler(d, testEmbedder, false)
 
 	for _, query := range semanticAcceptanceQueries {
 		t.Run(query, func(t *testing.T) {

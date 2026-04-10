@@ -116,38 +116,62 @@ func ParseMarkdown(libID, sourceName, content string) []db.Doc {
 	return docs
 }
 
-// Fetch downloads each URL in src and returns the parsed Docs.
-// The provided http.Client is used so callers can inject test servers.
-func Fetch(ctx context.Context, client *http.Client, src Source) ([]db.Doc, error) {
-	var out []db.Doc
+// FetchOneResult bundles what FetchOne produces for a single URL: the
+// parsed docs plus the raw byte count of the response body. Bytes is
+// exposed so callers can log fetch volume per URL without holding on
+// to (or re-reading) the body.
+type FetchOneResult struct {
+	Docs  []db.Doc
+	Bytes int
+}
 
-	for _, u := range src.URLs {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, fmt.Errorf("build request %s: %w", u, err)
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("fetch %s: %w", u, err)
-		}
-
-		body, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("read body %s: %w", u, readErr)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("fetch %s: HTTP %d", u, resp.StatusCode)
-		}
-
-		// Derive source name from URL filename without extension.
-		sourceName := strings.TrimSuffix(path.Base(u), ".md")
-
-		docs := ParseMarkdown(src.LibID, sourceName, string(body))
-		out = append(out, docs...)
+// FetchOne downloads a single markdown URL with the given http.Client
+// and parses it into docs. Errors are wrapped with the URL so callers
+// can include them verbatim in structured logs.
+//
+// FetchOne is the per-URL primitive used by Fetch and by cmd/scraper,
+// which drives its own URL loop so it can emit per-URL log events
+// (scraper.fetch / scraper.fetch_failed) and time embedding/insertion
+// alongside the fetch.
+func FetchOne(ctx context.Context, client *http.Client, libID, url string) (FetchOneResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return FetchOneResult{}, fmt.Errorf("build request %s: %w", url, err)
 	}
 
+	resp, err := client.Do(req)
+	if err != nil {
+		return FetchOneResult{}, fmt.Errorf("fetch %s: %w", url, err)
+	}
+
+	body, readErr := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if readErr != nil {
+		return FetchOneResult{}, fmt.Errorf("read body %s: %w", url, readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return FetchOneResult{}, fmt.Errorf("fetch %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	// Derive source name from URL filename without extension.
+	sourceName := strings.TrimSuffix(path.Base(url), ".md")
+
+	docs := ParseMarkdown(libID, sourceName, string(body))
+	return FetchOneResult{Docs: docs, Bytes: len(body)}, nil
+}
+
+// Fetch downloads each URL in src and returns the concatenated Docs.
+// Implemented as a thin loop over FetchOne so callers that just want
+// "give me everything" don't have to deal with per-URL bookkeeping.
+func Fetch(ctx context.Context, client *http.Client, src Source) ([]db.Doc, error) {
+	var out []db.Doc
+	for _, u := range src.URLs {
+		res, err := FetchOne(ctx, client, src.LibID, u)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, res.Docs...)
+	}
 	return out, nil
 }
