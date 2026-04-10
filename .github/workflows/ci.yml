@@ -29,9 +29,40 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
+    env:
+      # Pin the hugot model cache to a workspace-local path so the
+      # actions/cache step below can persist it across runs. The test
+      # helpers in internal/embed/embed_test.go honor this env var.
+      DEADZONE_HUGOT_CACHE: ${{ github.workspace }}/.deadzone-cache/models
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./... -race
+      # Cache the ~90 MB MiniLM ONNX weights across runs. Keyed on
+      # internal/embed/hugot.go so bumping DefaultHugotModel naturally
+      # invalidates the cache.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DEADZONE_HUGOT_CACHE }}
+          key: hugot-model-${{ runner.os }}-${{ hashFiles('internal/embed/hugot.go') }}
+          restore-keys: |
+            hugot-model-${{ runner.os }}-
+      # Pre-download the embedding model without -race. The upstream
+      # gomlx/go-huggingface concurrent-download path has a data race
+      # (hub/files.go:250) that trips the race detector on a cold cache.
+      # Once the model is on disk, NewHugot loads it without spawning
+      # download goroutines, so the -race pass below never hits it.
+      # `-run '^$'` matches no test functions, so this only invokes
+      # TestMain → NewHugot → DownloadModel. On a warm cache this is
+      # a ~1s no-op.
+      - name: Pre-download embedding model
+        run: go test ./internal/embed/... -run '^$' -count=1
+      # -short skips TestEmbedLatencyBudget and TestSemanticAcceptance,
+      # both of which gate themselves on testing.Short() with comments
+      # saying "Skipped under -short so CI can opt out". Their cold/warm
+      # latency budgets (500ms / 100ms) target dev hardware and don't
+      # hold on shared GitHub runners.
+      - name: Run tests
+        run: go test ./... -race -short
