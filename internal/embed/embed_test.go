@@ -19,10 +19,12 @@ import (
 var testEmbedder *embed.Hugot
 
 func TestMain(m *testing.M) {
-	// Use the production cache dir so the model is reused across runs
-	// (and across packages) instead of being re-downloaded into a fresh
-	// temp dir on every `go test` invocation.
-	e, err := embed.NewHugot(embed.DefaultHugotModel, hugotTestCacheDir())
+	// Use the production cache dir resolver so the model is reused
+	// across runs (and across packages, and across the production
+	// embed.New() path used by TestNew below) instead of being
+	// re-downloaded into a fresh temp dir on every `go test` invocation.
+	// embed.DefaultCacheDir honors DEADZONE_HUGOT_CACHE for CI.
+	e, err := embed.NewHugot(embed.DefaultHugotModel, embed.DefaultCacheDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TestMain: NewHugot: %v\n", err)
 		os.Exit(1)
@@ -31,21 +33,6 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = e.Close()
 	os.Exit(code)
-}
-
-// hugotTestCacheDir picks a cache directory for tests. Honors
-// DEADZONE_HUGOT_CACHE so CI can pin the cache to a workspace-local path
-// that gets restored from a Github Actions cache, falling back to the
-// system default otherwise.
-func hugotTestCacheDir() string {
-	if dir := os.Getenv("DEADZONE_HUGOT_CACHE"); dir != "" {
-		return dir
-	}
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		return ".deadzone-cache/models"
-	}
-	return cache + "/deadzone/models"
 }
 
 // cosineDistance mirrors what vector_distance_cos computes on the DB side:

@@ -166,16 +166,28 @@ func fallbackVector(dim int) []float32 {
 	return v
 }
 
-// defaultCacheDir returns the platform-appropriate location for the
-// deadzone model cache. Uses os.UserCacheDir, which gives:
+// DefaultCacheDir returns the cache directory used by NewHugot when the
+// caller passes an empty cacheDir, and by embed.New for the same purpose.
 //
-//   - Linux:   $XDG_CACHE_HOME/deadzone/models  (or ~/.cache/deadzone/models)
-//   - macOS:   ~/Library/Caches/deadzone/models
-//   - Windows: %LOCALAPPDATA%\deadzone\models
+// Resolution order:
 //
-// Falls back to ./.deadzone-cache/models if UserCacheDir fails so the
-// constructor can still proceed in unusual environments.
-func defaultCacheDir() string {
+//  1. $DEADZONE_HUGOT_CACHE if set (used by CI to pin the cache to a
+//     workspace-local path that persists across runs, and by users who
+//     want to share the model cache across processes or place it on a
+//     specific disk).
+//  2. os.UserCacheDir() + /deadzone/models — the platform default:
+//     - Linux:   $XDG_CACHE_HOME/deadzone/models  (or ~/.cache/deadzone/models)
+//     - macOS:   ~/Library/Caches/deadzone/models
+//     - Windows: %LOCALAPPDATA%\deadzone\models
+//  3. ./.deadzone-cache/models as a last-resort fallback when
+//     UserCacheDir fails so the constructor can still proceed.
+//
+// Exported (capitalized) so tests in this and other packages can call
+// the same resolution logic instead of duplicating the env-var check.
+func DefaultCacheDir() string {
+	if dir := os.Getenv("DEADZONE_HUGOT_CACHE"); dir != "" {
+		return dir
+	}
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return filepath.Join(".deadzone-cache", "models")

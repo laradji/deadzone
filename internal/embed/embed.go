@@ -48,7 +48,7 @@ type Embedder interface {
 func New(kind string) (Embedder, error) {
 	switch kind {
 	case KindHugot:
-		return NewHugot(DefaultHugotModel, defaultCacheDir())
+		return NewHugot(DefaultHugotModel, DefaultCacheDir())
 	default:
 		return nil, fmt.Errorf("unknown embedder kind %q (valid: %s)", kind, KindHugot)
 	}
