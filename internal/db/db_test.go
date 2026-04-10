@@ -6,7 +6,14 @@ import (
 	"testing"
 
 	"github.com/laradji/deadzone/internal/db"
+	"github.com/laradji/deadzone/internal/embed"
 )
+
+// embedText is a small convenience that mirrors what the scraper and server
+// do in real life: embed "Title\nContent" into a single vector.
+func embedText(e embed.Embedder, d db.Doc) []float32 {
+	return e.Embed(d.Title + "\n" + d.Content)
+}
 
 func TestOpen_CreatesDocsTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
@@ -16,11 +23,11 @@ func TestOpen_CreatesDocsTable(t *testing.T) {
 	}
 	defer d.Close()
 
-	// Verify FTS5 table exists by inserting a row
-	_, err = d.Exec(`INSERT INTO docs(lib_id, title, content) VALUES (?, ?, ?)`,
-		"testlib", "Hello World", "some content")
-	if err != nil {
-		t.Fatalf("INSERT into docs: %v", err)
+	// Verify the table exists by inserting through the real Insert path.
+	e := embed.NewStub()
+	doc := db.Doc{LibID: "testlib", Title: "Hello World", Content: "some content"}
+	if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+		t.Fatalf("Insert: %v", err)
 	}
 }
 
@@ -32,6 +39,7 @@ func TestInsert(t *testing.T) {
 	}
 	defer d.Close()
 
+	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
 		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
@@ -39,12 +47,11 @@ func TestInsert(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		if err := db.Insert(d, doc); err != nil {
+		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
 			t.Fatalf("Insert %q: %v", doc.Title, err)
 		}
 	}
 
-	// Verify row count
 	var count int
 	if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
@@ -54,7 +61,7 @@ func TestInsert(t *testing.T) {
 	}
 }
 
-func TestSearch_ReturnsRelevantSnippets(t *testing.T) {
+func TestInsert_RejectsWrongDim(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	d, err := db.Open(path)
 	if err != nil {
@@ -62,32 +69,48 @@ func TestSearch_ReturnsRelevantSnippets(t *testing.T) {
 	}
 	defer d.Close()
 
+	err = db.Insert(d, db.Doc{LibID: "x", Title: "t", Content: "c"}, []float32{0.1, 0.2})
+	if err == nil {
+		t.Fatal("expected error for wrong-dimension embedding, got nil")
+	}
+}
+
+func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	d, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+
+	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
 		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
 		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc); err != nil {
+		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.Search(d, "server", "")
+	results, err := db.SearchByEmbedding(d, e.Embed("create a server"), "", 10)
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("SearchByEmbedding: %v", err)
 	}
 	if len(results) == 0 {
-		t.Fatal("expected at least one result for query 'server', got none")
+		t.Fatal("expected at least one result, got none")
 	}
-
-	// All results should mention "server" in title or content
-	for _, r := range results {
-		t.Logf("result: lib_id=%s title=%q", r.LibID, r.Title)
+	if results[0].Title != "Server setup" {
+		t.Errorf("expected 'Server setup' ranked first, got %q", results[0].Title)
+		for i, r := range results {
+			t.Logf("  #%d: [%s] %s", i+1, r.LibID, r.Title)
+		}
 	}
 }
 
-func TestSearch_FiltersByLib(t *testing.T) {
+func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	d, err := db.Open(path)
 	if err != nil {
@@ -95,19 +118,23 @@ func TestSearch_FiltersByLib(t *testing.T) {
 	}
 	defer d.Close()
 
+	e := embed.NewStub()
 	docs := []db.Doc{
 		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server"},
 		{LibID: "libsql", Title: "SQL server", Content: "Connect to a database server"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc); err != nil {
+		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.Search(d, "server", "go-sdk")
+	results, err := db.SearchByEmbedding(d, e.Embed("server"), "go-sdk", 10)
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("SearchByEmbedding: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least one result, got none")
 	}
 	for _, r := range results {
 		if r.LibID != "go-sdk" {
@@ -116,7 +143,11 @@ func TestSearch_FiltersByLib(t *testing.T) {
 	}
 }
 
-func TestSearch_UnicodeContent(t *testing.T) {
+// TestSearchByEmbedding_Acceptance is the unit-test version of the issue's
+// acceptance criterion: "register a tool" finds the mcp.AddTool snippet via
+// semantic overlap (camelCase split + token bag), even though the query
+// uses natural language and the target snippet uses an identifier.
+func TestSearchByEmbedding_Acceptance(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	d, err := db.Open(path)
 	if err != nil {
@@ -124,18 +155,30 @@ func TestSearch_UnicodeContent(t *testing.T) {
 	}
 	defer d.Close()
 
-	if err := db.Insert(d, db.Doc{
-		LibID: "testlib", Title: "Unicode doc", Content: "Créer un serveur MCP avec Go",
-	}); err != nil {
-		t.Fatalf("Insert: %v", err)
+	e := embed.NewStub()
+	docs := []db.Doc{
+		{LibID: "go-sdk", Title: "Server setup", Content: "Create a new MCP server with mcp.NewServer"},
+		{LibID: "go-sdk", Title: "Tool registration", Content: "Register tools using mcp.AddTool"},
+		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
+	}
+	for _, doc := range docs {
+		if err := db.Insert(d, doc, embedText(e, doc)); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
 	}
 
-	results, err := db.Search(d, "serveur", "")
+	results, err := db.SearchByEmbedding(d, e.Embed("register a tool"), "", 10)
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("SearchByEmbedding: %v", err)
 	}
 	if len(results) == 0 {
-		t.Fatal("expected result for unicode query 'serveur', got none")
+		t.Fatal("expected at least one result, got none")
+	}
+	if results[0].Title != "Tool registration" {
+		t.Errorf("expected 'Tool registration' ranked first, got %q", results[0].Title)
+		for i, r := range results {
+			t.Logf("  #%d: [%s] %s", i+1, r.LibID, r.Title)
+		}
 	}
 }
 
