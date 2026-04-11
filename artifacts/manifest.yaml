@@ -1,0 +1,15 @@
+# Deadzone pack manifest — see #30 and the README "Quick start".
+#
+# This file is the source of truth for which version of each per-lib
+# artifact is currently canonical. Edits MUST come from
+# `deadzone-packs upload` — never hand-edit a sha256.
+#
+# Schema:
+#   release_tag  rolling GitHub Release tag that holds every asset
+#   repo         optional default `owner/name` for downloads (the
+#                -repo CLI flag overrides this when explicitly set)
+#   packs        list of per-lib artifacts; one entry per lib_id
+
+release_tag: packs
+repo: laradji/deadzone
+packs: []
