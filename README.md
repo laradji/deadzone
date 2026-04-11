@@ -23,7 +23,7 @@ Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/c
 
 ## What it does
 
-Deadzone exposes one MCP tool to clients (Claude Code, Cursor, etc.):
+Deadzone exposes two MCP tools to clients (Claude Code, Cursor, etc.):
 
 ```
 search_docs(query, lib_id?, topic?, tokens?) → []Snippet
@@ -33,6 +33,16 @@ search_docs(query, lib_id?, topic?, tokens?) → []Snippet
 - `lib_id` — optional `/org/project` filter (e.g. `/modelcontextprotocol/go-sdk`)
 - `topic` — optional section filter (not yet implemented)
 - `tokens` — response budget, default 5000, min 1000 (`~4 chars/token`)
+
+```
+search_libraries(name, limit?) → []LibraryHit
+```
+
+- `name` — free-text library name to resolve (e.g. `"terraform aws"`); empty returns the most-indexed libraries by `doc_count`
+- `limit` — max results, default 10, max 50
+- Each `LibraryHit` carries `lib_id`, `doc_count`, and a `match_score` in `[0, 1]` (1.0 = closest cosine match) so the LLM can pick a single canonical id or surface multiple candidates to the user.
+
+`search_libraries` is the resolver step: a free-text query like `"react"` is matched against a dedicated `libs` vector table and returns ranked canonical `lib_id` values. Pass one of those into `search_docs` to get the actual snippets.
 
 Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and stored in a local Turso database file.
 
@@ -141,7 +151,7 @@ Add to your client's MCP config (Claude Code, Cursor, etc.):
 }
 ```
 
-Then call the `search_docs` tool from the client.
+Then call the `search_docs` or `search_libraries` tool from the client.
 
 ## Layout
 

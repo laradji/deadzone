@@ -123,6 +123,18 @@ func scrapeLib(
 		"url_count", len(src.URLs),
 	)
 
+	// Make sure the libs catalog row exists before we start indexing
+	// docs. UpsertLibIfNew is idempotent and skips the embed call when
+	// the row is already present, so the cost on a re-run is just one
+	// count(*); the actual doc_count is filled in at the end of this
+	// function once we know the real number. Each ResolvedSource has
+	// its own canonical lib_id (versioned libs already get distinct
+	// /org/project/version values from cfg.Resolve), so a single
+	// upsert per source is the correct grain.
+	if err := db.UpsertLibIfNew(d, src.LibID, e); err != nil {
+		return 0, fmt.Errorf("upsert lib %q: %w", src.LibID, err)
+	}
+
 	libStart := time.Now()
 	var docsTotal int
 
@@ -206,6 +218,22 @@ func scrapeLib(
 		)
 
 		docsTotal += docsInserted
+	}
+
+	// Update the libs catalog with the actual indexed doc count so
+	// search_libraries can rank by "how well-indexed is this lib". The
+	// scraper currently appends to docs without dedupe (see #28 for
+	// the per-lib artifact story), so docsTotal here is the new-rows
+	// count for this run, not the absolute table row count for the
+	// lib; callers re-running the scraper on a non-fresh DB are
+	// expected to drop & re-scrape per issue #44's migration story.
+	if err := db.UpdateLibCount(d, src.LibID, docsTotal); err != nil {
+		slog.Error("scraper.update_lib_count_failed",
+			"lib_id", src.LibID,
+			"docs_total", docsTotal,
+			"err", err.Error(),
+		)
+		return docsTotal, fmt.Errorf("update lib count %q: %w", src.LibID, err)
 	}
 
 	slog.Info("scraper.lib_done",

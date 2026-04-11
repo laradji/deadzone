@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/laradji/deadzone/internal/db"
@@ -108,6 +109,119 @@ func searchAttrs(input SearchDocsInput, verbose bool, extra ...any) []any {
 	return attrs
 }
 
+// SearchLibrariesInput is the JSON shape accepted by the search_libraries
+// MCP tool. Name is free-text — the handler embeds it with the same hugot
+// pipeline used at index time and matches against libs.embedding via
+// vector_distance_cos. An empty Name is the cheap "what's even in here"
+// path that returns the top-K libs by doc_count without an embedder
+// call.
+type SearchLibrariesInput struct {
+	Name  string `json:"name,omitempty" jsonschema:"free-text library name to resolve; empty returns top libs by doc count"`
+	Limit int    `json:"limit,omitempty" jsonschema:"max results, default 10, max 50"`
+}
+
+// LibraryHit is one ranked candidate returned by search_libraries.
+// MatchScore is 1 - cosine_distance(query, lib_embedding) so higher is
+// closer; the empty-name path returns 1.0 for every row (no query was
+// embedded). LLM clients can use the score to decide whether to commit
+// to a single result or surface multiple candidates to the user.
+type LibraryHit struct {
+	LibID      string  `json:"lib_id"`
+	DocCount   int     `json:"doc_count"`
+	MatchScore float32 `json:"match_score"`
+}
+
+// SearchLibrariesOutput is the wire envelope. The Libraries slice is
+// always non-nil (no matches → empty, never null) so MCP clients can
+// iterate without a nil-guard.
+type SearchLibrariesOutput struct {
+	Libraries []LibraryHit `json:"libraries"`
+}
+
+const (
+	defaultLibLimit = 10
+	maxLibLimit     = 50
+)
+
+// makeSearchLibrariesHandler closes over the DB and Embedder so the
+// MCP tool registration can stay a one-liner. The empty-name branch
+// goes straight to TopLibsByDocCount and skips e.Embed entirely; the
+// non-empty branch is symmetric with search_docs (embed once, query
+// once). The 1 - dist score conversion happens here so LibInfo's raw
+// distance never escapes the package.
+func makeSearchLibrariesHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Context, *mcp.CallToolRequest, SearchLibrariesInput) (*mcp.CallToolResult, SearchLibrariesOutput, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchLibrariesInput) (*mcp.CallToolResult, SearchLibrariesOutput, error) {
+		start := time.Now()
+
+		limit := input.Limit
+		if limit <= 0 {
+			limit = defaultLibLimit
+		}
+		if limit > maxLibLimit {
+			limit = maxLibLimit
+		}
+
+		name := strings.TrimSpace(input.Name)
+
+		var (
+			libs []db.LibInfo
+			err  error
+		)
+		if name == "" {
+			libs, err = db.TopLibsByDocCount(d, limit)
+			if err != nil {
+				slog.Error("search_libraries failed", libAttrs(input, name, limit, verbose, "stage", "top_libs", "err", err.Error())...)
+				return nil, SearchLibrariesOutput{}, err
+			}
+		} else {
+			queryVec, embedErr := e.Embed(name)
+			if embedErr != nil {
+				slog.Error("search_libraries failed", libAttrs(input, name, limit, verbose, "stage", "embed", "err", embedErr.Error())...)
+				return nil, SearchLibrariesOutput{}, fmt.Errorf("embed query: %w", embedErr)
+			}
+			libs, err = db.SearchLibsByEmbedding(d, queryVec, limit)
+			if err != nil {
+				slog.Error("search_libraries failed", libAttrs(input, name, limit, verbose, "stage", "search", "err", err.Error())...)
+				return nil, SearchLibrariesOutput{}, err
+			}
+		}
+
+		// make([]LibraryHit, 0, len(libs)) is the load-bearing call
+		// here: it guarantees a non-nil empty slice on the no-matches
+		// path, which is one of the issue's acceptance criteria.
+		hits := make([]LibraryHit, 0, len(libs))
+		for _, lib := range libs {
+			hits = append(hits, LibraryHit{
+				LibID:      lib.LibID,
+				DocCount:   lib.DocCount,
+				MatchScore: 1.0 - lib.Distance,
+			})
+		}
+
+		slog.Info("search_libraries", libAttrs(input, name, limit, verbose,
+			"results", len(hits),
+			"latency_ms", time.Since(start).Milliseconds(),
+		)...)
+
+		return nil, SearchLibrariesOutput{Libraries: hits}, nil
+	}
+}
+
+// libAttrs is the search_libraries equivalent of searchAttrs: a single
+// place to assemble the slog key/value list shared by success and
+// error paths. The raw name is gated behind -verbose for the same
+// reason search_docs gates query text — names may carry user data
+// routed through the LLM.
+func libAttrs(input SearchLibrariesInput, name string, limit int, verbose bool, extra ...any) []any {
+	attrs := make([]any, 0, 6+len(extra))
+	attrs = append(attrs, "name_len", len(name), "limit", limit)
+	attrs = append(attrs, extra...)
+	if verbose {
+		attrs = append(attrs, "name", input.Name)
+	}
+	return attrs
+}
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("server fatal", "err", err.Error())
@@ -172,6 +286,10 @@ func run() error {
 		Name:        "search_docs",
 		Description: "Search documentation snippets for a library. Use lib_id in /org/project format to filter by library.",
 	}, makeSearchHandler(d, e, *verbose))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_libraries",
+		Description: "Resolve a free-text library name into a ranked list of canonical lib_id candidates that can be passed to search_docs. Pass an empty name to list the most-indexed libraries by doc_count.",
+	}, makeSearchLibrariesHandler(d, e, *verbose))
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		return fmt.Errorf("mcp run: %w", err)
