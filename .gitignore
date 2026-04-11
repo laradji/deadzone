@@ -1,8 +1,10 @@
 /deadzone
 /deadzone-server
+/deadzone-consolidate
 /deadzone.db
 /deadzone.db-wal
 /deadzone.db-shm
+/artifacts/
 /.envrc
 .DS_Store
 .mcp.json

@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,20 @@ var ErrEmbedderMismatch = errors.New("embedder metadata mismatch")
 // re-scrape) until an in-place migration is implemented. Wrap with
 // errors.Is to detect.
 var ErrSchemaMismatch = errors.New("database schema version mismatch")
+
+// ErrArtifactLibIDMissing is returned by OpenArtifact when the caller
+// passes libID == "" (i.e. asks the artifact to identify itself) but
+// the on-disk meta table has no lib_id key. Wrap with errors.Is to
+// detect — the consolidate path treats it as a structural problem with
+// the artifact file itself, not a transient I/O error.
+var ErrArtifactLibIDMissing = errors.New("artifact has no lib_id in meta")
+
+// ErrArtifactLibIDMismatch is returned by OpenArtifact when both the
+// stored and the requested lib_id are non-empty but disagree. Catches
+// the failure mode where an artifact gets renamed on disk so its
+// filename and recorded lib_id no longer match, which would otherwise
+// silently merge rows under the wrong key.
+var ErrArtifactLibIDMismatch = errors.New("artifact lib_id mismatch")
 
 // CurrentSchemaVersion is the on-disk schema version written by this
 // build. Bump whenever the table layout changes in a non-backwards-
@@ -60,9 +75,15 @@ type Meta struct {
 // Insert and SearchByEmbedding can validate vector lengths without
 // re-reading the meta table on every call. *sql.DB is embedded so callers
 // can still use QueryRow, Exec, Close, etc. directly on a *DB.
+//
+// ArtifactLibID is populated only when the database was opened via
+// OpenArtifact. It is the canonical lib_id this artifact carries (read
+// from the meta table at open time). The main consolidated database
+// always leaves it empty — the libs table is the source of truth there.
 type DB struct {
 	*sql.DB
-	Meta Meta
+	Meta          Meta
+	ArtifactLibID string
 }
 
 // Doc represents a documentation snippet stored in the docs table.
@@ -178,6 +199,97 @@ func Open(path string, meta Meta) (*DB, error) {
 	}
 
 	return &DB{DB: raw, Meta: meta}, nil
+}
+
+// OpenArtifact opens (or creates) a per-lib artifact database. An
+// artifact carries a single lib_id recorded in its meta table; the
+// recorded value is the source of truth for which library the
+// artifact's docs and libs rows belong to.
+//
+// libID semantics:
+//
+//   - libID != "" — the caller knows which lib this artifact represents
+//     (e.g. the scraper). On a fresh file the lib_id is written. On an
+//     existing file the stored lib_id must match libID, otherwise
+//     ErrArtifactLibIDMismatch is returned.
+//
+//   - libID == "" — the caller is reading an existing artifact and
+//     wants to discover its lib_id (e.g. consolidate). The file must
+//     already exist; if it doesn't, an os.ErrNotExist-wrapped error
+//     is returned without creating a stub. If the file exists but has
+//     no lib_id stored, ErrArtifactLibIDMissing is returned.
+//
+// Embedder meta and schema version validation are inherited from Open
+// — an artifact built with a different embedder than the caller's
+// surfaces as ErrEmbedderMismatch, exactly like the main DB.
+func OpenArtifact(path string, meta Meta, libID string) (*DB, error) {
+	// Refuse to fabricate a stub file when the caller is in
+	// "read existing artifact" mode. Lets the consolidate path
+	// distinguish "no such file" from "file exists but is malformed"
+	// without inspecting the resulting *DB.
+	if libID == "" {
+		if _, err := os.Stat(path); err != nil {
+			return nil, fmt.Errorf("open artifact %s: %w", path, err)
+		}
+	}
+
+	d, err := Open(path, meta)
+	if err != nil {
+		return nil, err
+	}
+
+	stored, hasStored, err := readArtifactLibID(d.DB)
+	if err != nil {
+		d.Close()
+		return nil, fmt.Errorf("open artifact %s: read lib_id: %w", path, err)
+	}
+
+	switch {
+	case libID != "" && hasStored:
+		if stored != libID {
+			d.Close()
+			return nil, fmt.Errorf("%w: stored=%q requested=%q (file=%s)",
+				ErrArtifactLibIDMismatch, stored, libID, path)
+		}
+	case libID != "" && !hasStored:
+		if err := writeArtifactLibID(d.DB, libID); err != nil {
+			d.Close()
+			return nil, fmt.Errorf("open artifact %s: write lib_id: %w", path, err)
+		}
+		stored = libID
+	case libID == "" && !hasStored:
+		d.Close()
+		return nil, fmt.Errorf("%w: %s", ErrArtifactLibIDMissing, path)
+	}
+
+	d.ArtifactLibID = stored
+	return d, nil
+}
+
+// readArtifactLibID returns the lib_id meta value if present. The
+// boolean is false (with no error) when the row is simply absent — the
+// "main DB, no artifact identity" case — so callers can distinguish
+// "missing" from "I/O failure" without an errors.Is dance.
+func readArtifactLibID(raw *sql.DB) (string, bool, error) {
+	var v string
+	err := raw.QueryRow(`SELECT value FROM meta WHERE key = ?`, metaKeyLibID).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return v, true, nil
+}
+
+// writeArtifactLibID inserts the lib_id meta row. Caller is responsible
+// for guaranteeing the row does not already exist (OpenArtifact only
+// calls this on the !hasStored branch); a UNIQUE-constraint failure
+// here means the readArtifactLibID call above raced with a writer,
+// which the single-connection scraper rules out by construction.
+func writeArtifactLibID(raw *sql.DB, libID string) error {
+	_, err := raw.Exec(`INSERT INTO meta(key, value) VALUES (?, ?)`, metaKeyLibID, libID)
+	return err
 }
 
 // Insert stores a Doc along with its precomputed embedding. The embedding
@@ -424,6 +536,11 @@ const (
 	metaKeyEmbeddingDim  = "embedding_dim"
 	metaKeyModelVersion  = "model_version"
 	metaKeySchemaVersion = "schema_version"
+	// metaKeyLibID is written by OpenArtifact and absent from the main
+	// consolidated database. The reader (readMeta) intentionally
+	// ignores any meta keys it does not recognize, so adding this key
+	// is backwards-compatible with the existing schema version.
+	metaKeyLibID = "lib_id"
 )
 
 func validateMeta(m Meta) error {

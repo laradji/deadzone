@@ -37,15 +37,20 @@ vet:
 tidy:
     {{go}} mod tidy
 
-# Run the scraper, indexing into the given DB file
-scrape db="deadzone.db":
-    {{go}} run ./cmd/scraper -db {{db}}
+# Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry)
+scrape lib="":
+    {{go}} run ./cmd/scraper -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }}
 
-# Run the MCP server against the given DB file
+# Merge per-lib artifacts in ./artifacts/ into the main deadzone DB
+consolidate db="deadzone.db":
+    {{go}} run ./cmd/consolidate -db {{db}} -artifacts ./artifacts
+
+# Run the MCP server against the given DB file (must already be consolidated)
 serve db="deadzone.db":
     {{go}} run ./cmd/server -db {{db}}
 
-# Remove built binaries and the local DB files
+# Remove built binaries, artifacts, and the local DB files
 clean:
-    rm -f deadzone deadzone-server
+    rm -f deadzone deadzone-server deadzone-consolidate
     rm -f deadzone.db deadzone.db-wal deadzone.db-shm
+    rm -rf artifacts
