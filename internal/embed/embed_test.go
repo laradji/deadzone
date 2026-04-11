@@ -63,8 +63,14 @@ func TestHugot_Deterministic(t *testing.T) {
 		"Créer un serveur MCP",
 	}
 	for _, in := range inputs {
-		a := testEmbedder.Embed(in)
-		b := testEmbedder.Embed(in)
+		a, err := testEmbedder.Embed(in)
+		if err != nil {
+			t.Fatalf("Embed(%q): %v", in, err)
+		}
+		b, err := testEmbedder.Embed(in)
+		if err != nil {
+			t.Fatalf("Embed(%q): %v", in, err)
+		}
 		if !bytes.Equal(floatsToBytes(a), floatsToBytes(b)) {
 			t.Errorf("Embed(%q) not deterministic across calls", in)
 		}
@@ -74,7 +80,10 @@ func TestHugot_Deterministic(t *testing.T) {
 func TestHugot_Dim(t *testing.T) {
 	cases := []string{"x", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
-		v := testEmbedder.Embed(c)
+		v, err := testEmbedder.Embed(c)
+		if err != nil {
+			t.Fatalf("Embed(%q): %v", c, err)
+		}
 		if len(v) != testEmbedder.Dim() {
 			t.Errorf("Embed(%q) len = %d, want %d", c, len(v), testEmbedder.Dim())
 		}
@@ -99,7 +108,10 @@ func TestHugot_Metadata(t *testing.T) {
 func TestHugot_UnitNorm(t *testing.T) {
 	cases := []string{"a", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
-		v := testEmbedder.Embed(c)
+		v, err := testEmbedder.Embed(c)
+		if err != nil {
+			t.Fatalf("Embed(%q): %v", c, err)
+		}
 		var sumSq float64
 		for _, x := range v {
 			sumSq += float64(x) * float64(x)
@@ -120,9 +132,18 @@ func TestHugot_UnitNorm(t *testing.T) {
 // With a 384-dim sentence-transformers model this is the actual semantic
 // retrieval property we care about, not a hash-collision artifact.
 func TestHugot_SemanticOverlap(t *testing.T) {
-	query := testEmbedder.Embed("register a tool")
-	relevant := testEmbedder.Embed("Register tools using mcp.AddTool")
-	unrelated := testEmbedder.Embed("Open a database with sql.Open")
+	query, err := testEmbedder.Embed("register a tool")
+	if err != nil {
+		t.Fatalf("Embed query: %v", err)
+	}
+	relevant, err := testEmbedder.Embed("Register tools using mcp.AddTool")
+	if err != nil {
+		t.Fatalf("Embed relevant: %v", err)
+	}
+	unrelated, err := testEmbedder.Embed("Open a database with sql.Open")
+	if err != nil {
+		t.Fatalf("Embed unrelated: %v", err)
+	}
 
 	distRelevant := cosineDistance(query, relevant)
 	distUnrelated := cosineDistance(query, unrelated)
@@ -142,11 +163,7 @@ func TestNew(t *testing.T) {
 		// New returns a fresh Hugot — close it to release the
 		// session it just allocated. The package-level testEmbedder
 		// is unaffected.
-		defer func() {
-			if c, ok := e.(interface{ Close() error }); ok {
-				_ = c.Close()
-			}
-		}()
+		defer func() { _ = e.Close() }()
 		if e.Kind() != "hugot" {
 			t.Errorf("Kind() = %q, want %q", e.Kind(), "hugot")
 		}

@@ -52,13 +52,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("embedder: %w", err)
 	}
-	if c, ok := e.(interface{ Close() error }); ok {
-		defer func() {
-			if err := c.Close(); err != nil {
-				slog.Warn("embedder close", "err", err.Error())
-			}
-		}()
-	}
+	defer func() {
+		if err := e.Close(); err != nil {
+			slog.Warn("embedder close", "err", err.Error())
+		}
+	}()
 
 	// db.Open enforces meta consistency: if the database already exists
 	// and was indexed with a different embedder, it returns
@@ -118,11 +116,27 @@ func run() error {
 		// Embed and insert each doc, summing per-step latencies so the
 		// scraper.indexed line carries the timing breakdown for the
 		// URL without one log line per doc (gated on -verbose).
+		//
+		// Embed failures are logged and the doc is skipped rather than
+		// aborting the whole run: a single bad doc shouldn't take down
+		// a multi-URL scrape, but the operator needs to see the count
+		// in the per-URL summary so silent doc loss is impossible.
 		var embedTotal, insertTotal time.Duration
+		var docsInserted, docsSkipped int
 		for _, doc := range res.Docs {
 			embedStart := time.Now()
-			vec := e.Embed(doc.Title + "\n" + doc.Content)
+			vec, err := e.Embed(doc.Title + "\n" + doc.Content)
 			embedTotal += time.Since(embedStart)
+			if err != nil {
+				docsSkipped++
+				slog.Warn("scraper.embed_failed",
+					"lib_id", doc.LibID,
+					"title", doc.Title,
+					"url", u,
+					"err", err.Error(),
+				)
+				continue
+			}
 
 			insertStart := time.Now()
 			if err := db.Insert(d, doc, vec); err != nil {
@@ -135,6 +149,7 @@ func run() error {
 				return fmt.Errorf("insert %q: %w", doc.Title, err)
 			}
 			insertTotal += time.Since(insertStart)
+			docsInserted++
 
 			slog.Debug("scraper.doc_indexed",
 				"lib_id", doc.LibID,
@@ -147,12 +162,13 @@ func run() error {
 		slog.Info("scraper.indexed",
 			"lib_id", src.LibID,
 			"url", u,
-			"docs_inserted", len(res.Docs),
+			"docs_inserted", docsInserted,
+			"docs_skipped", docsSkipped,
 			"embed_ms_total", embedTotal.Milliseconds(),
 			"insert_ms_total", insertTotal.Milliseconds(),
 		)
 
-		docsTotal += len(res.Docs)
+		docsTotal += docsInserted
 	}
 
 	slog.Info("scraper.done",

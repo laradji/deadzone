@@ -59,7 +59,10 @@ func TestHandleSearchDocs_ReturnsSnippets(t *testing.T) {
 		{LibID: "/other/lib", Title: "Unrelated", Content: "Something about databases and queries."},
 	}
 	for _, doc := range docs {
-		vec := testEmbedder.Embed(doc.Title + "\n" + doc.Content)
+		vec, err := testEmbedder.Embed(doc.Title + "\n" + doc.Content)
+		if err != nil {
+			t.Fatalf("Embed %q: %v", doc.Title, err)
+		}
 		if err := db.Insert(d, doc, vec); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
