@@ -14,11 +14,27 @@ import (
 // (single-version entries, version strings themselves).
 const versionPlaceholder = "{version}"
 
-// validKinds enumerates the source kind discriminators known to v1 of the
-// loader. Adding new kinds (e.g. scrape-via-agent in #27) means appending
-// to this set, not changing the schema.
+// Kind discriminators for LibrarySource.Kind. Both branches feed the
+// same downstream pipeline (ParseMarkdown → embed → store); they only
+// differ in how the markdown is obtained.
+const (
+	// KindGithubMD is the fast path: HTTP GET on raw markdown URLs and
+	// straight into ParseMarkdown. No LLM, no preprocessing.
+	KindGithubMD = "github-md"
+
+	// KindScrapeViaAgent delegates content → clean markdown extraction
+	// to an OpenAI-compatible chat completions endpoint (Ollama, vLLM,
+	// LocalAI, OpenAI, ...). The catch-all path for HTML doc sites and
+	// any other format that isn't trivially raw markdown. See #27.
+	KindScrapeViaAgent = "scrape-via-agent"
+)
+
+// validKinds enumerates the source kind discriminators known to the
+// loader. Adding new kinds means appending to this set, not changing
+// the schema.
 var validKinds = map[string]bool{
-	"github-md": true,
+	KindGithubMD:       true,
+	KindScrapeViaAgent: true,
 }
 
 // Config is the parsed libraries_sources.yaml file.
@@ -96,7 +112,7 @@ func (l LibrarySource) validate() error {
 		return fmt.Errorf("kind is required")
 	}
 	if !validKinds[l.Kind] {
-		return fmt.Errorf("unknown kind %q (valid: github-md)", l.Kind)
+		return fmt.Errorf("unknown kind %q (valid: %s, %s)", l.Kind, KindGithubMD, KindScrapeViaAgent)
 	}
 	if len(l.URLs) == 0 {
 		return fmt.Errorf("urls must be non-empty")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -51,6 +52,18 @@ func run() error {
 		return fmt.Errorf("no libraries to scrape in %s", *configPath)
 	}
 
+	// scrape-via-agent sources need an OpenAI-compatible endpoint
+	// resolved from env. We construct + ping the agent before any URL
+	// is processed so a misconfigured endpoint surfaces as a single
+	// startup error rather than a per-URL cascade midway through.
+	// Sources without any agent-kind entry skip this entirely so the
+	// scraper still works on a clean checkout with no env vars set.
+	ctx := context.Background()
+	agent, err := setupAgent(ctx, sources)
+	if err != nil {
+		return err
+	}
+
 	// One artifacts/ dir per scraper run; created on demand so the
 	// first invocation on a fresh checkout doesn't require an extra
 	// `mkdir -p` step in the README.
@@ -84,12 +97,11 @@ func run() error {
 		"model_version", e.ModelVersion(),
 	)
 
-	ctx := context.Background()
 	runStart := time.Now()
 	var docsTotal int
 
 	for _, src := range sources {
-		libDocs, err := scrapeLibToArtifact(ctx, http.DefaultClient, e, meta, *artifactsDir, src)
+		libDocs, err := scrapeLibToArtifact(ctx, http.DefaultClient, agent, e, meta, *artifactsDir, src)
 		if err != nil {
 			return err
 		}
@@ -122,6 +134,7 @@ func run() error {
 func scrapeLibToArtifact(
 	ctx context.Context,
 	client *http.Client,
+	agent *scraper.Agent,
 	e embed.Embedder,
 	meta db.Meta,
 	artifactsDir string,
@@ -173,14 +186,42 @@ func scrapeLibToArtifact(
 	for _, u := range src.URLs {
 		// Per-URL fetch — split out from the embed/insert loop so the
 		// "silently stalls on one URL" failure mode shows up as a
-		// missing scraper.fetch event for that URL.
+		// missing scraper.fetch event for that URL. The kind dispatch
+		// is intentionally trivial: github-md is the fast HTTP→parse
+		// path, scrape-via-agent runs the LLM extractor.
 		fetchStart := time.Now()
-		res, err := scraper.FetchOne(ctx, client, src.LibID, u)
+		var (
+			res     scraper.FetchOneResult
+			err     error
+			fetcher = src.Kind
+		)
+		switch src.Kind {
+		case scraper.KindGithubMD:
+			res, err = scraper.FetchOne(ctx, client, src.LibID, u)
+		case scraper.KindScrapeViaAgent:
+			res, err = scraper.FetchOneViaAgent(ctx, client, agent, src.LibID, u)
+		default:
+			return docsTotal, fmt.Errorf("unsupported kind %q for lib %q", src.Kind, src.LibID)
+		}
 		fetchDur := time.Since(fetchStart)
 		if err != nil {
+			// Verification failure is a per-URL hallucination drop:
+			// log loudly, skip the URL, keep processing the rest of
+			// the source. Every other fetch error is fatal for the
+			// lib (the alternative is half-indexed artifacts).
+			if errors.Is(err, scraper.ErrAgentVerificationFailed) {
+				slog.Error("scraper.agent_verification_failed",
+					"lib_id", src.LibID,
+					"url", u,
+					"duration_ms", fetchDur.Milliseconds(),
+					"err", err.Error(),
+				)
+				continue
+			}
 			slog.Error("scraper.fetch_failed",
 				"lib_id", src.LibID,
 				"url", u,
+				"kind", fetcher,
 				"duration_ms", fetchDur.Milliseconds(),
 				"err", err.Error(),
 			)
@@ -189,6 +230,7 @@ func scrapeLibToArtifact(
 		slog.Info("scraper.fetch",
 			"lib_id", src.LibID,
 			"url", u,
+			"kind", fetcher,
 			"bytes", res.Bytes,
 			"duration_ms", fetchDur.Milliseconds(),
 			"docs_extracted", len(res.Docs),
@@ -288,4 +330,48 @@ func scrapeLibToArtifact(
 func artifactFilename(libID string) string {
 	trimmed := strings.TrimPrefix(libID, "/")
 	return strings.ReplaceAll(trimmed, "/", "_") + ".db"
+}
+
+// setupAgent decides whether the scrape-via-agent path is needed for
+// this run and, if so, builds + health-checks the Agent before any URL
+// is processed.
+//
+// The contract from #27 is "fail fast at startup, no silent fallback":
+//   - if no source uses scrape-via-agent, return (nil, nil) so a clean
+//     checkout with no env vars set still works
+//   - if any source does, env must be configured AND Ping must succeed
+//     before the function returns
+//
+// The agent value is shared across every scrape-via-agent source for
+// the run; the http.Client inside it carries its own per-call timeout.
+func setupAgent(ctx context.Context, sources []scraper.ResolvedSource) (*scraper.Agent, error) {
+	needs := false
+	for _, s := range sources {
+		if s.Kind == scraper.KindScrapeViaAgent {
+			needs = true
+			break
+		}
+	}
+	if !needs {
+		return nil, nil
+	}
+
+	agent, err := scraper.NewAgentFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("scrape-via-agent source present but agent not configured: %w", err)
+	}
+
+	slog.Info("scraper.agent_configured",
+		"endpoint", agent.Endpoint(),
+		"model", agent.Model(),
+	)
+
+	if err := agent.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("agent health check failed for endpoint %s: %w", agent.Endpoint(), err)
+	}
+	slog.Info("scraper.agent_ping_ok",
+		"endpoint", agent.Endpoint(),
+		"model", agent.Model(),
+	)
+	return agent, nil
 }

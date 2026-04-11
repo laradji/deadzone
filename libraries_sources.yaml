@@ -3,7 +3,13 @@
 # Each entry is one library to scrape. Required fields:
 #
 #   lib_id   canonical "/org/project" identifier (matches db.docs.lib_id)
-#   kind     source kind discriminator (only "github-md" is valid in v1)
+#   kind     source kind discriminator. Valid values:
+#              - github-md         raw markdown URLs, no LLM (fast path)
+#              - scrape-via-agent  HTML/text via an OpenAI-compatible
+#                                  chat completions endpoint (set the
+#                                  DEADZONE_AGENT_ENDPOINT[_*] env vars;
+#                                  see README "Scraping non-trivial doc
+#                                  sources" for the full contract)
 #   urls     list of doc URLs to fetch
 #
 # Optional:

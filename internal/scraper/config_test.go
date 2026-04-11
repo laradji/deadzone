@@ -181,6 +181,37 @@ libraries:
 	}
 }
 
+func TestLoadConfig_AcceptsScrapeViaAgentKind(t *testing.T) {
+	path := writeConfig(t, `
+libraries:
+  - lib_id: /hashicorp/terraform-provider-aws
+    kind: scrape-via-agent
+    urls:
+      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
+      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
+`)
+
+	cfg, err := scraper.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Libraries) != 1 {
+		t.Fatalf("expected 1 library, got %d", len(cfg.Libraries))
+	}
+	if got := cfg.Libraries[0].Kind; got != scraper.KindScrapeViaAgent {
+		t.Errorf("Kind = %q, want %q", got, scraper.KindScrapeViaAgent)
+	}
+
+	// Verify the kind round-trips through Resolve as well.
+	resolved := cfg.Resolve("")
+	if len(resolved) != 1 {
+		t.Fatalf("Resolve returned %d, want 1", len(resolved))
+	}
+	if resolved[0].Kind != scraper.KindScrapeViaAgent {
+		t.Errorf("ResolvedSource.Kind = %q, want %q", resolved[0].Kind, scraper.KindScrapeViaAgent)
+	}
+}
+
 func TestLoadConfig_VersionsRules(t *testing.T) {
 	cases := []struct {
 		name string

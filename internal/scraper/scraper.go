@@ -161,6 +161,62 @@ func FetchOne(ctx context.Context, client *http.Client, libID, url string) (Fetc
 	return FetchOneResult{Docs: docs, Bytes: len(body)}, nil
 }
 
+// FetchOneViaAgent is the per-URL primitive for the scrape-via-agent
+// kind: HTTP GET, content-type-aware preprocessing, LLM extraction,
+// code-block verification, and ParseMarkdown into docs.
+//
+// Returns ErrAgentVerificationFailed if the LLM emitted a fenced code
+// block that does not appear verbatim in the source content. The
+// caller is expected to log the failure and skip the doc; the rest of
+// the URLs in the same source still get processed.
+//
+// Like FetchOne, this is the per-URL primitive used by cmd/scraper so
+// the operator log can carry per-URL fetch / verify / index events
+// instead of one summary per source.
+func FetchOneViaAgent(ctx context.Context, client *http.Client, agent *Agent, libID, url string) (FetchOneResult, error) {
+	if agent == nil {
+		return FetchOneResult{}, fmt.Errorf("fetch via agent %s: agent is nil", url)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return FetchOneResult{}, fmt.Errorf("build request %s: %w", url, err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return FetchOneResult{}, fmt.Errorf("fetch %s: %w", url, err)
+	}
+
+	body, readErr := io.ReadAll(resp.Body)
+	contentType := resp.Header.Get("Content-Type")
+	resp.Body.Close()
+	if readErr != nil {
+		return FetchOneResult{}, fmt.Errorf("read body %s: %w", url, readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return FetchOneResult{}, fmt.Errorf("fetch %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	text, err := preprocess(body, contentType)
+	if err != nil {
+		return FetchOneResult{}, fmt.Errorf("preprocess %s: %w", url, err)
+	}
+
+	md, err := agent.Extract(ctx, text, contentType)
+	if err != nil {
+		return FetchOneResult{}, fmt.Errorf("extract %s: %w", url, err)
+	}
+
+	if !verifyCodeBlocks(md, text) {
+		return FetchOneResult{}, fmt.Errorf("%s: %w", url, ErrAgentVerificationFailed)
+	}
+
+	sourceName := strings.TrimSuffix(path.Base(url), path.Ext(url))
+	docs := ParseMarkdown(libID, sourceName, md)
+	return FetchOneResult{Docs: docs, Bytes: len(body)}, nil
+}
+
 // Fetch downloads each URL in src and returns the concatenated Docs.
 // Implemented as a thin loop over FetchOne so callers that just want
 // "give me everything" don't have to deal with per-URL bookkeeping.
