@@ -1,0 +1,28 @@
+name: triage-external-issues
+
+# Apply the `triage` label automatically to every issue opened by anyone
+# other than the maintainer. The maintainer's `gh issue list --label triage`
+# query is the inbox of "stuff to look at"; the label is removed by hand
+# when the issue gets a category, priority, and (optionally) a milestone.
+#
+# Issues filed by the maintainer themselves are skipped because they are
+# triaged at creation time (the filing convention applies labels and
+# priority up front).
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    if: github.event.issue.user.login != 'laradji'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply triage label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh issue edit ${{ github.event.issue.number }} --add-label triage
