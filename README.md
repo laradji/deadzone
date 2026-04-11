@@ -128,7 +128,7 @@ libraries:
 | Field | Required | Purpose |
 |---|---|---|
 | `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
-| `kind` | yes | source kind discriminator — only `github-md` is valid today |
+| `kind` | yes | source kind discriminator — `github-md` for raw markdown, `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
 | `urls` | yes | list of doc URLs (with optional `{version}` placeholder) |
 | `versions` | no | list of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version |
 
@@ -151,6 +151,51 @@ mise exec -- go run ./cmd/scraper -artifacts ./artifacts -lib /facebook/react/v1
 ```
 
 `-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<lib_id>.db` file — the leading `/` is stripped and the remaining `/` characters become `_`, so `/facebook/react/v18` lands at `artifacts/facebook_react_v18.db`.
+
+### Scraping non-trivial doc sources (`scrape-via-agent`)
+
+The `github-md` kind only works on libraries that publish raw markdown on GitHub. For everything else — Terraform providers (HTML), React (`react.dev`), mkdocs/docusaurus/vitepress sites, GitBook, ReadTheDocs — Deadzone supports a second source kind, `scrape-via-agent`, that delegates **content → clean markdown** extraction to any OpenAI-compatible chat completions endpoint.
+
+Deadzone does **not** host an LLM. You bring your own runtime — [Ollama](https://ollama.ai), [llama.cpp server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server), [vLLM](https://github.com/vllm-project/vllm), [LocalAI](https://localai.io), [LM Studio](https://lmstudio.ai), [Groq](https://groq.com), OpenAI itself, anything that speaks `POST /v1/chat/completions` — and point Deadzone at the endpoint via three environment variables:
+
+```bash
+# Required
+export DEADZONE_AGENT_ENDPOINT=http://localhost:11434/v1
+export DEADZONE_AGENT_ENDPOINT_MODEL=qwen2.5:7b
+
+# Optional — only set if your endpoint requires auth
+export DEADZONE_AGENT_ENDPOINT_API_KEY=sk-...
+```
+
+Then add an entry with `kind: scrape-via-agent` to `libraries_sources.yaml`:
+
+```yaml
+libraries:
+  - lib_id: /hashicorp/terraform-provider-aws
+    kind: scrape-via-agent
+    urls:
+      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
+      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
+      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function
+```
+
+The downstream pipeline (`ParseMarkdown` → chunk → embed → store) is **identical** for both kinds. The only thing that changes is where the markdown comes from: `github-md` reads it directly from a `raw.githubusercontent.com` URL, `scrape-via-agent` fetches the page, hands it to the LLM, and indexes whatever clean markdown comes back.
+
+**Startup contract.** If `libraries_sources.yaml` contains any `scrape-via-agent` source, the scraper resolves the agent config from env, pings the endpoint with a trivial completion, and aborts the run with a clear error if anything is missing or unreachable. There is no silent fallback — a misconfigured endpoint fails the run before any URL is processed.
+
+**Hallucination protection.** Every fenced code block in the LLM's output is verified to appear verbatim in the source content. If the model invents a code example, the doc is dropped (`scraper.agent_verification_failed` in the log) and the rest of the URLs in that source still get processed. Prose hallucination is still possible — this catches the most dangerous failure mode but is not a complete defense.
+
+**Input budget.** Inputs longer than ~48 KiB are truncated with a single `agent.input_truncated` warning. Smart chunking is a planned follow-up.
+
+**Supported content types in v1.**
+
+| Content type | Status |
+|---|---|
+| `text/html`, `application/xhtml+xml` | supported |
+| `text/markdown`, `text/x-markdown` | supported |
+| `text/plain` | supported |
+| `application/pdf` | reserved — clear error, planned follow-up |
+| anything else | clear `unsupported content type` error |
 
 > **First-run model download.** The first `just scrape` or `just serve` invocation downloads the MiniLM-L6-v2 ONNX weights (~90 MB) into the platform user-cache directory under `deadzone/models/`:
 >
@@ -205,7 +250,7 @@ More background in [`docs/research/context7-analysis.md`](docs/research/context7
 
 All three binaries emit structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `cmd/server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `cmd/scraper` and `cmd/consolidate` follow the same convention for consistency.
 
-- **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error.
+- **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`, and `kind`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error. When any source uses `kind: scrape-via-agent`, expect `scraper.agent_configured` and `scraper.agent_ping_ok` once at startup; per-doc hallucination drops show up as `scraper.agent_verification_failed`, and oversized inputs as `agent.input_truncated`.
 - **Consolidate.** `just consolidate` emits a `consolidate.start` and a `consolidate.done` with the `artifacts` count, `docs_merged`, `libs_merged`, and `duration_ms`. A failure aborts before any write reaches the main DB; the wrapped error names the offending artifact.
 - **Server.** `cmd/server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. If the configured `-db` is missing the server refuses to start and prints a one-liner pointing at `deadzone-consolidate`.
 - **Verbose mode.** All three binaries take `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
