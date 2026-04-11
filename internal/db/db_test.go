@@ -43,9 +43,16 @@ func hugotTestCacheDir() string {
 }
 
 // embedText is a small convenience that mirrors what the scraper and server
-// do in real life: embed "Title\nContent" into a single vector.
-func embedText(e embed.Embedder, d db.Doc) []float32 {
-	return e.Embed(d.Title + "\n" + d.Content)
+// do in real life: embed "Title\nContent" into a single vector. Tests call
+// it with t.Helper-style fatality so an embedder failure aborts the test
+// rather than silently passing nil through to db.Insert.
+func embedText(t *testing.T, e embed.Embedder, d db.Doc) []float32 {
+	t.Helper()
+	v, err := e.Embed(d.Title + "\n" + d.Content)
+	if err != nil {
+		t.Fatalf("Embed %q: %v", d.Title, err)
+	}
+	return v
 }
 
 // metaFor extracts a db.Meta from an embed.Embedder. The same little
@@ -75,7 +82,7 @@ func TestOpen_CreatesDocsTable(t *testing.T) {
 
 	// Verify the table exists by inserting through the real Insert path.
 	doc := db.Doc{LibID: "testlib", Title: "Hello World", Content: "some content"}
-	if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+	if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 }
@@ -90,7 +97,7 @@ func TestInsert(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert %q: %v", doc.Title, err)
 		}
 	}
@@ -122,12 +129,16 @@ func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
 		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.SearchByEmbedding(d, testEmbedder.Embed("create a server"), "", 10)
+	qv, err := testEmbedder.Embed("create a server")
+	if err != nil {
+		t.Fatalf("Embed query: %v", err)
+	}
+	results, err := db.SearchByEmbedding(d, qv, "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -150,12 +161,16 @@ func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
 		{LibID: "libsql", Title: "SQL server", Content: "Connect to a database server"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.SearchByEmbedding(d, testEmbedder.Embed("server"), "go-sdk", 10)
+	qv, err := testEmbedder.Embed("server")
+	if err != nil {
+		t.Fatalf("Embed query: %v", err)
+	}
+	results, err := db.SearchByEmbedding(d, qv, "go-sdk", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -182,12 +197,16 @@ func TestSearchByEmbedding_Acceptance(t *testing.T) {
 		{LibID: "libsql", Title: "Getting started", Content: "Open a database with sql.Open"},
 	}
 	for _, doc := range docs {
-		if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 	}
 
-	results, err := db.SearchByEmbedding(d, testEmbedder.Embed("register a tool"), "", 10)
+	qv, err := testEmbedder.Embed("register a tool")
+	if err != nil {
+		t.Fatalf("Embed query: %v", err)
+	}
+	results, err := db.SearchByEmbedding(d, qv, "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -216,7 +235,7 @@ func TestDB_RejectsEmbedderMismatch(t *testing.T) {
 	// Indexing one doc to confirm we are exercising a real, populated DB
 	// and not a degenerate empty file.
 	doc := db.Doc{LibID: "x", Title: "t", Content: "c"}
-	if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+	if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 	if err := d.Close(); err != nil {
@@ -269,7 +288,7 @@ func TestDB_RoundtripsMeta(t *testing.T) {
 		t.Errorf("first open Meta = %+v, want %+v", d.Meta, want)
 	}
 	doc := db.Doc{LibID: "lib", Title: "Title", Content: "Content"}
-	if err := db.Insert(d, doc, embedText(testEmbedder, doc)); err != nil {
+	if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 	if err := d.Close(); err != nil {

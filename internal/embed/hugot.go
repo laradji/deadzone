@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,19 +115,22 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 }
 
 // Embed runs text through the FeatureExtractionPipeline and returns the
-// resulting unit-norm vector. The Embedder interface has no error return,
-// so on the rare event of a runtime failure (e.g. tokenizer panic) we log
-// to stderr and return a deterministic fallback unit vector pointing in
-// dimension 0. The fallback keeps cosine distance well-defined and avoids
-// poisoning downstream NaN handling, at the cost of producing a meaningless
-// search result for that one input.
-func (h *Hugot) Embed(text string) []float32 {
+// resulting unit-norm vector. Errors are propagated so callers can decide
+// what to do — at index time the scraper logs and skips the doc, at query
+// time the server returns the error to the MCP client. Returning a
+// deterministic placeholder vector here used to silently pollute the
+// cosine index, since every fallback collapsed to the same point in vector
+// space and formed a synthetic attractor for any query aligned with that
+// dimension.
+func (h *Hugot) Embed(text string) ([]float32, error) {
 	out, err := h.pipeline.RunPipeline([]string{text})
-	if err != nil || out == nil || len(out.Embeddings) == 0 {
-		log.Printf("hugot: embed failed (text len=%d): %v", len(text), err)
-		return fallbackVector(h.dim)
+	if err != nil {
+		return nil, fmt.Errorf("hugot: run pipeline (text len=%d): %w", len(text), err)
 	}
-	return out.Embeddings[0]
+	if out == nil || len(out.Embeddings) == 0 {
+		return nil, fmt.Errorf("hugot: pipeline returned no embeddings (text len=%d)", len(text))
+	}
+	return out.Embeddings[0], nil
 }
 
 // Kind reports the embedder family. Always KindHugot.
@@ -153,17 +155,6 @@ func (h *Hugot) Close() error {
 	h.session = nil
 	h.pipeline = nil
 	return err
-}
-
-// fallbackVector returns a unit vector along dimension 0. Used when Embed
-// fails — keeps the result well-defined and L2-normalized so it doesn't
-// break vector_distance_cos.
-func fallbackVector(dim int) []float32 {
-	v := make([]float32, dim)
-	if dim > 0 {
-		v[0] = 1
-	}
-	return v
 }
 
 // DefaultCacheDir returns the cache directory used by NewHugot when the

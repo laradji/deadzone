@@ -22,7 +22,10 @@ import "fmt"
 // was indexed with embedder Y.
 type Embedder interface {
 	// Embed returns a vector of length Dim() for the given text.
-	Embed(text string) []float32
+	// Implementations must surface inference errors instead of returning
+	// a placeholder vector: a silently corrupted embedding pollutes the
+	// cosine index permanently and is impossible to detect post-hoc.
+	Embed(text string) ([]float32, error)
 
 	// Kind identifies the embedder family (e.g. "hugot").
 	// Used for meta consistency checks between scraper and server runs.
@@ -36,6 +39,10 @@ type Embedder interface {
 	// embeddings (e.g. "sentence-transformers/all-MiniLM-L6-v2"). Stored
 	// in the DB meta table and cross-checked at open time.
 	ModelVersion() string
+
+	// Close releases any resources held by the embedder (model session,
+	// tokenizer, etc.). Safe to call once at process shutdown via defer.
+	Close() error
 }
 
 // New returns an Embedder for the given kind. Currently only KindHugot is

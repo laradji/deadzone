@@ -45,10 +45,14 @@ func makeSearchHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Co
 	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 		start := time.Now()
 
-		queryVec := e.Embed(input.Query)
+		queryVec, err := e.Embed(input.Query)
+		if err != nil {
+			slog.Error("search_docs failed", searchAttrs(input, verbose, "stage", "embed", "err", err.Error())...)
+			return nil, SearchDocsOutput{}, fmt.Errorf("embed query: %w", err)
+		}
 		docs, err := db.SearchByEmbedding(d, queryVec, input.LibID, searchK)
 		if err != nil {
-			slog.Error("search_docs failed", searchAttrs(input, verbose, "err", err.Error())...)
+			slog.Error("search_docs failed", searchAttrs(input, verbose, "stage", "search", "err", err.Error())...)
 			return nil, SearchDocsOutput{}, err
 		}
 
@@ -129,13 +133,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("embedder: %w", err)
 	}
-	if c, ok := e.(interface{ Close() error }); ok {
-		defer func() {
-			if err := c.Close(); err != nil {
-				slog.Warn("embedder close", "err", err.Error())
-			}
-		}()
-	}
+	defer func() {
+		if err := e.Close(); err != nil {
+			slog.Warn("embedder close", "err", err.Error())
+		}
+	}()
 
 	d, err := db.Open(*dbPath, db.Meta{
 		EmbedderKind: e.Kind(),

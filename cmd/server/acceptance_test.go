@@ -90,7 +90,10 @@ func TestSemanticAcceptance(t *testing.T) {
 	defer d.Close()
 
 	for _, doc := range acceptanceCorpus {
-		vec := testEmbedder.Embed(doc.Title + "\n" + doc.Content)
+		vec, err := testEmbedder.Embed(doc.Title + "\n" + doc.Content)
+		if err != nil {
+			t.Fatalf("Embed %q: %v", doc.Title, err)
+		}
 		if err := db.Insert(d, doc, vec); err != nil {
 			t.Fatalf("Insert %q: %v", doc.Title, err)
 		}
@@ -160,8 +163,11 @@ func TestEmbedLatencyBudget(t *testing.T) {
 		defer fresh.Close()
 
 		start := time.Now()
-		v := fresh.Embed("how do I expose functions to the LLM")
+		v, err := fresh.Embed("how do I expose functions to the LLM")
 		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatalf("Embed: %v", err)
+		}
 
 		if len(v) != fresh.Dim() {
 			t.Fatalf("Embed returned vector of len %d, want %d", len(v), fresh.Dim())
@@ -176,13 +182,18 @@ func TestEmbedLatencyBudget(t *testing.T) {
 		// Prime the shared embedder so the first sample is warm too —
 		// avoids contaminating the median with a one-off cache miss
 		// from whatever ran before this subtest.
-		_ = testEmbedder.Embed("warmup")
+		if _, err := testEmbedder.Embed("warmup"); err != nil {
+			t.Fatalf("warmup Embed: %v", err)
+		}
 
 		samples := make([]time.Duration, warmRuns)
 		for i := range samples {
 			start := time.Now()
-			_ = testEmbedder.Embed("how do I expose functions to the LLM")
+			_, err := testEmbedder.Embed("how do I expose functions to the LLM")
 			samples[i] = time.Since(start)
+			if err != nil {
+				t.Fatalf("warm sample %d Embed: %v", i, err)
+			}
 		}
 		sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
 		median := samples[len(samples)/2]
