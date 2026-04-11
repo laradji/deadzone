@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -134,8 +135,15 @@ func TestAgentExtract_RequestBodyShape(t *testing.T) {
 	if captured.parsedBody.Model != "test-model" {
 		t.Errorf("body.model = %q, want test-model", captured.parsedBody.Model)
 	}
-	if captured.parsedBody.Temperature != 0 {
-		t.Errorf("body.temperature = %v, want 0", captured.parsedBody.Temperature)
+	// Strict raw-body check: float64's zero value would make a parsed
+	// `Temperature != 0` assertion trivially true even if the field
+	// were dropped from the JSON entirely. Walk the bytes to prove the
+	// field is actually serialized as the literal "temperature":0.
+	if !bytes.Contains(captured.rawBody, []byte(`"temperature":0`)) {
+		t.Errorf("raw body missing literal `\"temperature\":0`, got: %s", captured.rawBody)
+	}
+	if !bytes.Contains(captured.rawBody, []byte(`"stream":false`)) {
+		t.Errorf("raw body missing literal `\"stream\":false`, got: %s", captured.rawBody)
 	}
 	if captured.parsedBody.Stream {
 		t.Error("body.stream = true, want false")

@@ -52,18 +52,6 @@ func run() error {
 		return fmt.Errorf("no libraries to scrape in %s", *configPath)
 	}
 
-	// scrape-via-agent sources need an OpenAI-compatible endpoint
-	// resolved from env. We construct + ping the agent before any URL
-	// is processed so a misconfigured endpoint surfaces as a single
-	// startup error rather than a per-URL cascade midway through.
-	// Sources without any agent-kind entry skip this entirely so the
-	// scraper still works on a clean checkout with no env vars set.
-	ctx := context.Background()
-	agent, err := setupAgent(ctx, sources)
-	if err != nil {
-		return err
-	}
-
 	// One artifacts/ dir per scraper run; created on demand so the
 	// first invocation on a fresh checkout doesn't require an extra
 	// `mkdir -p` step in the README.
@@ -80,6 +68,22 @@ func run() error {
 			slog.Warn("embedder close", "err", err.Error())
 		}
 	}()
+
+	// scrape-via-agent sources need an OpenAI-compatible endpoint
+	// resolved from env. We construct + ping the agent before any URL
+	// is processed so a misconfigured endpoint surfaces as a single
+	// startup error rather than a per-URL cascade midway through.
+	//
+	// Ordered AFTER embed.New so a missing model file or other
+	// embedder failure short-circuits before we pay the agent ping
+	// latency. Sources without any agent-kind entry skip this entirely
+	// so the scraper still works on a clean checkout with no env vars
+	// set.
+	ctx := context.Background()
+	agent, err := setupAgent(ctx, sources)
+	if err != nil {
+		return err
+	}
 
 	meta := db.Meta{
 		EmbedderKind: e.Kind(),
