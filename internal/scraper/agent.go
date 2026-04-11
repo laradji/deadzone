@@ -146,11 +146,56 @@ func (a *Agent) Model() string { return a.model }
 // Deadzone speaks the smallest possible subset: model, messages, and the
 // determinism / single-shot knobs. No tool calling, no JSON mode, no
 // response_format — the system prompt already says "output only Markdown".
+//
+// The trailing three fields — ChatTemplateKwargs, ReasoningEffort, and
+// EnableThinking — all serve the same purpose: suppress reasoning-mode
+// output on reasoning-capable backends (Qwen3+, GLM-4-Reasoning, OpenAI
+// o-series, DeepSeek-R1, …). Deadzone's extraction task has zero use
+// for a chain of thought — the system prompt already says "output only
+// Markdown, no commentary" — and reasoning-on burns 3–6× the latency
+// per URL (268× on trivial ping traffic, measured against oMLX +
+// Qwen3.5-9B-MLX-4bit on 2026-04-11; see #60 for the full table).
+//
+// There is no standardized OpenAI field for "disable reasoning"; each
+// server family picked its own convention. Servers silently ignore
+// fields they don't recognize (this is part of the OpenAI spec's
+// permissive request handling), so we send all three in every request
+// and one code path covers every reasoning backend we might meet. If
+// a future reviewer thinks these fields are unused and wants to strip
+// them, the answer is in #60 — they are load-bearing on any 2026-era
+// reasoning model and silently ignored everywhere else.
 type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
 	Stream      bool          `json:"stream"`
+
+	// ChatTemplateKwargs carries Jinja-template kwargs to servers
+	// that pass them through to the model's chat template — oMLX,
+	// vLLM, Ollama, sglang. Setting {"enable_thinking": false}
+	// disables reasoning on Qwen3+ and GLM-4-Reasoning.
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+
+	// ReasoningEffort is the OpenAI o-series knob (o1/o3/o5). We
+	// send "minimal" to cap reasoning at the lowest tier; other
+	// servers ignore this field.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+
+	// EnableThinking is the DeepSeek-R1 family's top-level toggle.
+	// *bool so the encoder distinguishes "unset" (nil → omitted)
+	// from "explicit false" — omitempty on a plain bool would drop
+	// the false we need to send.
+	EnableThinking *bool `json:"enable_thinking,omitempty"`
+}
+
+// disableReasoning populates the three reasoning-off knobs on req.
+// Applied by both Ping and Extract before do(). See chatRequest for
+// per-field rationale and #60 for the empirical token measurement.
+func disableReasoning(req *chatRequest) {
+	req.ChatTemplateKwargs = map[string]any{"enable_thinking": false}
+	req.ReasoningEffort = "minimal"
+	off := false
+	req.EnableThinking = &off
 }
 
 type chatMessage struct {
@@ -186,6 +231,7 @@ func (a *Agent) Ping(ctx context.Context) error {
 		Temperature: 0,
 		Stream:      false,
 	}
+	disableReasoning(&req)
 	if _, err := a.do(ctx, req); err != nil {
 		return fmt.Errorf("agent ping: %w", err)
 	}
@@ -229,6 +275,7 @@ func (a *Agent) Extract(ctx context.Context, content, contentType string) (strin
 		Temperature: 0,
 		Stream:      false,
 	}
+	disableReasoning(&req)
 
 	resp, err := a.do(ctx, req)
 	if err != nil {

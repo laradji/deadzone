@@ -67,6 +67,47 @@ type capturedRequest struct {
 	parsedBody    chatRequest
 }
 
+// assertReasoningDisabled fails the test if the captured request body
+// is missing any of the three reasoning-off fields the agent must
+// always send. See agent.go's chatRequest doc and #60 for the why.
+//
+// Both the parsed body and the raw bytes are checked: omitempty on
+// these fields would silently drop a wrong-typed value and make a
+// parsed-only assertion trivially pass, so we walk the JSON literal
+// too and prove the fields actually serialize on the wire.
+func assertReasoningDisabled(t *testing.T, captured *capturedRequest) {
+	t.Helper()
+
+	if captured.parsedBody.ChatTemplateKwargs == nil {
+		t.Errorf("chat_template_kwargs missing from request body")
+	} else {
+		v, ok := captured.parsedBody.ChatTemplateKwargs["enable_thinking"]
+		if !ok {
+			t.Errorf("chat_template_kwargs.enable_thinking key missing")
+		} else if b, isBool := v.(bool); !isBool || b {
+			t.Errorf("chat_template_kwargs.enable_thinking = %v (bool=%v), want false", v, isBool)
+		}
+	}
+	if captured.parsedBody.ReasoningEffort != "minimal" {
+		t.Errorf("reasoning_effort = %q, want %q", captured.parsedBody.ReasoningEffort, "minimal")
+	}
+	if captured.parsedBody.EnableThinking == nil {
+		t.Errorf("enable_thinking is nil, want explicit false (omitempty + *bool)")
+	} else if *captured.parsedBody.EnableThinking {
+		t.Errorf("enable_thinking = true, want false")
+	}
+
+	if !bytes.Contains(captured.rawBody, []byte(`"chat_template_kwargs":{"enable_thinking":false}`)) {
+		t.Errorf("raw body missing literal `\"chat_template_kwargs\":{\"enable_thinking\":false}`, got: %s", captured.rawBody)
+	}
+	if !bytes.Contains(captured.rawBody, []byte(`"reasoning_effort":"minimal"`)) {
+		t.Errorf("raw body missing literal `\"reasoning_effort\":\"minimal\"`, got: %s", captured.rawBody)
+	}
+	if !bytes.Contains(captured.rawBody, []byte(`"enable_thinking":false`)) {
+		t.Errorf("raw body missing literal `\"enable_thinking\":false`, got: %s", captured.rawBody)
+	}
+}
+
 // --- NewAgentFromEnv ---------------------------------------------------
 
 func TestNewAgentFromEnv_MissingEnvErrors(t *testing.T) {
@@ -166,6 +207,12 @@ func TestAgentExtract_RequestBodyShape(t *testing.T) {
 	if !strings.Contains(captured.parsedBody.Messages[1].Content, "<html>") {
 		t.Errorf("user message missing source content, got %q", captured.parsedBody.Messages[1].Content)
 	}
+	// #60: every Extract call must opt out of reasoning-mode output
+	// on Qwen3+ / DeepSeek-R1 / OpenAI o-series. Reasoning is pure
+	// waste for HTML→Markdown extraction (3–6× latency, up to 268×
+	// on trivial pings) and the system prompt already says "no
+	// commentary".
+	assertReasoningDisabled(t, captured)
 }
 
 func TestAgentExtract_AuthHeaderWhenAPIKeySet(t *testing.T) {
@@ -205,6 +252,29 @@ func TestAgentExtract_EmptyContentRejected(t *testing.T) {
 	}
 }
 
+func TestAgentExtract_DropsReasoningContentFromResponse(t *testing.T) {
+	// #60 safety net: if a server ignores our reasoning-off hint
+	// (or the user is on a backend that doesn't honor any of the
+	// three knobs), the response will look like Qwen3+ / DeepSeek-R1
+	// shape — content plus reasoning_content side-by-side. Our
+	// chatResponse struct only declares Content, so reasoning_content
+	// must drop on the json.Unmarshal floor and never reach the
+	// caller. Lock that behavior in.
+	reply := `{"choices":[{"message":{"role":"assistant","content":"# Clean output\n","reasoning_content":"Thinking Process: let me carefully consider how to extract this page..."}}]}`
+	agent, _, _ := startFakeAgent(t, reply, http.StatusOK)
+
+	out, err := agent.Extract(context.Background(), "<html><body>hi</body></html>", "text/html")
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if out != "# Clean output" {
+		t.Errorf("Extract returned %q, want %q", out, "# Clean output")
+	}
+	if strings.Contains(out, "Thinking Process") {
+		t.Errorf("Extract leaked reasoning_content into output: %q", out)
+	}
+}
+
 func TestAgentExtract_TruncatesOversizedInput(t *testing.T) {
 	agent, captured, _ := startFakeAgent(t, fakeAgentResponse("# truncated"), http.StatusOK)
 
@@ -235,6 +305,18 @@ func TestAgentPing_Succeeds(t *testing.T) {
 	if captured.path != "/v1/chat/completions" {
 		t.Errorf("Ping hit %q, want /v1/chat/completions", captured.path)
 	}
+}
+
+func TestAgentPing_DisablesReasoning(t *testing.T) {
+	// #60: Ping is just as wasteful as Extract on a reasoning-mode
+	// model — without the disable, a one-token health check burns
+	// ~268 completion tokens on Qwen3.5-9B. Verify the same three
+	// fields apply to the ping path.
+	agent, captured, _ := startFakeAgent(t, fakeAgentResponse("ok"), http.StatusOK)
+	if err := agent.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	assertReasoningDisabled(t, captured)
 }
 
 func TestAgentPing_FailsOnUnreachable(t *testing.T) {
