@@ -59,13 +59,63 @@ just build             # = mise exec -- go build ./...
 
 # 3. Scrape and index a library (defaults to ./deadzone.db)
 just scrape            # = mise exec -- go run ./cmd/scraper -db deadzone.db
-# → indexes the modelcontextprotocol/go-sdk docs
+# → indexes every library listed in ./libraries_sources.yaml
+# → ships preloaded with the modelcontextprotocol/go-sdk docs
 
 # 4. Run the MCP server
 just serve             # = mise exec -- go run ./cmd/server -db deadzone.db
 ```
 
 Run `just` (no args) to list every recipe. Override the DB path with positional args: `just scrape foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
+
+### Configuring which libraries to scrape
+
+The scraper reads its registry from [`libraries_sources.yaml`](libraries_sources.yaml) at the project root. Each entry maps a `lib_id` to the documentation URLs the scraper should fetch:
+
+```yaml
+libraries:
+  # Single-version lib — no `versions` key, urls used as-is.
+  - lib_id: /modelcontextprotocol/go-sdk
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
+
+  # Multi-version lib — `versions` expands `{version}` in each URL,
+  # producing one effective lib_id per version (`/facebook/react/v18`,
+  # `/facebook/react/v19`, …) — matches Context7's `/org/project/version`
+  # convention.
+  - lib_id: /facebook/react
+    kind: github-md
+    versions: [v18, v19]
+    urls:
+      - https://raw.githubusercontent.com/facebook/react/{version}/README.md
+      - https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md
+```
+
+| Field | Required | Purpose |
+|---|---|---|
+| `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
+| `kind` | yes | source kind discriminator — only `github-md` is valid today |
+| `urls` | yes | list of doc URLs (with optional `{version}` placeholder) |
+| `versions` | no | list of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version |
+
+Adding a new library means adding a YAML entry — no Go editing, no recompile.
+
+The scraper accepts two flags for working with the registry:
+
+```bash
+# Use a non-default registry path
+mise exec -- go run ./cmd/scraper -db deadzone.db -config /path/to/libraries_sources.yaml
+
+# Scrape every configured version of one base lib
+mise exec -- go run ./cmd/scraper -db deadzone.db -lib /facebook/react
+
+# Scrape only one specific versioned lib
+mise exec -- go run ./cmd/scraper -db deadzone.db -lib /facebook/react/v18
+```
+
+`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry.
 
 > **First-run model download.** The first `just scrape` or `just serve` invocation downloads the MiniLM-L6-v2 ONNX weights (~90 MB) into the platform user-cache directory under `deadzone/models/`:
 >

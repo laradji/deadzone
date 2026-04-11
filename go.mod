@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/knights-analytics/hugot v0.7.0
 	github.com/modelcontextprotocol/go-sdk v1.5.0
+	gopkg.in/yaml.v3 v3.0.1
 	turso.tech/database/tursogo v0.5.3
 )
 

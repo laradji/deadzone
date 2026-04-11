@@ -1,0 +1,31 @@
+# Deadzone library registry — see #51 and the Quick start in README.md.
+#
+# Each entry is one library to scrape. Required fields:
+#
+#   lib_id   canonical "/org/project" identifier (matches db.docs.lib_id)
+#   kind     source kind discriminator (only "github-md" is valid in v1)
+#   urls     list of doc URLs to fetch
+#
+# Optional:
+#
+#   versions  list of version tags. When present, every URL must contain
+#             the literal "{version}" placeholder; one effective entry is
+#             produced per version with lib_id "<lib_id>/<version>".
+#
+# Override this path with `deadzone-scraper -config <path>`. Restrict a run
+# to one library with `-lib /org/project` (matches all versions of that
+# base) or `-lib /org/project/v18` (matches one expanded version).
+
+libraries:
+  - lib_id: /modelcontextprotocol/go-sdk
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/server.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/client.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/protocol.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/mcpgodebug.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/troubleshooting.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/rough_edges.md
