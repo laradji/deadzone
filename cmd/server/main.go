@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -239,6 +240,17 @@ func run() error {
 	// structured JSON to stderr — never stdout, which is the MCP
 	// JSON-RPC channel.
 	slog.SetDefault(logs.New(os.Stderr, *verbose))
+
+	// The server is a read-only consumer of the consolidated DB; it
+	// must NOT auto-create a fresh empty file (that would silently
+	// hide a missed `consolidate` step and serve zero results to
+	// every query). Stat first; if missing, point the operator at
+	// the consolidate command before any other work happens.
+	if _, err := os.Stat(*dbPath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s not found. Run `deadzone-consolidate -db %s -artifacts ./artifacts` first to merge per-lib artifacts into the main database", *dbPath, *dbPath)
+	} else if err != nil {
+		return fmt.Errorf("stat db %s: %w", *dbPath, err)
+	}
 
 	// db.Open validates the embedder's reported meta against whatever
 	// the database was created with; a mismatch fails fast and tells

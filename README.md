@@ -67,16 +67,38 @@ mise install
 # 2. Build — no CGO required
 just build             # = mise exec -- go build ./...
 
-# 3. Scrape and index a library (defaults to ./deadzone.db)
-just scrape            # = mise exec -- go run ./cmd/scraper -db deadzone.db
-# → indexes every library listed in ./libraries_sources.yaml
+# 3. Scrape every library in libraries_sources.yaml into per-lib artifacts
+just scrape            # = mise exec -- go run ./cmd/scraper -artifacts ./artifacts
+# → writes one artifacts/<lib_id>.db file per entry in libraries_sources.yaml
 # → ships preloaded with the modelcontextprotocol/go-sdk docs
 
-# 4. Run the MCP server
+# 4. Merge the per-lib artifacts into the main deadzone.db
+just consolidate       # = mise exec -- go run ./cmd/consolidate -db deadzone.db -artifacts ./artifacts
+
+# 5. Run the MCP server against the consolidated DB
 just serve             # = mise exec -- go run ./cmd/server -db deadzone.db
 ```
 
-Run `just` (no args) to list every recipe. Override the DB path with positional args: `just scrape foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
+The `artifacts/` directory and `deadzone.db` are both gitignored — `artifacts/` holds the per-lib source-of-truth files and `deadzone.db` is the derived view the server reads. The server refuses to start if `deadzone.db` is missing and tells you to run `consolidate` first; it never auto-creates an empty file.
+
+Run `just` (no args) to list every recipe. Override the DB path with positional args: `just consolidate foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
+
+### Refreshing a single library
+
+The whole point of the per-lib artifact layout is that one library can be re-scraped without touching the others. Pass the lib_id to `just scrape` (matches the registry's `lib_id` field; for multi-version libs you can target the base or one expanded version):
+
+```bash
+# Re-scrape every version of /facebook/react and rebuild its artifact(s)
+just scrape /facebook/react
+
+# Re-scrape only one expanded version
+just scrape /facebook/react/v18
+
+# Then merge the refreshed artifact(s) back into the main DB
+just consolidate
+```
+
+`just scrape <lib>` regenerates exactly the matching `artifacts/*.db` files; the others stay byte-identical. `just consolidate` is idempotent — re-running it after a partial scrape just replaces the rows for the libs whose artifacts changed.
 
 ### Configuring which libraries to scrape
 
@@ -112,20 +134,23 @@ libraries:
 
 Adding a new library means adding a YAML entry — no Go editing, no recompile.
 
-The scraper accepts two flags for working with the registry:
+The scraper accepts a few flags for working with the registry and the artifact directory:
 
 ```bash
 # Use a non-default registry path
-mise exec -- go run ./cmd/scraper -db deadzone.db -config /path/to/libraries_sources.yaml
+mise exec -- go run ./cmd/scraper -artifacts ./artifacts -config /path/to/libraries_sources.yaml
+
+# Use a non-default artifacts directory
+mise exec -- go run ./cmd/scraper -artifacts /var/cache/deadzone/artifacts
 
 # Scrape every configured version of one base lib
-mise exec -- go run ./cmd/scraper -db deadzone.db -lib /facebook/react
+mise exec -- go run ./cmd/scraper -artifacts ./artifacts -lib /facebook/react
 
 # Scrape only one specific versioned lib
-mise exec -- go run ./cmd/scraper -db deadzone.db -lib /facebook/react/v18
+mise exec -- go run ./cmd/scraper -artifacts ./artifacts -lib /facebook/react/v18
 ```
 
-`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry.
+`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<lib_id>.db` file — the leading `/` is stripped and the remaining `/` characters become `_`, so `/facebook/react/v18` lands at `artifacts/facebook_react_v18.db`.
 
 > **First-run model download.** The first `just scrape` or `just serve` invocation downloads the MiniLM-L6-v2 ONNX weights (~90 MB) into the platform user-cache directory under `deadzone/models/`:
 >
@@ -158,14 +183,16 @@ Then call the `search_docs` or `search_libraries` tool from the client.
 ```
 deadzone/
 ├── cmd/
-│   ├── server/    # MCP server entrypoint (search_docs tool)
-│   └── scraper/   # CLI: fetch, embed & index a library's docs
+│   ├── server/        # MCP server entrypoint (search_docs / search_libraries)
+│   ├── scraper/       # CLI: fetch, embed & write per-lib artifacts
+│   └── consolidate/   # CLI: merge per-lib artifacts into the main DB
 ├── internal/
-│   ├── db/        # Turso schema and vector queries (F32_BLOB + vector_distance_cos)
-│   ├── embed/     # Embedder interface + hugot/MiniLM implementation
-│   └── scraper/   # Markdown fetcher + parser (H2-split, fence-aware)
+│   ├── db/            # Turso schema, vector queries, consolidation helper
+│   ├── embed/         # Embedder interface + hugot/MiniLM implementation
+│   └── scraper/       # Markdown fetcher + parser (H2-split, fence-aware)
+├── artifacts/         # gitignored: per-lib .db source-of-truth files
 └── docs/
-    └── research/  # Design notes (Context7 analysis, tursogo migration, etc.)
+    └── research/      # Design notes (Context7 analysis, tursogo migration, etc.)
 ```
 
 ## Why vector search
@@ -176,11 +203,12 @@ More background in [`docs/research/context7-analysis.md`](docs/research/context7
 
 ## Debugging
 
-Both binaries emit structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `cmd/server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `cmd/scraper` follows the same convention for consistency.
+All three binaries emit structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `cmd/server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `cmd/scraper` and `cmd/consolidate` follow the same convention for consistency.
 
-- **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`), `scraper.indexed` summaries, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error.
-- **Server.** `cmd/server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`.
-- **Verbose mode.** Both binaries take `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
+- **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error.
+- **Consolidate.** `just consolidate` emits a `consolidate.start` and a `consolidate.done` with the `artifacts` count, `docs_merged`, `libs_merged`, and `duration_ms`. A failure aborts before any write reaches the main DB; the wrapped error names the offending artifact.
+- **Server.** `cmd/server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. If the configured `-db` is missing the server refuses to start and prints a one-liner pointing at `deadzone-consolidate`.
+- **Verbose mode.** All three binaries take `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
 
 ## Roadmap
 

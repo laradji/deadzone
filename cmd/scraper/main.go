@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/laradji/deadzone/internal/db"
@@ -23,7 +25,7 @@ func main() {
 }
 
 func run() error {
-	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
+	artifactsDir := flag.String("artifacts", "./artifacts", "directory to write per-lib artifact .db files into")
 	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	verbose := flag.Bool("verbose", false, "emit per-doc Debug log lines in addition to per-URL summaries")
 	configPath := flag.String("config", "libraries_sources.yaml", "path to libraries_sources.yaml registry")
@@ -49,6 +51,13 @@ func run() error {
 		return fmt.Errorf("no libraries to scrape in %s", *configPath)
 	}
 
+	// One artifacts/ dir per scraper run; created on demand so the
+	// first invocation on a fresh checkout doesn't require an extra
+	// `mkdir -p` step in the README.
+	if err := os.MkdirAll(*artifactsDir, 0o755); err != nil {
+		return fmt.Errorf("create artifacts dir %s: %w", *artifactsDir, err)
+	}
+
 	e, err := embed.New(*embedderKind)
 	if err != nil {
 		return fmt.Errorf("embedder: %w", err)
@@ -59,24 +68,17 @@ func run() error {
 		}
 	}()
 
-	// db.Open enforces meta consistency: if the database already exists
-	// and was indexed with a different embedder, it returns
-	// db.ErrEmbedderMismatch and we abort without touching the data.
-	d, err := db.Open(*dbPath, db.Meta{
+	meta := db.Meta{
 		EmbedderKind: e.Kind(),
 		EmbeddingDim: e.Dim(),
 		ModelVersion: e.ModelVersion(),
-	})
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
 	}
-	defer d.Close()
 
 	slog.Info("scraper.start",
 		"config_path", *configPath,
 		"lib_filter", *libFilter,
 		"lib_count", len(sources),
-		"db_path", *dbPath,
+		"artifacts_dir", *artifactsDir,
 		"embedder_kind", e.Kind(),
 		"embedding_dim", e.Dim(),
 		"model_version", e.ModelVersion(),
@@ -87,7 +89,7 @@ func run() error {
 	var docsTotal int
 
 	for _, src := range sources {
-		libDocs, err := scrapeLib(ctx, http.DefaultClient, e, d, src)
+		libDocs, err := scrapeLibToArtifact(ctx, http.DefaultClient, e, meta, *artifactsDir, src)
 		if err != nil {
 			return err
 		}
@@ -98,29 +100,59 @@ func run() error {
 		"lib_count", len(sources),
 		"docs_total", docsTotal,
 		"duration_ms", time.Since(runStart).Milliseconds(),
-		"db_path", *dbPath,
+		"artifacts_dir", *artifactsDir,
 	)
 	return nil
 }
 
-// scrapeLib runs the per-URL fetch / embed / insert loop for one resolved
-// library and returns the number of docs successfully indexed. It is
-// extracted from run() so the multi-library loop stays readable while the
-// per-URL bookkeeping (timings, fetch_failed events, embed/insert
-// summaries) keeps its single-lib structure.
-func scrapeLib(
+// scrapeLibToArtifact handles one resolved library end-to-end: it
+// computes the artifact path from the lib_id, removes any pre-existing
+// artifact file (and tursogo's WAL/SHM sidecars) so the new run starts
+// from a clean slate, opens a fresh per-lib DB via OpenArtifact, runs
+// the per-URL fetch/embed/insert loop, updates the libs catalog row,
+// and closes the artifact. Returns the number of docs successfully
+// indexed for the operator log.
+//
+// Each artifact contains exactly one lib_id by construction; the
+// "delete then open" rebuild model is intentional — the per-lib
+// granularity is the whole point of #28, so a partial scrape that
+// leaves an artifact stale would defeat the design. If the rebuild
+// fails midway the artifact file is missing on disk, not corrupted,
+// and the operator can re-run the same -lib filter to retry.
+func scrapeLibToArtifact(
 	ctx context.Context,
 	client *http.Client,
 	e embed.Embedder,
-	d *db.DB,
+	meta db.Meta,
+	artifactsDir string,
 	src scraper.ResolvedSource,
 ) (int, error) {
+	artifactPath := filepath.Join(artifactsDir, artifactFilename(src.LibID))
+
+	// Wipe any prior artifact + tursogo sidecar files. The sidecars
+	// are journaling state; an orphaned -wal/-shm pointing at a now-
+	// deleted main file confuses the next Open. Errors from os.Remove
+	// for non-existent files are ignored — the only thing we care
+	// about is that nothing from a previous run survives this point.
+	for _, p := range []string{artifactPath, artifactPath + "-wal", artifactPath + "-shm"} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return 0, fmt.Errorf("remove stale artifact %s: %w", p, err)
+		}
+	}
+
+	d, err := db.OpenArtifact(artifactPath, meta, src.LibID)
+	if err != nil {
+		return 0, fmt.Errorf("open artifact %s: %w", artifactPath, err)
+	}
+	defer d.Close()
+
 	slog.Info("scraper.lib_start",
 		"lib_id", src.LibID,
 		"base_lib_id", src.BaseLibID,
 		"version", src.Version,
 		"kind", src.Kind,
 		"url_count", len(src.URLs),
+		"artifact_path", artifactPath,
 	)
 
 	// Make sure the libs catalog row exists before we start indexing
@@ -220,13 +252,11 @@ func scrapeLib(
 		docsTotal += docsInserted
 	}
 
-	// Update the libs catalog with the actual indexed doc count so
-	// search_libraries can rank by "how well-indexed is this lib". The
-	// scraper currently appends to docs without dedupe (see #28 for
-	// the per-lib artifact story), so docsTotal here is the new-rows
-	// count for this run, not the absolute table row count for the
-	// lib; callers re-running the scraper on a non-fresh DB are
-	// expected to drop & re-scrape per issue #44's migration story.
+	// Update the libs catalog with the final indexed doc count so
+	// search_libraries can rank by "how well-indexed is this lib".
+	// Each artifact is rebuilt from scratch, so docsTotal is the
+	// absolute row count for the lib in this artifact — no append-
+	// vs-replace ambiguity.
 	if err := db.UpdateLibCount(d, src.LibID, docsTotal); err != nil {
 		slog.Error("scraper.update_lib_count_failed",
 			"lib_id", src.LibID,
@@ -240,6 +270,22 @@ func scrapeLib(
 		"lib_id", src.LibID,
 		"docs_total", docsTotal,
 		"duration_ms", time.Since(libStart).Milliseconds(),
+		"artifact_path", artifactPath,
 	)
 	return docsTotal, nil
+}
+
+// artifactFilename derives the on-disk basename for a lib_id's
+// artifact: the leading "/" is stripped and the remaining slashes
+// become underscores. Example:
+//
+//	/modelcontextprotocol/go-sdk → modelcontextprotocol_go-sdk.db
+//	/facebook/react/v18         → facebook_react_v18.db
+//
+// The mapping is deterministic and 1:1 with the lib_id, so an operator
+// can read the file listing of artifacts/ and recover every lib by
+// inspection. Hyphens and dots are preserved.
+func artifactFilename(libID string) string {
+	trimmed := strings.TrimPrefix(libID, "/")
+	return strings.ReplaceAll(trimmed, "/", "_") + ".db"
 }
