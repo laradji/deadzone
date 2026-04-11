@@ -49,8 +49,20 @@ consolidate db="deadzone.db":
 serve db="deadzone.db":
     {{go}} run ./cmd/server -db {{db}}
 
-# Remove built binaries, artifacts, and the local DB files
+# Upload local artifacts/*.db files to the rolling GitHub Release (see #30)
+packs-upload:
+    {{go}} run ./cmd/packs upload -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
+
+# Download release assets referenced by the manifest into ./artifacts (pass lib=/org/project to fetch one)
+packs-download lib="":
+    {{go}} run ./cmd/packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml {{ if lib != "" { "-lib " + lib } else { "" } }}
+
+# Print the manifest as a table to stdout
+packs-list:
+    {{go}} run ./cmd/packs list -manifest ./artifacts/manifest.yaml
+
+# Remove built binaries, per-lib artifacts, and the local DB files (preserves artifacts/manifest.yaml)
 clean:
-    rm -f deadzone deadzone-server deadzone-consolidate
+    rm -f deadzone deadzone-server deadzone-consolidate deadzone-packs
     rm -f deadzone.db deadzone.db-wal deadzone.db-shm
-    rm -rf artifacts
+    rm -f artifacts/*.db artifacts/*.db-wal artifacts/*.db-shm

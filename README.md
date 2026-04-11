@@ -67,10 +67,10 @@ mise install
 # 2. Build — no CGO required
 just build             # = mise exec -- go build ./...
 
-# 3. Scrape every library in libraries_sources.yaml into per-lib artifacts
-just scrape            # = mise exec -- go run ./cmd/scraper -artifacts ./artifacts
-# → writes one artifacts/<lib_id>.db file per entry in libraries_sources.yaml
-# → ships preloaded with the modelcontextprotocol/go-sdk docs
+# 3. Pull pre-built per-lib artifacts from the rolling GitHub Release
+just packs-download    # = mise exec -- go run ./cmd/packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
+# → reads artifacts/manifest.yaml and downloads every referenced .db
+# → verifies sha256 on the way down; aborts loudly on mismatch
 
 # 4. Merge the per-lib artifacts into the main deadzone.db
 just consolidate       # = mise exec -- go run ./cmd/consolidate -db deadzone.db -artifacts ./artifacts
@@ -79,26 +79,36 @@ just consolidate       # = mise exec -- go run ./cmd/consolidate -db deadzone.db
 just serve             # = mise exec -- go run ./cmd/server -db deadzone.db
 ```
 
-The `artifacts/` directory and `deadzone.db` are both gitignored — `artifacts/` holds the per-lib source-of-truth files and `deadzone.db` is the derived view the server reads. The server refuses to start if `deadzone.db` is missing and tells you to run `consolidate` first; it never auto-creates an empty file.
+The `artifacts/*.db` files and `deadzone.db` are both gitignored — `artifacts/*.db` are the per-lib source-of-truth blobs (distributed via GitHub Releases, see [Refreshing a single library](#refreshing-a-single-library)) and `deadzone.db` is the derived view the server reads. The committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) is the audit trail mapping every lib to its current sha256. The server refuses to start if `deadzone.db` is missing and tells you to run `consolidate` first; it never auto-creates an empty file.
 
 Run `just` (no args) to list every recipe. Override the DB path with positional args: `just consolidate foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
 
 ### Refreshing a single library
 
-The whole point of the per-lib artifact layout is that one library can be re-scraped without touching the others. Pass the lib_id to `just scrape` (matches the registry's `lib_id` field; for multi-version libs you can target the base or one expanded version):
+The per-lib artifact layout means one library can be re-scraped, re-uploaded, and re-distributed without touching the others. The flow has four steps and is the same for both single-version libs and multi-version (`/facebook/react/v18`, `/facebook/react/v19`, …) entries:
 
 ```bash
-# Re-scrape every version of /facebook/react and rebuild its artifact(s)
-just scrape /facebook/react
+# 1. Re-scrape locally (rebuilds exactly the matching artifacts/*.db files)
+just scrape /facebook/react           # base — every versioned child
+just scrape /facebook/react/v18       # one expanded version
 
-# Re-scrape only one expanded version
-just scrape /facebook/react/v18
+# 2. Push the refreshed artifact(s) to the rolling GitHub Release.
+#    Idempotent: artifacts whose sha256 already matches the manifest
+#    are skipped, no `gh` calls made.
+just packs-upload
 
-# Then merge the refreshed artifact(s) back into the main DB
-just consolidate
+# 3. Commit the manifest diff so reviewers can see exactly which libs
+#    were refreshed (sha256 + indexed_at change in lockstep).
+git add artifacts/manifest.yaml && git commit -m "refresh /facebook/react"
+git push
+
+# 4. Anyone else just runs `just packs-download && just consolidate` to
+#    pick up the new artifact.
 ```
 
-`just scrape <lib>` regenerates exactly the matching `artifacts/*.db` files; the others stay byte-identical. `just consolidate` is idempotent — re-running it after a partial scrape just replaces the rows for the libs whose artifacts changed.
+`packs upload` shells out to `gh release upload <tag> <file> --clobber` for each changed artifact, auto-creating the release on first use. The `gh` CLI handles auth via your existing `gh auth login` state — Deadzone does not handle GitHub tokens directly. Override the target repo with `-repo owner/name` if you're working from a fork.
+
+Use `just packs-list` to print the current manifest contents as a table, or `just packs-download lib=/facebook/react` to fetch only one library's assets without pulling the whole corpus.
 
 ### Configuring which libraries to scrape
 
@@ -230,12 +240,16 @@ deadzone/
 ├── cmd/
 │   ├── server/        # MCP server entrypoint (search_docs / search_libraries)
 │   ├── scraper/       # CLI: fetch, embed & write per-lib artifacts
-│   └── consolidate/   # CLI: merge per-lib artifacts into the main DB
+│   ├── consolidate/   # CLI: merge per-lib artifacts into the main DB
+│   └── packs/         # CLI: upload/download per-lib artifacts via GitHub Releases
 ├── internal/
 │   ├── db/            # Turso schema, vector queries, consolidation helper
 │   ├── embed/         # Embedder interface + hugot/MiniLM implementation
-│   └── scraper/       # Markdown fetcher + parser (H2-split, fence-aware)
-├── artifacts/         # gitignored: per-lib .db source-of-truth files
+│   ├── scraper/       # Markdown fetcher + parser (H2-split, fence-aware)
+│   └── packs/         # Manifest schema, upload/download/list, gh wrapper
+├── artifacts/
+│   ├── manifest.yaml  # tracked: sha256 + indexed_at audit trail
+│   └── *.db           # gitignored: per-lib source-of-truth files
 └── docs/
     └── research/      # Design notes (Context7 analysis, tursogo migration, etc.)
 ```
@@ -248,12 +262,13 @@ More background in [`docs/research/context7-analysis.md`](docs/research/context7
 
 ## Debugging
 
-All three binaries emit structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `cmd/server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `cmd/scraper` and `cmd/consolidate` follow the same convention for consistency.
+All four binaries emit structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `cmd/server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `cmd/scraper`, `cmd/consolidate`, and `cmd/packs` follow the same convention for consistency. (`cmd/packs list` is the one exception: it writes a human-facing table to stdout so callers can pipe it through `awk`/`column`.)
 
 - **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`, and `kind`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error. When any source uses `kind: scrape-via-agent`, expect `scraper.agent_configured` and `scraper.agent_ping_ok` once at startup; per-doc hallucination drops show up as `scraper.agent_verification_failed`, and oversized inputs as `agent.input_truncated`.
 - **Consolidate.** `just consolidate` emits a `consolidate.start` and a `consolidate.done` with the `artifacts` count, `docs_merged`, `libs_merged`, and `duration_ms`. A failure aborts before any write reaches the main DB; the wrapped error names the offending artifact.
+- **Packs.** `just packs-upload` emits `packs.upload.start` (with the resolved repo and `repo_source=flag|manifest|default`), one `packs.upload.skipped` per artifact whose sha256 already matches the manifest, one `packs.upload.uploaded` per artifact pushed via `gh release upload`, an optional `packs.upload.creating_release` if the rolling tag didn't exist yet, and a final `packs.upload.done` with `uploaded`/`skipped`/`preserved` counts. `just packs-download` emits `packs.download.start`, one `packs.verified` per local file whose sha256 matches the manifest (zero network calls), `packs.verified_redownload` when a tampered local file is being silently re-fetched, `packs.downloaded` per fresh fetch, and `packs.download.done` with the rollup. Server-side sha256 mismatches abort with a `download <lib_id>: sha256 mismatch` error and never overwrite the canonical local file.
 - **Server.** `cmd/server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. If the configured `-db` is missing the server refuses to start and prints a one-liner pointing at `deadzone-consolidate`.
-- **Verbose mode.** All three binaries take `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
+- **Verbose mode.** All four binaries take `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
 
 ## Roadmap
 

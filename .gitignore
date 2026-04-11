@@ -1,10 +1,17 @@
 /deadzone
 /deadzone-server
 /deadzone-consolidate
+/deadzone-packs
 /deadzone.db
 /deadzone.db-wal
 /deadzone.db-shm
-/artifacts/
+# /artifacts/ holds disposable per-lib .db build outputs and tursogo
+# WAL/SHM sidecars, but artifacts/manifest.yaml is a tracked source file
+# (it's the audit trail for which artifact version is canonical — see
+# issue #30). Patterns are .db-only so the manifest stays trackable.
+/artifacts/*.db
+/artifacts/*.db-wal
+/artifacts/*.db-shm
 /.envrc
 .DS_Store
 .mcp.json
