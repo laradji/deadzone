@@ -35,3 +35,17 @@ libraries:
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/mcpgodebug.md
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/troubleshooting.md
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/rough_edges.md
+
+  - lib_id: /tiangolo/fastapi
+    kind: scrape-via-agent
+    urls:
+      - https://fastapi.tiangolo.com/tutorial/first-steps/
+      - https://fastapi.tiangolo.com/tutorial/path-params/
+      - https://fastapi.tiangolo.com/tutorial/query-params/
+      - https://fastapi.tiangolo.com/tutorial/body/
+      - https://fastapi.tiangolo.com/tutorial/response-model/
+      - https://fastapi.tiangolo.com/tutorial/extra-models/
+      - https://fastapi.tiangolo.com/tutorial/response-status-code/
+      - https://fastapi.tiangolo.com/tutorial/handling-errors/
+      - https://fastapi.tiangolo.com/tutorial/dependencies/
+      - https://fastapi.tiangolo.com/tutorial/security/
