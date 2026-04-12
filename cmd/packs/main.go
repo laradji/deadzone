@@ -25,8 +25,17 @@ import (
 	"os"
 	"time"
 
+	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/laradji/deadzone/internal/packs"
+)
+
+// Build-time values overridden by `-ldflags -X main.version=…` at
+// release build time (see justfile's build-release recipe).
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
 )
 
 func main() {
@@ -54,6 +63,9 @@ func run(sub string, args []string) error {
 	case "-h", "--help", "help":
 		usage()
 		return nil
+	case "-version", "--version", "version":
+		fmt.Println(buildinfo.Format("deadzone-packs", version, commit, date))
+		return nil
 	default:
 		usage()
 		return fmt.Errorf("unknown subcommand %q", sub)
@@ -67,6 +79,7 @@ Subcommands:
   upload    Upload local artifacts/*.db to the rolling GitHub Release
   download  Download release assets referenced by the manifest into ./artifacts
   list      Print the manifest as a table
+  version   Print version and exit
 
 Run "deadzone-packs <subcommand> -h" for the flags supported by each.`)
 }

@@ -10,13 +10,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "v0.1.0"
+// Build-time values overridden by `-ldflags -X main.version=…` at
+// release build time (see justfile's build-release recipe). The
+// defaults are what an unflagged `go build ./cmd/server` produces.
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
 
 // Library IDs follow the format /org/project (e.g. /hashicorp/terraform)
 type SearchDocsInput struct {
@@ -234,7 +242,17 @@ func run() error {
 	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
 	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	verbose := flag.Bool("verbose", false, "include the raw query text in per-call logs")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	// -version is the fastest path through the binary: no embedder
+	// load, no DB stat, no slog wiring. Short-circuit before anything
+	// else so `deadzone-server -version` works in a container with no
+	// db and no model cache.
+	if *showVersion {
+		fmt.Println(buildinfo.Format("deadzone-server", version, commit, date))
+		return nil
+	}
 
 	// Wire slog before any other work so subsequent error paths emit
 	// structured JSON to stderr — never stdout, which is the MCP
@@ -285,7 +303,9 @@ func run() error {
 	}
 
 	slog.Info("server.start",
-		"version", serverVersion,
+		"version", version,
+		"commit", commit,
+		"build_date", date,
 		"db_path", *dbPath,
 		"embedder_kind", e.Kind(),
 		"embedding_dim", e.Dim(),
@@ -293,7 +313,7 @@ func run() error {
 		"doc_count", docCount,
 	)
 
-	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: serverVersion}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: version}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_docs",
 		Description: "Search documentation snippets for a library. Use lib_id in /org/project format to filter by library.",
