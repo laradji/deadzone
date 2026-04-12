@@ -11,6 +11,8 @@ import (
 	"github.com/knights-analytics/hugot"
 	"github.com/knights-analytics/hugot/options"
 	"github.com/knights-analytics/hugot/pipelines"
+
+	"github.com/laradji/deadzone/internal/ort"
 )
 
 // KindHugot is the Kind() value reported by the Hugot embedder, and the only
@@ -41,13 +43,6 @@ const (
 	documentPrefix = "search_document: "
 )
 
-// EnvORTLibraryPath names the env var pointing at the directory that
-// contains libonnxruntime.{dylib,so,dll}. When unset, hugot's ORT backend
-// falls back to runtime-specific defaults (e.g. "libonnxruntime.dylib" on
-// the dylib search path for macOS). #73 will add an auto-download step so
-// users don't need to set this by hand.
-const EnvORTLibraryPath = "DEADZONE_ORT_LIB_PATH"
-
 // Hugot wraps a hugot Session + FeatureExtractionPipeline running on the
 // ORT (onnxruntime) backend. One Hugot is meant to live for the lifetime
 // of a process: NewHugot is expensive (downloads + loads the model + spins
@@ -74,10 +69,13 @@ type Hugot struct {
 // int8 nomic quantized variant) and the ORT session warm-up. Subsequent
 // runs reuse the on-disk model.
 //
-// The ORT shared library is located via EnvORTLibraryPath if set, otherwise
-// hugot falls back to its platform default. Building with `-tags ORT` and
-// CGO_ENABLED=1 is required — without the tag, hugot.NewORTSession below
-// compiles as a stub that returns a clear error.
+// The ORT shared library is resolved via internal/ort.Bootstrap: the
+// pinned release is downloaded + SHA256-verified + cached on first use
+// and re-used on every subsequent run. Set DEADZONE_ORT_LIB_PATH to
+// bypass the download and point at a hand-positioned library (air-gapped
+// installs, pinned mirrors). Building with `-tags ORT` and CGO_ENABLED=1
+// is required — without the tag, hugot.NewORTSession below compiles as a
+// stub that returns a clear error.
 func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 	if modelName == "" {
 		modelName = DefaultHugotModel
@@ -108,11 +106,11 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 		return nil, fmt.Errorf("hugot: stat model file: %w", err)
 	}
 
-	var sessionOpts []options.WithOption
-	if p := os.Getenv(EnvORTLibraryPath); p != "" {
-		sessionOpts = append(sessionOpts, options.WithOnnxLibraryPath(p))
+	libDir, err := ort.Bootstrap("")
+	if err != nil {
+		return nil, fmt.Errorf("hugot: bootstrap onnxruntime: %w", err)
 	}
-	session, err := hugot.NewORTSession(sessionOpts...)
+	session, err := hugot.NewORTSession(options.WithOnnxLibraryPath(libDir))
 	if err != nil {
 		return nil, fmt.Errorf("hugot: new ORT session: %w", err)
 	}
