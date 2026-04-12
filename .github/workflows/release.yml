@@ -1,0 +1,151 @@
+name: Release
+
+# Triggered by a tag push like `git tag v0.1.0-rc1 && git push --tags`.
+# Builds the four deadzone CLIs natively on one runner per target,
+# uploads per-platform tarballs as build artifacts, then aggregates
+# them into a GitHub Release with a sha256 checksums file.
+#
+# Native runners (no cross-compile) because the hugot ORT backend
+# requires CGO_ENABLED=1 and a matching libtokenizers.a — see #70 for
+# the full comparison against goreleaser-cross / Zig CC.
+on:
+  push:
+    tags: ['v*']
+  # Manual trigger for dry-run testing on a branch. The matrix still
+  # runs, but the aggregation job skips `gh release create` because
+  # there is no tag to attach assets to.
+  workflow_dispatch:
+
+# TOKENIZERS_VERSION is the daulet/tokenizers release tag; bumping is
+# a conscious step — the composite action keys its cache on this file
+# so a bump invalidates cached archives on all three runners.
+env:
+  TOKENIZERS_VERSION: v1.26.0
+
+jobs:
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          # GitHub's free public arm64 label is `ubuntu-24.04-arm`
+          # (not `-arm64` as the issue body suggests).
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # mise supplies the Go + just versions pinned in .mise.toml, so
+      # CI builds with the same toolchain as a dev laptop running
+      # `just build-release`.
+      - uses: jdx/mise-action@v2
+
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+
+      - name: Resolve version metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          # On a tag push github.ref_name is the tag (v0.1.0); on
+          # workflow_dispatch it is the branch name, which we fall
+          # back to `git describe` to keep the binary self-labelling.
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="$(git describe --tags --dirty --always)"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # `just build-release` wires VERSION/COMMIT/DATE into ldflags and
+      # passes -trimpath + -s -w. Keeping the build logic in the
+      # justfile (not inlined here) is deliberate — so the local
+      # `just build-release` on a dev laptop produces byte-identical
+      # flags to CI.
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          DATE: ${{ steps.meta.outputs.date }}
+          DEADZONE_TOKENIZERS_LIB: /tmp/deadzone-deps/tokenizers
+        run: just build-release
+
+      # Smoke test: the -version flag short-circuits embedder and DB
+      # load, so it runs on any machine without a model cache. This
+      # also proves ldflags injection actually landed.
+      - name: Smoke test -version
+        run: |
+          ./deadzone-server -version
+          ./deadzone-scraper -version
+          ./deadzone-consolidate -version
+          ./deadzone-packs -version
+
+      - name: Package archive
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="deadzone_${{ steps.meta.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir "${name}"
+          cp deadzone-server deadzone-scraper deadzone-consolidate deadzone-packs "${name}/"
+          cp LICENSE NOTICE README.md "${name}/"
+          tar -czf "${name}.tar.gz" "${name}"
+          echo "archive=${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deadzone-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ steps.pkg.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-24.04
+    # Only publish on an actual tag push. workflow_dispatch runs the
+    # matrix (useful to validate the build on a branch) but does not
+    # touch the Releases page.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deadzone-*
+          merge-multiple: true
+          path: dist
+
+      - name: Compute checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum deadzone_*.tar.gz > "deadzone_${GITHUB_REF_NAME}_checksums.txt"
+          cat "deadzone_${GITHUB_REF_NAME}_checksums.txt"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/deadzone_*.tar.gz \
+            "dist/deadzone_${GITHUB_REF_NAME}_checksums.txt"
