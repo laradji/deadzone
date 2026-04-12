@@ -12,10 +12,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/laradji/deadzone/internal/scraper"
+)
+
+// Build-time values overridden by `-ldflags -X main.version=…` at
+// release build time (see justfile's build-release recipe).
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
 )
 
 // maxSkipsPerLib caps the number of per-URL failures tolerated inside a
@@ -41,7 +50,16 @@ func run() error {
 	verbose := flag.Bool("verbose", false, "emit per-doc Debug log lines in addition to per-URL summaries")
 	configPath := flag.String("config", "libraries_sources.yaml", "path to libraries_sources.yaml registry")
 	libFilter := flag.String("lib", "", "scrape only this lib_id (matches base or /base/version); empty = scrape all")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	// Short-circuit before any config load / embedder setup so
+	// `deadzone-scraper -version` works on a checkout with no env
+	// vars and no model cache.
+	if *showVersion {
+		fmt.Println(buildinfo.Format("deadzone-scraper", version, commit, date))
+		return nil
+	}
 
 	// stderr-only JSON logging keeps the scraper consistent with
 	// cmd/server (which has a hard stdout-is-JSON-RPC constraint).

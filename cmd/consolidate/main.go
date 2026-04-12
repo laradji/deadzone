@@ -19,9 +19,18 @@ import (
 	"os"
 	"time"
 
+	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
+)
+
+// Build-time values overridden by `-ldflags -X main.version=…` at
+// release build time (see justfile's build-release recipe).
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
 )
 
 func main() {
@@ -36,7 +45,15 @@ func run() error {
 	artifactsDir := flag.String("artifacts", "./artifacts", "directory containing per-lib artifact .db files")
 	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	verbose := flag.Bool("verbose", false, "verbose logging")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	// Short-circuit before embedder load so `-version` works on a
+	// checkout with no model cache.
+	if *showVersion {
+		fmt.Println(buildinfo.Format("deadzone-consolidate", version, commit, date))
+		return nil
+	}
 
 	slog.SetDefault(logs.New(os.Stderr, *verbose))
 
