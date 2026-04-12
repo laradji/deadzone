@@ -4,10 +4,25 @@
 # PATH. Every recipe wraps `go` in `mise exec --` so neither humans nor
 # agents have to remember the prefix. `just` itself is also pinned in
 # .mise.toml, so `mise install` brings up the whole toolchain.
+#
+# CGO: the hugot embedder runs on the ORT (onnxruntime) backend, which
+# pulls in daulet/tokenizers — a Rust-backed CGO tokenizer. Building
+# therefore requires:
+#
+#   CGO_ENABLED=1
+#   -tags ORT
+#   libtokenizers.a available at link time
+#
+# By default recipes pass -L./lib to cgo. Set DEADZONE_TOKENIZERS_LIB to
+# point `go build` at a different directory (e.g. /opt/homebrew/lib). The
+# library itself is a static archive from
+# https://github.com/daulet/tokenizers/releases — place it in ./lib/ or
+# override the env var. The ORT shared library (libonnxruntime.{dylib,so})
+# is resolved at runtime via DEADZONE_ORT_LIB_PATH — see internal/embed.
+# #73 will add auto-download for the ORT shared library; #74 will wire
+# both native deps into release CI.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
-
-go := "mise exec -- go"
 
 # List available recipes
 default:
@@ -17,9 +32,10 @@ default:
 bootstrap:
     mise install
 
-# Compile every package (CGO-free, pure Go). Fast sanity check; produces no binaries.
+# Compile every package. Fast sanity check; produces no binaries.
 build:
-    {{go}} build ./...
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go build -tags ORT ./...
 
 # Build the four CLI binaries with version/commit/date injected via ldflags.
 #
@@ -41,50 +57,57 @@ build-release:
     sha="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
     built="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
     ldflags="-s -w -X main.version=${ver} -X main.commit=${sha} -X main.date=${built}"
+    export CGO_ENABLED=1
+    export CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}"
     for bin in server scraper consolidate packs; do
-        mise exec -- go build -trimpath -ldflags "${ldflags}" -o "deadzone-${bin}" "./cmd/${bin}"
+        mise exec -- go build -tags ORT -trimpath -ldflags "${ldflags}" -o "deadzone-${bin}" "./cmd/${bin}"
     done
     echo "built deadzone-{server,scraper,consolidate,packs} ${ver} (${sha}, built ${built})"
 
 # Run the full test suite
 test:
-    {{go}} test ./...
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go test -tags ORT ./...
 
 # Format all Go sources
 fmt:
-    {{go}} fmt ./...
+    mise exec -- go fmt ./...
 
 # Run `go vet` over every package
 vet:
-    {{go}} vet ./...
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go vet -tags ORT ./...
 
 # Sync go.mod / go.sum with the source
 tidy:
-    {{go}} mod tidy
+    mise exec -- go mod tidy
 
 # Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry)
 scrape lib="":
-    {{go}} run ./cmd/scraper -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }}
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go run -tags ORT ./cmd/scraper -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }}
 
 # Merge per-lib artifacts in ./artifacts/ into the main deadzone DB
 consolidate db="deadzone.db":
-    {{go}} run ./cmd/consolidate -db {{db}} -artifacts ./artifacts
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go run -tags ORT ./cmd/consolidate -db {{db}} -artifacts ./artifacts
 
 # Run the MCP server against the given DB file (must already be consolidated)
 serve db="deadzone.db":
-    {{go}} run ./cmd/server -db {{db}}
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go run -tags ORT ./cmd/server -db {{db}}
 
 # Upload local artifacts/*.db files to the rolling GitHub Release (see #30)
 packs-upload:
-    {{go}} run ./cmd/packs upload -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
+    mise exec -- go run ./cmd/packs upload -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
 
 # Download release assets referenced by the manifest into ./artifacts (pass lib=/org/project to fetch one)
 packs-download lib="":
-    {{go}} run ./cmd/packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml {{ if lib != "" { "-lib " + lib } else { "" } }}
+    mise exec -- go run ./cmd/packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml {{ if lib != "" { "-lib " + lib } else { "" } }}
 
 # Print the manifest as a table to stdout
 packs-list:
-    {{go}} run ./cmd/packs list -manifest ./artifacts/manifest.yaml
+    mise exec -- go run ./cmd/packs list -manifest ./artifacts/manifest.yaml
 
 # Remove built binaries, per-lib artifacts, and the local DB files (preserves artifacts/manifest.yaml)
 clean:

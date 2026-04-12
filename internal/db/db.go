@@ -56,7 +56,7 @@ var ErrArtifactLibIDMismatch = errors.New("artifact lib_id mismatch")
 // compatible way (e.g. a new required table like libs). Stored in the
 // meta table at first Open and cross-checked on every subsequent open
 // against this constant; a mismatch surfaces as ErrSchemaMismatch.
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 // Meta describes the embedder a database was created with. It is written
 // to the meta table the first time a fresh DB is opened and cross-checked
@@ -368,8 +368,13 @@ func SearchByEmbedding(db *DB, queryVec []float32, libID string, k int) ([]Doc, 
 // table already follows) while still letting tests pass a counting
 // wrapper that asserts the embed call is actually skipped on the
 // idempotent re-upsert path.
+//
+// EmbedDocument (not EmbedQuery) is the right method here: a lib_id row
+// is indexed content, retrieved against user queries via
+// SearchLibsByEmbedding. Retrieval-trained models use different prefixes
+// for the two sides and mixing them up silently degrades match quality.
 type LibEmbedder interface {
-	Embed(text string) ([]float32, error)
+	EmbedDocument(text string) ([]float32, error)
 }
 
 // LibInfo is one row of the libs table as returned by SearchLibsByEmbedding
@@ -387,14 +392,14 @@ type LibInfo struct {
 
 // UpsertLibIfNew inserts a row into the libs table for libID iff one
 // doesn't already exist. The embedding is computed from the lib_id text
-// itself with "/" and "-" turned into spaces so MiniLM sees something
+// itself with "/" and "-" turned into spaces so the encoder sees something
 // resembling natural language ("/hashicorp/terraform-provider-aws" →
 // "hashicorp terraform provider aws"). The lib_id is the primary key
 // and the embedding is immutable for the lifetime of the database, so
 // re-running this function for an existing lib is a fast no-op that
-// does NOT call e.Embed — the issue's "at most one Embed call per lib
-// per database" guarantee is enforced here, and verified by tests that
-// count the call against a wrapping LibEmbedder.
+// does NOT call EmbedDocument — the issue's "at most one Embed call per
+// lib per database" guarantee is enforced here, and verified by tests
+// that count the call against a wrapping LibEmbedder.
 func UpsertLibIfNew(d *DB, libID string, e LibEmbedder) error {
 	if libID == "" {
 		return errors.New("upsert lib: libID must not be empty")
@@ -406,7 +411,7 @@ func UpsertLibIfNew(d *DB, libID string, e LibEmbedder) error {
 	if existing > 0 {
 		return nil
 	}
-	vec, err := e.Embed(normalizeLibIDText(libID))
+	vec, err := e.EmbedDocument(normalizeLibIDText(libID))
 	if err != nil {
 		return fmt.Errorf("upsert lib %q: embed: %w", libID, err)
 	}
@@ -516,13 +521,13 @@ func TopLibsByDocCount(d *DB, limit int) ([]LibInfo, error) {
 	return results, rows.Err()
 }
 
-// normalizeLibIDText turns a path-like lib_id into a string MiniLM can
-// embed as natural language: "/" and "-" become spaces, surrounding
+// normalizeLibIDText turns a path-like lib_id into a string the encoder
+// can embed as natural language: "/" and "-" become spaces, surrounding
 // whitespace is trimmed. The transformation is intentionally trivial
 // and lossy — the embedder's job is to project semantic content, not
 // to roundtrip the lib_id. Centroid-of-doc-embeddings was rejected in
 // the issue because it has no recompute-on-partial-rescrape problem
-// and the lib_id text alone gives MiniLM enough signal to handle
+// and the lib_id text alone gives the encoder enough signal to handle
 // queries like "terraform aws" → "/hashicorp/terraform-provider-aws".
 func normalizeLibIDText(libID string) string {
 	return strings.TrimSpace(strings.NewReplacer("/", " ", "-", " ").Replace(libID))

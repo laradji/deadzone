@@ -14,7 +14,7 @@ import (
 )
 
 // testEmbedder is the package-level Hugot shared by every test in this
-// package. Built once in TestMain so the model download + GoMLX session
+// package. Built once in TestMain so the model download + ORT session
 // warm-up cost is amortized over the whole test run.
 var testEmbedder *embed.Hugot
 
@@ -44,15 +44,15 @@ func hugotTestCacheDir() string {
 	return cache + "/deadzone/models"
 }
 
-// embedText is a small convenience that mirrors what the scraper and server
-// do in real life: embed "Title\nContent" into a single vector. Tests call
-// it with t.Helper-style fatality so an embedder failure aborts the test
+// embedText is a small convenience that mirrors what the scraper does in
+// real life: embed "Title\nContent" as a corpus document. Tests call it
+// with t.Helper-style fatality so an embedder failure aborts the test
 // rather than silently passing nil through to db.Insert.
 func embedText(t *testing.T, e embed.Embedder, d db.Doc) []float32 {
 	t.Helper()
-	v, err := e.Embed(d.Title + "\n" + d.Content)
+	v, err := e.EmbedDocument(d.Title + "\n" + d.Content)
 	if err != nil {
-		t.Fatalf("Embed %q: %v", d.Title, err)
+		t.Fatalf("EmbedDocument %q: %v", d.Title, err)
 	}
 	return v
 }
@@ -136,7 +136,7 @@ func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
 		}
 	}
 
-	qv, err := testEmbedder.Embed("create a server")
+	qv, err := testEmbedder.EmbedQuery("create a server")
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
 		}
 	}
 
-	qv, err := testEmbedder.Embed("server")
+	qv, err := testEmbedder.EmbedQuery("server")
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestSearchByEmbedding_Acceptance(t *testing.T) {
 		}
 	}
 
-	qv, err := testEmbedder.Embed("register a tool")
+	qv, err := testEmbedder.EmbedQuery("register a tool")
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
@@ -317,9 +317,9 @@ type countingEmbedder struct {
 	calls int
 }
 
-func (c *countingEmbedder) Embed(text string) ([]float32, error) {
+func (c *countingEmbedder) EmbedDocument(text string) ([]float32, error) {
 	c.calls++
-	return c.inner.Embed(text)
+	return c.inner.EmbedDocument(text)
 }
 
 // TestUpsertLibIfNew_Idempotent is the load-bearing assertion behind the
@@ -412,7 +412,7 @@ func TestSearchLibsByEmbedding_RanksRelevantFirst(t *testing.T) {
 		}
 	}
 
-	qv, err := testEmbedder.Embed("terraform aws")
+	qv, err := testEmbedder.EmbedQuery("terraform aws")
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestSearchLibsByEmbedding_HonoursLimit(t *testing.T) {
 		}
 	}
 
-	qv, err := testEmbedder.Embed("anything")
+	qv, err := testEmbedder.EmbedQuery("anything")
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}

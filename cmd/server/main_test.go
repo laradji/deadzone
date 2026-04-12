@@ -13,7 +13,7 @@ import (
 )
 
 // testEmbedder is the package-level Hugot shared by every test in this
-// package. Built once in TestMain so the model download + GoMLX session
+// package. Built once in TestMain so the model download + ORT session
 // warm-up cost only happens once per `go test ./cmd/server/...`.
 var testEmbedder *embed.Hugot
 
@@ -59,7 +59,7 @@ func TestHandleSearchDocs_ReturnsSnippets(t *testing.T) {
 		{LibID: "/other/lib", Title: "Unrelated", Content: "Something about databases and queries."},
 	}
 	for _, doc := range docs {
-		vec, err := testEmbedder.Embed(doc.Title + "\n" + doc.Content)
+		vec, err := testEmbedder.EmbedDocument(doc.Title + "\n" + doc.Content)
 		if err != nil {
 			t.Fatalf("Embed %q: %v", doc.Title, err)
 		}

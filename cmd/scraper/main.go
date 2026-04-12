@@ -298,7 +298,7 @@ func scrapeLibToArtifact(
 		var docsInserted, docsSkipped int
 		for _, doc := range res.Docs {
 			embedStart := time.Now()
-			vec, err := e.Embed(doc.Title + "\n" + doc.Content)
+			vec, err := e.EmbedDocument(doc.Title + "\n" + doc.Content)
 			embedTotal += time.Since(embedStart)
 			if err != nil {
 				docsSkipped++

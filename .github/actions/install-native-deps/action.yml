@@ -1,0 +1,50 @@
+name: Install native deps
+description: |
+  Download and install the CGO dependencies required to build the
+  deadzone embedder: libtokenizers.a (daulet/tokenizers, statically
+  linked) and libonnxruntime.so (microsoft/onnxruntime, loaded at
+  runtime). Runs on Linux amd64 only — macOS and ARM CI will need a
+  matrix extension here (#74).
+runs:
+  using: composite
+  steps:
+    - name: Cache native deps
+      id: cache
+      uses: actions/cache@v5
+      with:
+        path: /tmp/deadzone-deps
+        # Versions live in the workflow env, but composite actions cannot
+        # read ${{ env.* }} from the caller. Key on the workflow file so
+        # bumping the pinned version in ci.yml invalidates the cache.
+        key: deadzone-deps-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+    - name: Download libtokenizers.a + libonnxruntime.so
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        tok_version="${TOKENIZERS_VERSION:?TOKENIZERS_VERSION must be set in the caller workflow env}"
+        ort_version="${ONNXRUNTIME_VERSION:?ONNXRUNTIME_VERSION must be set in the caller workflow env}"
+
+        mkdir -p /tmp/deadzone-deps/tokenizers /tmp/deadzone-deps/ort
+        cd /tmp
+
+        # daulet/tokenizers ships libtokenizers.a inside a tarball whose
+        # top level IS the .a file (no surrounding directory).
+        curl -fL -o libtokenizers.tgz \
+          "https://github.com/daulet/tokenizers/releases/download/${tok_version}/libtokenizers.linux-amd64.tar.gz"
+        tar -xzf libtokenizers.tgz -C /tmp/deadzone-deps/tokenizers
+        rm libtokenizers.tgz
+
+        # onnxruntime ships a top-level directory containing lib/,
+        # include/, etc. We only need the lib/ contents.
+        curl -fL -o onnxruntime.tgz \
+          "https://github.com/microsoft/onnxruntime/releases/download/v${ort_version}/onnxruntime-linux-x64-${ort_version}.tgz"
+        tar -xzf onnxruntime.tgz
+        # -P preserves the libonnxruntime.so → libonnxruntime.so.${ort_version}
+        # symlink. The SONAME embedded in the versioned file is what the
+        # dynamic loader resolves against; dereferencing the symlink would
+        # produce two independent copies and waste cache space.
+        cp -P onnxruntime-linux-x64-${ort_version}/lib/libonnxruntime.so* /tmp/deadzone-deps/ort/
+        rm -rf onnxruntime.tgz onnxruntime-linux-x64-${ort_version}
+
+        ls -la /tmp/deadzone-deps/tokenizers /tmp/deadzone-deps/ort
