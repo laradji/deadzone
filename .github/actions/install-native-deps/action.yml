@@ -3,8 +3,13 @@ description: |
   Download and install the libtokenizers.a static archive that hugot's
   ORT backend links against at build time. The onnxruntime shared
   library is NOT installed here — internal/ort.Bootstrap downloads,
-  SHA256-verifies, and caches it at first use (see #73). Linux amd64
-  only for now; a macOS / arm64 matrix will land with #74.
+  SHA256-verifies, and caches it at first use (see #73).
+
+  Runs on Linux amd64/arm64 and macOS arm64. The asset is picked from
+  the daulet/tokenizers release matching `$TOKENIZERS_VERSION` (set in
+  the caller workflow env). Output lives at
+  /tmp/deadzone-deps/tokenizers/libtokenizers.a — point CGO_LDFLAGS or
+  DEADZONE_TOKENIZERS_LIB at that directory.
 runs:
   using: composite
   steps:
@@ -13,10 +18,13 @@ runs:
       uses: actions/cache@v5
       with:
         path: /tmp/deadzone-deps
-        # Versions live in the workflow env, but composite actions cannot
-        # read ${{ env.* }} from the caller. Key on the workflow file so
-        # bumping the pinned version in ci.yml invalidates the cache.
-        key: deadzone-deps-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+        # Composite actions cannot read ${{ env.* }} from the caller,
+        # so we key on the caller workflow file — bumping the pinned
+        # TOKENIZERS_VERSION there naturally invalidates the cache.
+        # runner.arch is in the key because ubuntu-24.04 and
+        # ubuntu-24.04-arm both report runner.os=Linux but need
+        # different .a archives.
+        key: deadzone-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml', '.github/workflows/release.yml') }}
     - name: Download libtokenizers.a
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -24,13 +32,20 @@ runs:
         set -euo pipefail
         tok_version="${TOKENIZERS_VERSION:?TOKENIZERS_VERSION must be set in the caller workflow env}"
 
+        case "$(uname -sm)" in
+          "Darwin arm64")           asset="libtokenizers.darwin-arm64.tar.gz" ;;
+          "Linux x86_64")           asset="libtokenizers.linux-amd64.tar.gz" ;;
+          "Linux aarch64"|"Linux arm64") asset="libtokenizers.linux-arm64.tar.gz" ;;
+          *) echo "unsupported platform: $(uname -sm)" >&2; exit 1 ;;
+        esac
+
         mkdir -p /tmp/deadzone-deps/tokenizers
         cd /tmp
 
-        # daulet/tokenizers ships libtokenizers.a inside a tarball whose
-        # top level IS the .a file (no surrounding directory).
+        # daulet/tokenizers tarballs unpack a bare libtokenizers.a (no
+        # wrapping directory), so the extract target is the final dir.
         curl -fL -o libtokenizers.tgz \
-          "https://github.com/daulet/tokenizers/releases/download/${tok_version}/libtokenizers.linux-amd64.tar.gz"
+          "https://github.com/daulet/tokenizers/releases/download/${tok_version}/${asset}"
         tar -xzf libtokenizers.tgz -C /tmp/deadzone-deps/tokenizers
         rm libtokenizers.tgz
 

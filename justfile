@@ -23,7 +23,6 @@
 # SHA256-verified + cached on first run by internal/ort.Bootstrap; set
 # DEADZONE_ORT_LIB_PATH to bypass the download and point at a
 # hand-positioned library (air-gapped installs).
-# #74 will wire libtokenizers.a into release CI.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
