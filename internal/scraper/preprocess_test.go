@@ -77,6 +77,48 @@ func TestPreprocess_RejectsUnknownTypes(t *testing.T) {
 	}
 }
 
+// preprocessGate is the header-only gate used by FetchOneViaAgent to
+// refuse unsupported content types before io.ReadAll. Behavior must
+// stay in lockstep with preprocess so that "accepted by the gate" ⇒
+// "accepted by preprocess" for any body.
+func TestPreprocessGate_MatchesPreprocess(t *testing.T) {
+	cases := []struct {
+		contentType string
+		wantErrIs   error // nil means "no error expected"
+		wantUnknown bool  // true when preprocessGate should return the "unsupported" formatted error
+	}{
+		{"text/html", nil, false},
+		{"text/html; charset=utf-8", nil, false},
+		{"application/xhtml+xml", nil, false},
+		{"text/markdown", nil, false},
+		{"text/x-markdown", nil, false},
+		{"text/plain", nil, false},
+		{"application/pdf", ErrPDFNotSupportedYet, false},
+		{"image/png", nil, true},
+		{"application/octet-stream", nil, true},
+		{"", nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.contentType, func(t *testing.T) {
+			gateErr := preprocessGate(tc.contentType)
+			_, preErr := preprocess([]byte("body"), tc.contentType)
+			// Parity: whatever kind of error preprocessGate returns,
+			// preprocess must agree on (nil-or-not, same sentinel).
+			if (gateErr == nil) != (preErr == nil) {
+				t.Fatalf("parity broken: preprocessGate err=%v, preprocess err=%v", gateErr, preErr)
+			}
+			if tc.wantErrIs != nil && !errors.Is(gateErr, tc.wantErrIs) {
+				t.Errorf("preprocessGate(%q) = %v, want errors.Is %v", tc.contentType, gateErr, tc.wantErrIs)
+			}
+			if tc.wantUnknown {
+				if gateErr == nil || !strings.Contains(gateErr.Error(), "unsupported content type") {
+					t.Errorf("preprocessGate(%q) = %v, want 'unsupported content type'", tc.contentType, gateErr)
+				}
+			}
+		})
+	}
+}
+
 func TestNormalizeContentType_StripsParameters(t *testing.T) {
 	cases := map[string]string{
 		"text/html; charset=utf-8":               "text/html",

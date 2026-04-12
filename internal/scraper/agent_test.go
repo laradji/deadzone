@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // fakeAgentResponse builds a minimal OpenAI-compatible chat completion
@@ -480,6 +483,172 @@ func TestFetchOneViaAgent_PDFContentTypeRejected(t *testing.T) {
 	}
 	if !errors.Is(err, ErrPDFNotSupportedYet) {
 		t.Errorf("expected ErrPDFNotSupportedYet, got %v", err)
+	}
+}
+
+// TestAgentExtract_LongDeadline pins the default per-request timeout
+// to its post-#63 value. A regression to 5 min would re-open the
+// smoke-test failure mode (see #63's repro table), so this assertion
+// exists purely to make that regression loud.
+func TestAgentExtract_LongDeadline(t *testing.T) {
+	agent := NewAgent("http://example.invalid/v1", "test-model", "", nil)
+	got := agent.client.Timeout
+	if got < 15*time.Minute {
+		t.Errorf("default client timeout = %v, want ≥15m (post-#63 floor); 5m regresses the smoke test", got)
+	}
+}
+
+// TestAgentPing_FastTimeout verifies Ping honors agentPingTimeout
+// independently of the per-request HTTP client timeout. A stuck
+// endpoint with a 20-minute client timeout must still bail in ~ping
+// budget via the context deadline.
+func TestAgentPing_FastTimeout(t *testing.T) {
+	// Block the server past any reasonable ping budget. If Ping
+	// doesn't apply its own ctx deadline, the test would either time
+	// out on go-test itself or wait the full client timeout — both
+	// are louder failures than a green pass.
+	//
+	// serverDone is closed by t.Cleanup before srv.Close so the
+	// handler returns promptly; httptest.Server.Close() waits for
+	// active connections and would otherwise hang if r.Context().Done
+	// fires late relative to the client tearing down its side.
+	serverDone := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-serverDone:
+		}
+	}))
+	t.Cleanup(func() {
+		close(serverDone)
+		srv.Close()
+	})
+
+	// Shrink agentPingTimeout so the test takes ~200ms instead of 30s.
+	// Client timeout is deliberately long (mirrors production's 20m)
+	// so a pass proves the ping timeout — not the client — short-
+	// circuited the request.
+	prevPing := agentPingTimeout
+	agentPingTimeout = 200 * time.Millisecond
+	defer func() { agentPingTimeout = prevPing }()
+
+	agent := NewAgent(srv.URL+"/v1", "test-model", "", &http.Client{Timeout: 30 * time.Second})
+
+	start := time.Now()
+	err := agent.Ping(context.Background())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error on hung endpoint")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded wrapped in err, got %v", err)
+	}
+	// Allow 2s slack for scheduler + handshake; production budget is
+	// 30s so this cap needs to be well under it to be meaningful.
+	if elapsed > 2*time.Second {
+		t.Errorf("Ping took %v, expected it to bail near agentPingTimeout (%v)", elapsed, agentPingTimeout)
+	}
+}
+
+// TestAgentDo_ReturnsHTTPStatusError verifies do() wraps non-200 as
+// *HTTPStatusError (reachable via errors.As) instead of a plain
+// fmt.Errorf. cmd/scraper relies on this to classify 5xx as transient.
+func TestAgentDo_ReturnsHTTPStatusError(t *testing.T) {
+	agent, _, _ := startFakeAgent(t, "", http.StatusServiceUnavailable)
+	_, err := agent.Extract(context.Background(), "hello", "text/plain")
+	if err == nil {
+		t.Fatal("expected error on HTTP 503")
+	}
+	var httpErr *HTTPStatusError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected *HTTPStatusError via errors.As, got %T: %v", err, err)
+	}
+	if httpErr.Status != http.StatusServiceUnavailable {
+		t.Errorf("Status = %d, want 503", httpErr.Status)
+	}
+}
+
+// --- IsTransientAgentError --------------------------------------------
+
+func TestIsTransientAgentError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"deadline exceeded", context.DeadlineExceeded, true},
+		{"wrapped deadline exceeded", fmt.Errorf("extract: %w", context.DeadlineExceeded), true},
+		{"canceled (not transient)", context.Canceled, false},
+		{"io.EOF", io.EOF, true},
+		{"io.ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
+		{"ECONNRESET", syscall.ECONNRESET, true},
+		{"EPIPE", syscall.EPIPE, true},
+		{"wrapped ECONNRESET", &net.OpError{Op: "read", Err: syscall.ECONNRESET}, true},
+		{"http 503", &HTTPStatusError{Status: 503, URL: "x"}, true},
+		{"http 500", &HTTPStatusError{Status: 500, URL: "x"}, true},
+		{"http 599", &HTTPStatusError{Status: 599, URL: "x"}, true},
+		{"http 401 (not transient)", &HTTPStatusError{Status: 401, URL: "x"}, false},
+		{"http 404 (not transient)", &HTTPStatusError{Status: 404, URL: "x"}, false},
+		{"wrapped http 502", fmt.Errorf("extract: %w", &HTTPStatusError{Status: 502, URL: "x"}), true},
+		{"plain string error", errors.New("something else"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsTransientAgentError(tc.err)
+			if got != tc.want {
+				t.Errorf("IsTransientAgentError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// --- FetchOneViaAgent: Content-Type gate before body read -------------
+
+// TestFetchOneViaAgent_GatesContentTypeBeforeRead verifies the
+// Content-Type gate runs before io.ReadAll so an unsupported response
+// (here a PDF) is rejected without the body ever being consumed.
+// Implementation: the server writes the headers, flushes, then blocks
+// until its request context cancels. If FetchOneViaAgent reads the
+// body it will hang on io.ReadAll and the test fails the 2-second
+// deadline; if it gates first, the call returns ErrPDFNotSupportedYet
+// within microseconds and the server handler unblocks via the client
+// closing the connection.
+func TestFetchOneViaAgent_GatesContentTypeBeforeRead(t *testing.T) {
+	serverDone := make(chan struct{})
+	defer close(serverDone)
+	sourceSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+		case <-serverDone:
+		}
+	}))
+	defer sourceSrv.Close()
+
+	agent, _, _ := startFakeAgent(t, fakeAgentResponse("ignored"), http.StatusOK)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := FetchOneViaAgent(context.Background(), sourceSrv.Client(), agent, "/test/lib", sourceSrv.URL+"/spec.pdf")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected ErrPDFNotSupportedYet, got nil")
+		}
+		if !errors.Is(err, ErrPDFNotSupportedYet) {
+			t.Errorf("expected ErrPDFNotSupportedYet, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("FetchOneViaAgent did not return within 2s; likely read the response body instead of gating on Content-Type")
 	}
 }
 
