@@ -5,6 +5,23 @@ on:
     branches: [main]
   pull_request:
 
+# Native deps shared by every job that compiles or runs Go code. The
+# embedder uses hugot's ORT backend, which pulls in daulet/tokenizers
+# (CGO, static linked at build time) and libonnxruntime (dynamic, loaded
+# at runtime). Versions are pinned deliberately — bumping either is a
+# conscious step, not a passive upgrade from an upstream "latest" tag.
+#
+# TOKENIZERS_VERSION tracks the daulet/tokenizers Go module version in
+# go.mod; the release tag for the prebuilt libtokenizers.a archive uses
+# the same scheme (see hugot's scripts/download-tokenizers.sh).
+#
+# ONNXRUNTIME_VERSION is pinned to the version validated by spike #67.
+# Bumping it requires re-measuring latency/correctness on a representative
+# corpus before merging.
+env:
+  TOKENIZERS_VERSION: v1.26.0
+  ONNXRUNTIME_VERSION: 1.24.4
+
 jobs:
   lint:
     name: lint
@@ -14,7 +31,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: go vet ./...
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: go vet
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+        run: go vet -tags ORT ./...
 
   build:
     name: build
@@ -24,7 +47,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: go build ./...
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: go build
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+        run: go build -tags ORT ./...
 
   licenses:
     name: licenses
@@ -34,6 +63,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
       # google/go-licenses scans the dep tree and verifies that no
       # transitive dependency carries a license type the project rejects.
       # We disallow `forbidden` (GPL/AGPL/proprietary) and `restricted`
@@ -47,6 +78,13 @@ jobs:
       - name: Install go-licenses
         run: go install github.com/google/go-licenses@latest
       - name: Check transitive license types
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+          # go-licenses runs `go list` internally; GOFLAGS forwards the
+          # ORT build tag so the CGO-only deps (daulet/tokenizers,
+          # yalue/onnxruntime_go) are audited alongside the rest.
+          GOFLAGS: -tags=ORT
         run: go-licenses check ./cmd/server ./cmd/scraper --disallowed_types=forbidden,restricted
 
   test:
@@ -62,9 +100,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      # Cache the ~90 MB MiniLM ONNX weights across runs. Keyed on
-      # internal/embed/hugot.go so bumping DefaultHugotModel naturally
-      # invalidates the cache.
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      # Cache the nomic ONNX weights (~131 MB quantized) across runs.
+      # Keyed on internal/embed/hugot.go so bumping DefaultHugotModel
+      # naturally invalidates the cache.
       - name: Cache embedding model
         uses: actions/cache@v5
         with:
@@ -81,11 +121,19 @@ jobs:
       # TestMain → NewHugot → DownloadModel. On a warm cache this is
       # a ~1s no-op.
       - name: Pre-download embedding model
-        run: go test ./internal/embed/... -run '^$' -count=1
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+          DEADZONE_ORT_LIB_PATH: /tmp/deadzone-deps/ort
+        run: go test -tags ORT ./internal/embed/... -run '^$' -count=1
       # -short skips TestEmbedLatencyBudget and TestSemanticAcceptance,
       # both of which gate themselves on testing.Short() with comments
-      # saying "Skipped under -short so CI can opt out". Their cold/warm
-      # latency budgets (500ms / 100ms) target dev hardware and don't
-      # hold on shared GitHub runners.
+      # saying "Skipped under -short so CI can opt out". Their latency
+      # budget (100ms warm) targets dev hardware and doesn't hold on
+      # shared GitHub runners.
       - name: Run tests
-        run: go test ./... -race -short
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+          DEADZONE_ORT_LIB_PATH: /tmp/deadzone-deps/ort
+        run: go test -tags ORT ./... -race -short
