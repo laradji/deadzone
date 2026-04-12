@@ -27,6 +27,16 @@ var (
 	date    = "unknown"
 )
 
+// maxSkipsPerLib caps the number of per-URL failures tolerated inside a
+// single lib before the scraper aborts with "too many failed URLs".
+// Sized so a dead LLM endpoint or a fully unreachable documentation
+// host can't grind through a thousand-URL library producing zero docs,
+// while still absorbing the transient blips (one cold-start timeout,
+// one 5xx) that #63's smoke test showed were killing the lib on the
+// very first real run. Intentionally not configurable — tightening or
+// loosening this is a product decision, not an operational knob.
+const maxSkipsPerLib = 5
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("scraper fatal", "err", err.Error())
@@ -204,6 +214,7 @@ func scrapeLibToArtifact(
 
 	libStart := time.Now()
 	var docsTotal int
+	var skippedThisLib int
 
 	for _, u := range src.URLs {
 		// Per-URL fetch — split out from the embed/insert loop so the
@@ -227,23 +238,40 @@ func scrapeLibToArtifact(
 		}
 		fetchDur := time.Since(fetchStart)
 		if err != nil {
-			// Verification failure is a per-URL hallucination drop:
-			// log loudly, skip the URL, keep processing the rest of
-			// the source. Every other fetch error is fatal for the
-			// lib (the alternative is half-indexed artifacts).
-			if errors.Is(err, scraper.ErrAgentVerificationFailed) {
-				slog.Error("scraper.agent_verification_failed",
+			// Classify the failure. Verification drops, transient
+			// transport errors (timeouts, 5xx, reset connections),
+			// and per-URL content-type rejections (PDF, unknown
+			// binary) all soft-skip: log at url_skipped, count
+			// against maxSkipsPerLib, keep processing the rest of
+			// the lib. Anything else (auth, nil agent, insert
+			// failure downstream) is fatal for the lib — the
+			// alternative is a half-indexed artifact masquerading
+			// as complete.
+			reason, soft := classifyFetchErr(err)
+			if soft {
+				skippedThisLib++
+				slog.Error("scraper.url_skipped",
 					"lib_id", src.LibID,
 					"url", u,
+					"kind", fetcher,
+					"reason", reason,
+					"skipped_count", skippedThisLib,
+					"skipped_ceiling", maxSkipsPerLib,
 					"duration_ms", fetchDur.Milliseconds(),
 					"err", err.Error(),
 				)
+				if skippedThisLib >= maxSkipsPerLib {
+					return docsTotal, fmt.Errorf(
+						"too many failed URLs in %s (%d skipped, ceiling %d): %w",
+						src.LibID, skippedThisLib, maxSkipsPerLib, err)
+				}
 				continue
 			}
 			slog.Error("scraper.fetch_failed",
 				"lib_id", src.LibID,
 				"url", u,
 				"kind", fetcher,
+				"reason", reason,
 				"duration_ms", fetchDur.Milliseconds(),
 				"err", err.Error(),
 			)
@@ -337,6 +365,43 @@ func scrapeLibToArtifact(
 		"artifact_path", artifactPath,
 	)
 	return docsTotal, nil
+}
+
+// classifyFetchErr tags a fetch/extract error with a short reason and
+// reports whether it's soft-failable (per-URL skip) or fatal (abort the
+// lib). The tag goes straight into the scraper.url_skipped /
+// scraper.fetch_failed log line so an operator can grep for one class
+// of failure across a run without parsing wrapped error messages.
+//
+// Soft-failable errors:
+//   - ErrAgentVerificationFailed — hallucinated code block, per-URL drop
+//   - ErrPDFNotSupportedYet      — incidental PDF link in a doc index
+//   - context.DeadlineExceeded   — cold-start reload or slow first token
+//   - HTTP 5xx (via HTTPStatusError) — upstream blip
+//   - transient transport errors (ECONNRESET, EPIPE, EOF, net timeouts)
+//
+// Anything else (auth failures, 4xx other than above, decode errors)
+// is fatal for the lib.
+func classifyFetchErr(err error) (reason string, soft bool) {
+	switch {
+	case errors.Is(err, scraper.ErrAgentVerificationFailed):
+		return "verification_failed", true
+	case errors.Is(err, scraper.ErrPDFNotSupportedYet):
+		return "pdf_unsupported", true
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout", true
+	}
+	var httpErr *scraper.HTTPStatusError
+	if errors.As(err, &httpErr) {
+		if httpErr.Status >= 500 && httpErr.Status < 600 {
+			return fmt.Sprintf("http_%d", httpErr.Status), true
+		}
+		return fmt.Sprintf("http_%d", httpErr.Status), false
+	}
+	if scraper.IsTransientAgentError(err) {
+		return "transport", true
+	}
+	return "other", false
 }
 
 // artifactFilename derives the on-disk basename for a lib_id's

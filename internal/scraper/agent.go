@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -40,12 +42,21 @@ const (
 // and multi-call extraction — which is the right place to revisit this.
 const agentInputMaxChars = 48 * 1024
 
-// agentDefaultTimeout caps a single LLM call. Local 7B models typically
-// finish HTML extraction in well under a minute; the timeout is sized
-// generously so the scraper doesn't abort a slow but progressing call,
-// and small enough that a stuck endpoint surfaces in the operator log
-// rather than hanging the run.
-const agentDefaultTimeout = 5 * time.Minute
+// agentDefaultTimeout caps a single LLM call. Sized so a cold-start
+// reload on consumer hardware (oMLX LRU-evicting the model, a first
+// large-context generation on a 9B class model) fits comfortably, while
+// a genuinely hung endpoint still surfaces in the operator log within
+// a reasonable window. 5 min turned out to be the exact failure point
+// during the FastAPI smoke test (see #63); 20 min gives 4× headroom.
+const agentDefaultTimeout = 20 * time.Minute
+
+// agentPingTimeout caps Ping independently of agentDefaultTimeout.
+// Ping is a startup health check: the operator wants a misconfigured
+// endpoint to surface in seconds, not minutes. 30 s covers slow
+// handshake + first-token latency on any reasonable local model and
+// bails fast if the endpoint is dead. Kept as a var, not a const, so
+// tests can shrink it without waiting the full budget.
+var agentPingTimeout = 30 * time.Second
 
 // systemPrompt is the extraction instruction shared by Ping and Extract.
 // Locked at temperature 0, single-shot, no streaming. The prompt itself
@@ -76,6 +87,53 @@ var ErrAgentNotConfigured = errors.New("agent endpoint not configured (set " + E
 // the source content (likely a hallucination). The doc is dropped and
 // the failure is logged at scraper.agent_verification_failed.
 var ErrAgentVerificationFailed = errors.New("agent output failed code-block verification")
+
+// HTTPStatusError carries a non-200 HTTP status code from either the
+// agent endpoint (Agent.do) or the source URL fetch (FetchOneViaAgent).
+// Exported so cmd/scraper can classify 5xx as transient-and-soft-fail
+// vs 4xx as likely-misconfiguration-and-hard-fail via errors.As.
+type HTTPStatusError struct {
+	Status int
+	URL    string
+	Body   string // truncated response body snippet, may be empty
+}
+
+func (e *HTTPStatusError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf("HTTP %d from %s: %s", e.Status, e.URL, e.Body)
+	}
+	return fmt.Sprintf("HTTP %d from %s", e.Status, e.URL)
+}
+
+// IsTransientAgentError reports whether err represents a transient
+// failure that should soft-skip the URL rather than abort the whole
+// lib. Matches: context.DeadlineExceeded, net.Error.Timeout, ECONNRESET
+// / EPIPE, unexpected EOF during response read, and 5xx HTTP status.
+// Callers in cmd/scraper combine this with ErrAgentVerificationFailed
+// (intentional per-URL drop) under a shared skippedThisLib ceiling.
+func IsTransientAgentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var httpErr *HTTPStatusError
+	if errors.As(err, &httpErr) {
+		return httpErr.Status >= 500 && httpErr.Status < 600
+	}
+	return false
+}
 
 // Agent drives LLM-backed content extraction via an OpenAI-compatible
 // /v1/chat/completions endpoint. Deadzone does not host an LLM — the
@@ -222,6 +280,13 @@ type chatResponse struct {
 // response shape — so a successful Ping implies the actual extraction
 // calls have a working transport.
 func (a *Agent) Ping(ctx context.Context) error {
+	// Wrap the caller's context with agentPingTimeout (30s) so a dead
+	// endpoint surfaces fast regardless of the client's per-request
+	// timeout (20 min for Extract). Decoupled from agentDefaultTimeout
+	// so future bumps to Extract's budget don't slow Ping down.
+	pingCtx, cancel := context.WithTimeout(ctx, agentPingTimeout)
+	defer cancel()
+
 	req := chatRequest{
 		Model: a.model,
 		Messages: []chatMessage{
@@ -232,7 +297,7 @@ func (a *Agent) Ping(ctx context.Context) error {
 		Stream:      false,
 	}
 	disableReasoning(&req)
-	if _, err := a.do(ctx, req); err != nil {
+	if _, err := a.do(pingCtx, req); err != nil {
 		return fmt.Errorf("agent ping: %w", err)
 	}
 	return nil
@@ -349,7 +414,7 @@ func (a *Agent) do(ctx context.Context, body chatRequest) (*chatResponse, error)
 		if len(snippet) > 512 {
 			snippet = snippet[:512] + "…"
 		}
-		return nil, fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, url, snippet)
+		return nil, &HTTPStatusError{Status: resp.StatusCode, URL: url, Body: snippet}
 	}
 
 	var parsed chatResponse

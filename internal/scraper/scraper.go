@@ -188,14 +188,24 @@ func FetchOneViaAgent(ctx context.Context, client *http.Client, agent *Agent, li
 		return FetchOneResult{}, fmt.Errorf("fetch %s: %w", url, err)
 	}
 
-	body, readErr := io.ReadAll(resp.Body)
+	// Inspect status + Content-Type before io.ReadAll so a 100 MB PDF
+	// or an unsupported binary doesn't get streamed into memory just
+	// to be thrown away by preprocess. HTTPStatusError is typed so
+	// cmd/scraper can route 5xx to the transient-soft-fail path.
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return FetchOneResult{}, &HTTPStatusError{Status: resp.StatusCode, URL: url}
+	}
 	contentType := resp.Header.Get("Content-Type")
+	if err := preprocessGate(contentType); err != nil {
+		resp.Body.Close()
+		return FetchOneResult{}, fmt.Errorf("preprocess %s: %w", url, err)
+	}
+
+	body, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if readErr != nil {
 		return FetchOneResult{}, fmt.Errorf("read body %s: %w", url, readErr)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return FetchOneResult{}, fmt.Errorf("fetch %s: HTTP %d", url, resp.StatusCode)
 	}
 
 	text, err := preprocess(body, contentType)

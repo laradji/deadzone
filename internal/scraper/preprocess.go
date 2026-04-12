@@ -26,10 +26,31 @@ const (
 	contentTypePDF      = "application/pdf"
 )
 
+// preprocessGate decides whether contentType is acceptable for the
+// agent path without needing the body. Split out so FetchOneViaAgent
+// can reject unsupported types (PDF, binary) before io.ReadAll eats a
+// potentially large response into memory. Returns nil for accepted
+// types, ErrPDFNotSupportedYet for PDFs, and a formatted "unsupported
+// content type" error for everything else (including empty headers).
+func preprocessGate(contentType string) error {
+	switch normalizeContentType(contentType) {
+	case contentTypeHTML, contentTypeXHTML,
+		contentTypeMarkdown, contentTypeXMD, contentTypePlain:
+		return nil
+	case contentTypePDF:
+		return ErrPDFNotSupportedYet
+	default:
+		// Empty Content-Type is most often a misconfigured static
+		// server; surface it as the same "unsupported" error rather
+		// than guessing.
+		return fmt.Errorf("unsupported content type %q", contentType)
+	}
+}
+
 // preprocess turns a raw HTTP response body into LLM-ready text for
 // Agent.Extract. The contentType argument is the raw Content-Type
 // response header (parameters and casing tolerated); preprocess does
-// the parsing.
+// the parsing via preprocessGate.
 //
 // Behaviour is intentionally minimal in v1: HTML, markdown, and plain
 // text are returned as-is — modern LLMs handle HTML natively and don't
@@ -38,19 +59,10 @@ const (
 // operator notices instead of feeding the model raw bytes that turn
 // into garbage downstream.
 func preprocess(body []byte, contentType string) (string, error) {
-	switch normalizeContentType(contentType) {
-	case contentTypeHTML, contentTypeXHTML:
-		return string(body), nil
-	case contentTypeMarkdown, contentTypeXMD, contentTypePlain:
-		return string(body), nil
-	case contentTypePDF:
-		return "", ErrPDFNotSupportedYet
-	default:
-		// Empty Content-Type is most often a misconfigured static
-		// server; surface it as the same "unsupported" error rather
-		// than guessing.
-		return "", fmt.Errorf("unsupported content type %q", contentType)
+	if err := preprocessGate(contentType); err != nil {
+		return "", err
 	}
+	return string(body), nil
 }
 
 // normalizeContentType strips media-type parameters (charset=, boundary=, …)
