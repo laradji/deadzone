@@ -4,9 +4,9 @@ A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic s
 
 > **Status:** early MVP. Vector search is wired end-to-end on a CGO-free
 > [tursogo](https://github.com/tursodatabase/turso/tree/main/bindings/go)
-> driver and a CGO-free [hugot](https://github.com/knights-analytics/hugot)
-> embedder running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
-> on the pure-Go GoMLX backend. Full
+> driver and a [hugot](https://github.com/knights-analytics/hugot) embedder
+> running [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
+> on the ONNX Runtime backend (CGO). Full
 > [roadmap](https://github.com/laradji/deadzone/issues).
 
 Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
@@ -14,12 +14,12 @@ Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/c
 ## Features
 
 - **Self-hosted** — local file database, no cloud dependency, no API key
-- **Single binary** — no CGO, no Python, no native libs to install
+- **Single download** — one archive, four CLIs, ONNX Runtime auto-fetched on first run
 - **Semantic search** — vector embeddings with cosine similarity via Turso's native vector support
 - **MCP native** — stdio protocol, plugs directly into Claude Code, Cursor, and other MCP clients
 - **Multi-library** — `/org/project` namespacing with first-class `lib_id` filtering
 - **Token-budget aware** — trims response size to fit the caller's context window
-- **Cross-platform** — pure Go, builds on Linux, macOS, and Windows
+- **Cross-platform** — prebuilt for macOS arm64, Linux amd64, and Linux arm64
 
 ## What it does
 
@@ -107,7 +107,7 @@ End users usually only touch the first three. `deadzone-scraper` is for contribu
 The first time you invoke any binary, deadzone downloads its runtime dependencies into the platform user-cache directory (`~/Library/Caches/deadzone/` on macOS, `~/.cache/deadzone/` on Linux) and verifies the sha256 of each fetch:
 
 - ONNX Runtime shared library (~33 MB), under `ort/`
-- `sentence-transformers/all-MiniLM-L6-v2` ONNX weights (~90 MB), under `models/`
+- `nomic-ai/nomic-embed-text-v1.5` ONNX weights (int8 quantized, ~131 MB), under `models/`
 
 Subsequent runs reuse the caches. For air-gapped installs, pre-populate `DEADZONE_ORT_LIB_PATH` and `DEADZONE_HUGOT_CACHE` before the first invocation.
 
@@ -134,7 +134,7 @@ With the server running, point any MCP-capable client at it — see [Wire it int
 | Language | Go 1.26.2 (pinned via [`mise`](https://mise.jdx.dev)) |
 | Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(N)` + `vector_distance_cos`, dim discovered from the embedder at first open) |
 | Driver | [`turso.tech/database/tursogo`](https://pkg.go.dev/turso.tech/database/tursogo) — **CGO-free**, via [`purego`](https://github.com/ebitengine/purego) |
-| Embeddings | [`hugot`](https://github.com/knights-analytics/hugot) running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (384-dim) on the pure-Go GoMLX backend — **CGO-free**, no Python |
+| Embeddings | [`hugot`](https://github.com/knights-analytics/hugot) running [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768-dim, 8192-token context) on the ONNX Runtime backend — CGO-linked, `libonnxruntime` auto-fetched + SHA256-verified at first use |
 | Protocol | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
 
 ## Build from source
