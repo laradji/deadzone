@@ -16,11 +16,13 @@
 # By default recipes pass -L./lib to cgo. Set DEADZONE_TOKENIZERS_LIB to
 # point `go build` at a different directory (e.g. /opt/homebrew/lib). The
 # library itself is a static archive from
-# https://github.com/daulet/tokenizers/releases — place it in ./lib/ or
-# override the env var. The ORT shared library (libonnxruntime.{dylib,so})
-# is downloaded + SHA256-verified + cached on first run by
-# internal/ort.Bootstrap; set DEADZONE_ORT_LIB_PATH to bypass the
-# download and point at a hand-positioned library (air-gapped installs).
+# https://github.com/daulet/tokenizers/releases — run `just
+# fetch-tokenizers` once after cloning to drop the right prebuilt into
+# ./lib/ for your platform (or hand-place one and override the env var).
+# The ORT shared library (libonnxruntime.{dylib,so}) is downloaded +
+# SHA256-verified + cached on first run by internal/ort.Bootstrap; set
+# DEADZONE_ORT_LIB_PATH to bypass the download and point at a
+# hand-positioned library (air-gapped installs).
 # #74 will wire libtokenizers.a into release CI.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
@@ -32,6 +34,34 @@ default:
 # Install the pinned toolchain (Go + just) via mise — one-time bootstrap
 bootstrap:
     mise install
+
+# Idempotent: skips the download if the file already exists at the
+# expected path. Set TOKENIZERS_VERSION to override the pinned version
+# (default must match .github/workflows/ci.yml).
+#
+# Download libtokenizers.a for the current platform into ./lib/.
+fetch-tokenizers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ver="${TOKENIZERS_VERSION:-v1.26.0}"
+    target="${DEADZONE_TOKENIZERS_LIB:-./lib}"
+    if [ -f "${target}/libtokenizers.a" ]; then
+        echo "libtokenizers.a already present at ${target}/"
+        exit 0
+    fi
+    case "$(uname -sm)" in
+        "Darwin arm64") asset="libtokenizers.darwin-arm64.tar.gz" ;;
+        "Linux x86_64") asset="libtokenizers.linux-amd64.tar.gz" ;;
+        "Linux aarch64"|"Linux arm64") asset="libtokenizers.linux-arm64.tar.gz" ;;
+        *) echo "unsupported platform: $(uname -sm)" >&2; exit 1 ;;
+    esac
+    mkdir -p "${target}"
+    url="https://github.com/daulet/tokenizers/releases/download/${ver}/${asset}"
+    echo "fetching ${url}"
+    curl -fL -o "${target}/tok.tgz" "${url}"
+    tar -C "${target}" -xzf "${target}/tok.tgz"
+    rm "${target}/tok.tgz"
+    echo "libtokenizers.a → ${target}/libtokenizers.a"
 
 # Compile every package. Fast sanity check; produces no binaries.
 build:

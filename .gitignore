@@ -12,6 +12,9 @@
 /artifacts/*.db
 /artifacts/*.db-wal
 /artifacts/*.db-shm
+# libtokenizers.a and friends land here via `just fetch-tokenizers`;
+# it's a dev artifact directory, never tracked.
+/lib/
 /.envrc
 .DS_Store
 .mcp.json
