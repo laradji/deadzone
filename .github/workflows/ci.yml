@@ -7,20 +7,21 @@ on:
 
 # Native deps shared by every job that compiles or runs Go code. The
 # embedder uses hugot's ORT backend, which pulls in daulet/tokenizers
-# (CGO, static linked at build time) and libonnxruntime (dynamic, loaded
-# at runtime). Versions are pinned deliberately — bumping either is a
-# conscious step, not a passive upgrade from an upstream "latest" tag.
+# (CGO, static linked at build time). Versions are pinned deliberately
+# — bumping is a conscious step, not a passive upgrade from an upstream
+# "latest" tag.
 #
 # TOKENIZERS_VERSION tracks the daulet/tokenizers Go module version in
 # go.mod; the release tag for the prebuilt libtokenizers.a archive uses
 # the same scheme (see hugot's scripts/download-tokenizers.sh).
 #
-# ONNXRUNTIME_VERSION is pinned to the version validated by spike #67.
-# Bumping it requires re-measuring latency/correctness on a representative
-# corpus before merging.
+# The libonnxruntime shared library is NOT installed here. It is
+# fetched at first use by internal/ort.Bootstrap, SHA256-verified
+# against a pinned digest, and cached at DEADZONE_ORT_CACHE (below) so
+# actions/cache can persist it across jobs. Bumping the pinned version
+# is a one-line change in internal/ort/ort.go.
 env:
   TOKENIZERS_VERSION: v1.26.0
-  ONNXRUNTIME_VERSION: 1.24.4
 
 jobs:
   lint:
@@ -95,6 +96,10 @@ jobs:
       # actions/cache step below can persist it across runs. The test
       # helpers in internal/embed/embed_test.go honor this env var.
       DEADZONE_HUGOT_CACHE: ${{ github.workspace }}/.deadzone-cache/models
+      # Pin the ORT shared-library cache too. internal/ort.Bootstrap
+      # reads DEADZONE_ORT_CACHE and extracts the downloaded archive
+      # here, so actions/cache can persist the ~30 MB .so across jobs.
+      DEADZONE_ORT_CACHE: ${{ github.workspace }}/.deadzone-cache/ort
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -112,19 +117,30 @@ jobs:
           key: hugot-model-${{ runner.os }}-${{ hashFiles('internal/embed/hugot.go') }}
           restore-keys: |
             hugot-model-${{ runner.os }}-
-      # Pre-download the embedding model without -race. The upstream
-      # gomlx/go-huggingface concurrent-download path has a data race
-      # (hub/files.go:250) that trips the race detector on a cold cache.
-      # Once the model is on disk, NewHugot loads it without spawning
-      # download goroutines, so the -race pass below never hits it.
-      # `-run '^$'` matches no test functions, so this only invokes
-      # TestMain → NewHugot → DownloadModel. On a warm cache this is
-      # a ~1s no-op.
-      - name: Pre-download embedding model
+      # Cache the onnxruntime shared library that internal/ort.Bootstrap
+      # downloads on first use. Keyed on internal/ort/ort.go so bumping
+      # the pinned Version constant naturally invalidates the cache
+      # (matching the "bump ORT version → re-download" invariant).
+      - name: Cache ONNX Runtime library
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_ORT_CACHE }}
+          key: ort-lib-${{ runner.os }}-${{ hashFiles('internal/ort/ort.go') }}
+          restore-keys: |
+            ort-lib-${{ runner.os }}-
+      # Pre-download the embedding model AND the ORT library without
+      # -race. The upstream gomlx/go-huggingface concurrent-download
+      # path has a data race (hub/files.go:250) that trips the race
+      # detector on a cold cache. Once both are on disk, NewHugot
+      # loads them without spawning download goroutines, so the -race
+      # pass below never hits it. `-run '^$'` matches no test
+      # functions, so this only runs TestMain → NewHugot →
+      # DownloadModel + ort.Bootstrap. On a warm cache this is a ~1s
+      # no-op.
+      - name: Pre-download embedding model + ORT library
         env:
           CGO_ENABLED: "1"
           CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
-          DEADZONE_ORT_LIB_PATH: /tmp/deadzone-deps/ort
         run: go test -tags ORT ./internal/embed/... -run '^$' -count=1
       # -short skips TestEmbedLatencyBudget and TestSemanticAcceptance,
       # both of which gate themselves on testing.Short() with comments
@@ -135,5 +151,4 @@ jobs:
         env:
           CGO_ENABLED: "1"
           CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
-          DEADZONE_ORT_LIB_PATH: /tmp/deadzone-deps/ort
         run: go test -tags ORT ./... -race -short

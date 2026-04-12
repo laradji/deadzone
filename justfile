@@ -18,9 +18,10 @@
 # library itself is a static archive from
 # https://github.com/daulet/tokenizers/releases — place it in ./lib/ or
 # override the env var. The ORT shared library (libonnxruntime.{dylib,so})
-# is resolved at runtime via DEADZONE_ORT_LIB_PATH — see internal/embed.
-# #73 will add auto-download for the ORT shared library; #74 will wire
-# both native deps into release CI.
+# is downloaded + SHA256-verified + cached on first run by
+# internal/ort.Bootstrap; set DEADZONE_ORT_LIB_PATH to bypass the
+# download and point at a hand-positioned library (air-gapped installs).
+# #74 will wire libtokenizers.a into release CI.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
