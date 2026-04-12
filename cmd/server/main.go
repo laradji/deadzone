@@ -55,7 +55,7 @@ func makeSearchHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Co
 	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 		start := time.Now()
 
-		queryVec, err := e.Embed(input.Query)
+		queryVec, err := e.EmbedQuery(input.Query)
 		if err != nil {
 			slog.Error("search_docs failed", searchAttrs(input, verbose, "stage", "embed", "err", err.Error())...)
 			return nil, SearchDocsOutput{}, fmt.Errorf("embed query: %w", err)
@@ -183,7 +183,7 @@ func makeSearchLibrariesHandler(d *db.DB, e embed.Embedder, verbose bool) func(c
 				return nil, SearchLibrariesOutput{}, err
 			}
 		} else {
-			queryVec, embedErr := e.Embed(name)
+			queryVec, embedErr := e.EmbedQuery(name)
 			if embedErr != nil {
 				slog.Error("search_libraries failed", libAttrs(input, name, limit, verbose, "stage", "embed", "err", embedErr.Error())...)
 				return nil, SearchLibrariesOutput{}, fmt.Errorf("embed query: %w", embedErr)

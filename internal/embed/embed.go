@@ -2,8 +2,8 @@
 //
 // This package defines the Embedder interface used by both the indexer
 // (cmd/scraper) and the query path (cmd/server). The current and only
-// implementation is Hugot, a sentence-transformers feature extraction
-// pipeline running on hugot's pure-Go GoMLX backend (see hugot.go).
+// implementation is Hugot, a feature extraction pipeline running on
+// hugot's ORT (onnxruntime) backend (see hugot.go).
 //
 // The interface keeps room for future embedders behind the same factory:
 // adding a second model family means adding a Kind constant and a New case,
@@ -16,16 +16,29 @@ import "fmt"
 // Implementations must be deterministic: the same input must always produce
 // the same output, so that indexed vectors and query vectors are comparable.
 //
+// The interface is split into EmbedQuery and EmbedDocument because
+// retrieval-trained models (nomic-embed-text, BGE, e5, …) require
+// task-specific prefixes and degrade silently without them. The call site
+// knows whether a given text is a query or a document; the embedder picks
+// the right prefix accordingly. Implementations that do not need a prefix
+// can forward both methods to a single internal path.
+//
 // Kind, Dim, and ModelVersion are written into the database's meta table on
 // first use and cross-checked on every subsequent open, so that a binary
 // running with embedder X cannot accidentally read or write a database that
 // was indexed with embedder Y.
 type Embedder interface {
-	// Embed returns a vector of length Dim() for the given text.
-	// Implementations must surface inference errors instead of returning
-	// a placeholder vector: a silently corrupted embedding pollutes the
-	// cosine index permanently and is impossible to detect post-hoc.
-	Embed(text string) ([]float32, error)
+	// EmbedQuery returns a vector of length Dim() for a retrieval query —
+	// text that will be compared against a corpus. Implementations must
+	// surface inference errors instead of returning a placeholder vector:
+	// a silently corrupted embedding pollutes the cosine index permanently
+	// and is impossible to detect post-hoc.
+	EmbedQuery(text string) ([]float32, error)
+
+	// EmbedDocument returns a vector of length Dim() for a corpus
+	// document — text that will live in the index (a scraped snippet, a
+	// lib_id row, …). Same error-propagation contract as EmbedQuery.
+	EmbedDocument(text string) ([]float32, error)
 
 	// Kind identifies the embedder family (e.g. "hugot").
 	// Used for meta consistency checks between scraper and server runs.
@@ -36,8 +49,8 @@ type Embedder interface {
 	Dim() int
 
 	// ModelVersion identifies the specific model producing the
-	// embeddings (e.g. "sentence-transformers/all-MiniLM-L6-v2"). Stored
-	// in the DB meta table and cross-checked at open time.
+	// embeddings (e.g. "nomic-ai/nomic-embed-text-v1.5"). Stored in the
+	// DB meta table and cross-checked at open time.
 	ModelVersion() string
 
 	// Close releases any resources held by the embedder (model session,

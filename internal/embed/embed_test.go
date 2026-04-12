@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/laradji/deadzone/internal/embed"
@@ -13,9 +14,8 @@ import (
 
 // testEmbedder is a single Hugot instance shared by every test in the
 // package. NewHugot is expensive (downloads + loads the model + warms up
-// the GoMLX session) so amortizing it across the whole package via
-// TestMain brings per-test overhead down to roughly the cost of one
-// pipeline run.
+// the ORT session) so amortizing it across the whole package via TestMain
+// brings per-test overhead down to roughly the cost of one pipeline run.
 var testEmbedder *embed.Hugot
 
 func TestMain(m *testing.M) {
@@ -63,16 +63,16 @@ func TestHugot_Deterministic(t *testing.T) {
 		"Créer un serveur MCP",
 	}
 	for _, in := range inputs {
-		a, err := testEmbedder.Embed(in)
+		a, err := testEmbedder.EmbedQuery(in)
 		if err != nil {
-			t.Fatalf("Embed(%q): %v", in, err)
+			t.Fatalf("EmbedQuery(%q): %v", in, err)
 		}
-		b, err := testEmbedder.Embed(in)
+		b, err := testEmbedder.EmbedQuery(in)
 		if err != nil {
-			t.Fatalf("Embed(%q): %v", in, err)
+			t.Fatalf("EmbedQuery(%q): %v", in, err)
 		}
 		if !bytes.Equal(floatsToBytes(a), floatsToBytes(b)) {
-			t.Errorf("Embed(%q) not deterministic across calls", in)
+			t.Errorf("EmbedQuery(%q) not deterministic across calls", in)
 		}
 	}
 }
@@ -80,12 +80,12 @@ func TestHugot_Deterministic(t *testing.T) {
 func TestHugot_Dim(t *testing.T) {
 	cases := []string{"x", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
-		v, err := testEmbedder.Embed(c)
+		v, err := testEmbedder.EmbedDocument(c)
 		if err != nil {
-			t.Fatalf("Embed(%q): %v", c, err)
+			t.Fatalf("EmbedDocument(%q): %v", c, err)
 		}
 		if len(v) != testEmbedder.Dim() {
-			t.Errorf("Embed(%q) len = %d, want %d", c, len(v), testEmbedder.Dim())
+			t.Errorf("EmbedDocument(%q) len = %d, want %d", c, len(v), testEmbedder.Dim())
 		}
 	}
 }
@@ -94,11 +94,11 @@ func TestHugot_Metadata(t *testing.T) {
 	if got := testEmbedder.Kind(); got != "hugot" {
 		t.Errorf("Kind() = %q, want %q", got, "hugot")
 	}
-	if got := testEmbedder.Dim(); got <= 0 {
-		t.Errorf("Dim() = %d, want > 0", got)
-	}
-	if got := testEmbedder.ModelVersion(); got == "" {
-		t.Error("ModelVersion() returned empty string")
+	// 768 is the nomic hidden size. Hard-coding it catches a silently
+	// swapped model file (e.g. someone pointing OnnxFilename at the
+	// unquantized variant or a different checkpoint with the same repo).
+	if got := testEmbedder.Dim(); got != 768 {
+		t.Errorf("Dim() = %d, want 768", got)
 	}
 	if got := testEmbedder.ModelVersion(); got != embed.DefaultHugotModel {
 		t.Errorf("ModelVersion() = %q, want %q", got, embed.DefaultHugotModel)
@@ -108,20 +108,20 @@ func TestHugot_Metadata(t *testing.T) {
 func TestHugot_UnitNorm(t *testing.T) {
 	cases := []string{"a", "hello world", "Register tools using mcp.AddTool"}
 	for _, c := range cases {
-		v, err := testEmbedder.Embed(c)
+		v, err := testEmbedder.EmbedDocument(c)
 		if err != nil {
-			t.Fatalf("Embed(%q): %v", c, err)
+			t.Fatalf("EmbedDocument(%q): %v", c, err)
 		}
 		var sumSq float64
 		for _, x := range v {
 			sumSq += float64(x) * float64(x)
 		}
-		// MiniLM through hugot's WithNormalization() option produces
+		// nomic through hugot's WithNormalization() option produces
 		// L2-normalized embeddings; allow a slightly looser epsilon
-		// than the stub since we're rounding through float32 ONNX
-		// inference rather than computing the norm in pure Go.
+		// than the stub since we're rounding through int8 quantized
+		// ONNX inference rather than computing the norm in pure Go.
 		if math.Abs(sumSq-1) > 1e-4 {
-			t.Errorf("Embed(%q) ||v||^2 = %v, want ~1", c, sumSq)
+			t.Errorf("EmbedDocument(%q) ||v||^2 = %v, want ~1", c, sumSq)
 		}
 	}
 }
@@ -129,20 +129,26 @@ func TestHugot_UnitNorm(t *testing.T) {
 // TestHugot_SemanticOverlap is the real-embedder version of the stub's
 // token-overlap probe: a natural-language query should be semantically
 // closer to the relevant identifier-heavy doc than to an unrelated one.
-// With a 384-dim sentence-transformers model this is the actual semantic
+// With a 768-dim nomic-embed-text-v1.5 model this is the actual semantic
 // retrieval property we care about, not a hash-collision artifact.
+//
+// The query uses EmbedQuery and the corpus uses EmbedDocument; skipping
+// the split (embedding both sides as queries, or both as documents)
+// compresses the usable dynamic range of cosine scores noticeably, so
+// the assertion implicitly also guards against the caller losing the
+// query/document distinction.
 func TestHugot_SemanticOverlap(t *testing.T) {
-	query, err := testEmbedder.Embed("register a tool")
+	query, err := testEmbedder.EmbedQuery("register a tool")
 	if err != nil {
-		t.Fatalf("Embed query: %v", err)
+		t.Fatalf("EmbedQuery: %v", err)
 	}
-	relevant, err := testEmbedder.Embed("Register tools using mcp.AddTool")
+	relevant, err := testEmbedder.EmbedDocument("Register tools using mcp.AddTool")
 	if err != nil {
-		t.Fatalf("Embed relevant: %v", err)
+		t.Fatalf("EmbedDocument relevant: %v", err)
 	}
-	unrelated, err := testEmbedder.Embed("Open a database with sql.Open")
+	unrelated, err := testEmbedder.EmbedDocument("Open a database with sql.Open")
 	if err != nil {
-		t.Fatalf("Embed unrelated: %v", err)
+		t.Fatalf("EmbedDocument unrelated: %v", err)
 	}
 
 	distRelevant := cosineDistance(query, relevant)
@@ -154,23 +160,36 @@ func TestHugot_SemanticOverlap(t *testing.T) {
 	}
 }
 
+// TestHugot_LongInputNoPanic pins the core motivation for this swap:
+// all-MiniLM-L6-v2 panicked on inputs above its 512-token limit
+// (issue #62), which took down the scraper mid-run. nomic-embed-text-v1.5
+// advertises an 8192-token context, so a ~2000-token block of text
+// should pass through the pipeline without erroring — and definitely
+// without panicking.
+func TestHugot_LongInputNoPanic(t *testing.T) {
+	// ~2000 English-ish tokens worth of text. A paragraph repeated
+	// enough times to comfortably exceed the old 512-token ceiling
+	// while staying well inside the new 8192 limit.
+	para := "The feature extraction pipeline tokenizes the input, runs it through the transformer, mean-pools the hidden states across the sequence dimension, and finally L2-normalizes the result. "
+	long := strings.Repeat(para, 80)
+	v, err := testEmbedder.EmbedDocument(long)
+	if err != nil {
+		t.Fatalf("EmbedDocument(long): %v", err)
+	}
+	if len(v) != testEmbedder.Dim() {
+		t.Errorf("EmbedDocument(long) len = %d, want %d", len(v), testEmbedder.Dim())
+	}
+}
+
 func TestNew(t *testing.T) {
-	t.Run("hugot", func(t *testing.T) {
-		e, err := embed.New(embed.KindHugot)
-		if err != nil {
-			t.Fatalf("New(hugot): %v", err)
-		}
-		// New returns a fresh Hugot — close it to release the
-		// session it just allocated. The package-level testEmbedder
-		// is unaffected.
-		defer func() { _ = e.Close() }()
-		if e.Kind() != "hugot" {
-			t.Errorf("Kind() = %q, want %q", e.Kind(), "hugot")
-		}
-		if e.Dim() <= 0 {
-			t.Errorf("Dim() = %d, want > 0", e.Dim())
-		}
-	})
+	// The happy-path "hugot" subtest is intentionally absent. hugot's ORT
+	// backend enforces a single active onnxruntime session per process
+	// (see knights-analytics/hugot hugot_ort.go), and the package-level
+	// testEmbedder is already holding one — spinning up a second via
+	// embed.New here would fail with "another session is currently
+	// active". The dispatch through New is exercised every time TestMain
+	// runs, since embed.New(KindHugot) calls NewHugot(DefaultHugotModel,
+	// DefaultCacheDir()) with the same arguments TestMain uses directly.
 
 	t.Run("unknown kind", func(t *testing.T) {
 		if _, err := embed.New("does-not-exist"); err == nil {

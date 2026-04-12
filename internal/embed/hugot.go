@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/knights-analytics/hugot"
+	"github.com/knights-analytics/hugot/options"
 	"github.com/knights-analytics/hugot/pipelines"
 )
 
@@ -16,22 +17,48 @@ import (
 // kind currently accepted by New.
 const KindHugot = "hugot"
 
-// DefaultHugotModel is the sentence-transformers MiniLM checkpoint used by
-// default. 384-dim, English-leaning, well-suited to short documentation
-// snippets and natural-language queries. Bumping this constant invalidates
-// every existing database via db.Meta cross-check on next Open.
-const DefaultHugotModel = "sentence-transformers/all-MiniLM-L6-v2"
+// DefaultHugotModel is nomic-embed-text-v1.5 — 768-dim, 8192-token context,
+// Apache-2.0. Replaces the earlier all-MiniLM-L6-v2 checkpoint that panicked
+// on inputs above 512 tokens and only produced 384-dim embeddings. Bumping
+// this constant invalidates every existing database via db.Meta cross-check
+// on next Open.
+const DefaultHugotModel = "nomic-ai/nomic-embed-text-v1.5"
+
+// onnxFilename is the specific ONNX variant we download and load. The
+// unquantized model.onnx is ~549 MB and ships with an external-data
+// sidecar; the int8 quantized variant is a self-contained ~131 MB file
+// and is what the spike in #67 measured end-to-end.
+const onnxFilename = "model_quantized.onnx"
+
+// nomic was trained with task-specific prefixes. The tokenizer sees them
+// as regular text, but the model only maps queries and documents into the
+// same space when the prefix is present — skipping them silently degrades
+// retrieval quality. The Embedder interface is split into EmbedQuery /
+// EmbedDocument so the call site chooses up front which prefix gets
+// prepended, rather than passing a mode flag at every call.
+const (
+	queryPrefix    = "search_query: "
+	documentPrefix = "search_document: "
+)
+
+// EnvORTLibraryPath names the env var pointing at the directory that
+// contains libonnxruntime.{dylib,so,dll}. When unset, hugot's ORT backend
+// falls back to runtime-specific defaults (e.g. "libonnxruntime.dylib" on
+// the dylib search path for macOS). #73 will add an auto-download step so
+// users don't need to set this by hand.
+const EnvORTLibraryPath = "DEADZONE_ORT_LIB_PATH"
 
 // Hugot wraps a hugot Session + FeatureExtractionPipeline running on the
-// pure-Go GoMLX (simplego) backend. One Hugot is meant to live for the
-// lifetime of a process: NewHugot is expensive (downloads + loads the model)
-// but each Embed call is cheap.
+// ORT (onnxruntime) backend. One Hugot is meant to live for the lifetime
+// of a process: NewHugot is expensive (downloads + loads the model + spins
+// up the ORT environment) but each EmbedQuery / EmbedDocument call is
+// cheap.
 //
 // Concurrency: hugot's pipelines are not documented as goroutine-safe.
 // internal/db serializes its single connection, and cmd/server handles one
 // MCP request at a time, so a single shared *Hugot is fine for the current
-// workload. If parallelism is added later, wrap Embed in a mutex or pool
-// pipelines per worker.
+// workload. If parallelism is added later, wrap the embed calls in a mutex
+// or pool pipelines per worker.
 type Hugot struct {
 	session  *hugot.Session
 	pipeline *pipelines.FeatureExtractionPipeline
@@ -40,11 +67,17 @@ type Hugot struct {
 }
 
 // NewHugot constructs a Hugot embedder backed by modelName, downloading the
-// model into cacheDir if it isn't already present. Pass an empty modelName to
-// use DefaultHugotModel.
+// model into cacheDir if it isn't already present. Pass an empty modelName
+// to use DefaultHugotModel.
 //
-// First-run cost is dominated by the model download (a few MB for MiniLM)
-// and the GoMLX session warm-up. Subsequent runs reuse the on-disk model.
+// First-run cost is dominated by the ONNX model download (~131 MB for the
+// int8 nomic quantized variant) and the ORT session warm-up. Subsequent
+// runs reuse the on-disk model.
+//
+// The ORT shared library is located via EnvORTLibraryPath if set, otherwise
+// hugot falls back to its platform default. Building with `-tags ORT` and
+// CGO_ENABLED=1 is required — without the tag, hugot.NewORTSession below
+// compiles as a stub that returns a clear error.
 func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 	if modelName == "" {
 		modelName = DefaultHugotModel
@@ -61,13 +94,13 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 	// '/' replaced by '_'. We mirror that to detect a cached model and
 	// avoid re-downloading on every start.
 	modelDir := filepath.Join(cacheDir, strings.ReplaceAll(modelName, "/", "_"))
-	if _, err := os.Stat(filepath.Join(modelDir, "model.onnx")); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(modelDir, onnxFilename)); errors.Is(err, fs.ErrNotExist) {
 		opts := hugot.NewDownloadOptions()
-		// sentence-transformers repos ship multiple ONNX variants under
-		// onnx/. Picking one explicitly avoids hugot's "ambiguous .onnx
-		// file" validation error. The downloader copies the file to
-		// modelDir/model.onnx regardless of its source path.
-		opts.OnnxFilePath = "onnx/model.onnx"
+		// nomic's repo ships multiple ONNX variants under onnx/. Picking
+		// the int8 quantized one explicitly avoids hugot's "ambiguous
+		// .onnx file" validation error. The downloader copies the file
+		// to modelDir/<basename> regardless of its source path.
+		opts.OnnxFilePath = "onnx/" + onnxFilename
 		if _, err := hugot.DownloadModel(modelName, cacheDir, opts); err != nil {
 			return nil, fmt.Errorf("hugot: download %s: %w", modelName, err)
 		}
@@ -75,19 +108,23 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 		return nil, fmt.Errorf("hugot: stat model file: %w", err)
 	}
 
-	session, err := hugot.NewGoSession()
+	var sessionOpts []options.WithOption
+	if p := os.Getenv(EnvORTLibraryPath); p != "" {
+		sessionOpts = append(sessionOpts, options.WithOnnxLibraryPath(p))
+	}
+	session, err := hugot.NewORTSession(sessionOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("hugot: new session: %w", err)
+		return nil, fmt.Errorf("hugot: new ORT session: %w", err)
 	}
 
 	cfg := hugot.FeatureExtractionConfig{
 		ModelPath:    modelDir,
 		Name:         "deadzone",
-		OnnxFilename: "model.onnx",
+		OnnxFilename: onnxFilename,
 		Options: []hugot.FeatureExtractionOption{
 			// L2-normalize sentence embeddings so vector_distance_cos
-			// behaves as a true cosine distance. MiniLM's training
-			// objective expects normalized outputs.
+			// behaves as a true cosine distance. nomic's training
+			// objective expects normalized outputs on the consumer side.
 			pipelines.WithNormalization(),
 		},
 	}
@@ -114,15 +151,31 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 	}, nil
 }
 
-// Embed runs text through the FeatureExtractionPipeline and returns the
+// EmbedQuery prepends the "search_query: " prefix that nomic was trained
+// with for retrieval queries and returns the resulting unit-norm vector.
+// Use this for text that will be compared against a corpus (e.g. a user
+// query handed to search_docs or search_libraries).
+func (h *Hugot) EmbedQuery(text string) ([]float32, error) {
+	return h.embed(queryPrefix + text)
+}
+
+// EmbedDocument prepends the "search_document: " prefix that nomic was
+// trained with for indexed passages and returns the resulting unit-norm
+// vector. Use this when embedding content that will live in the corpus
+// (e.g. a scraped doc, or a lib_id written into the libs table).
+func (h *Hugot) EmbedDocument(text string) ([]float32, error) {
+	return h.embed(documentPrefix + text)
+}
+
+// embed runs text through the FeatureExtractionPipeline and returns the
 // resulting unit-norm vector. Errors are propagated so callers can decide
 // what to do — at index time the scraper logs and skips the doc, at query
 // time the server returns the error to the MCP client. Returning a
 // deterministic placeholder vector here used to silently pollute the
-// cosine index, since every fallback collapsed to the same point in vector
-// space and formed a synthetic attractor for any query aligned with that
-// dimension.
-func (h *Hugot) Embed(text string) ([]float32, error) {
+// cosine index, since every fallback collapsed to the same point in
+// vector space and formed a synthetic attractor for any query aligned
+// with that dimension.
+func (h *Hugot) embed(text string) ([]float32, error) {
 	out, err := h.pipeline.RunPipeline([]string{text})
 	if err != nil {
 		return nil, fmt.Errorf("hugot: run pipeline (text len=%d): %w", len(text), err)
@@ -137,7 +190,7 @@ func (h *Hugot) Embed(text string) ([]float32, error) {
 func (h *Hugot) Kind() string { return KindHugot }
 
 // Dim is the output vector dimension, discovered from the loaded model at
-// construction time. 384 for the default MiniLM checkpoint.
+// construction time. 768 for the default nomic checkpoint.
 func (h *Hugot) Dim() int { return h.dim }
 
 // ModelVersion returns the Hugging Face model name. Used by db.Meta to

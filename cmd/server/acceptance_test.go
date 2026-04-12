@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/laradji/deadzone/internal/db"
-	"github.com/laradji/deadzone/internal/embed"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -69,7 +68,7 @@ var semanticAcceptanceQueries = []string{
 	"plug custom code into the server",
 }
 
-// TestSemanticAcceptance is Phase 3's headline test: the hugot+MiniLM
+// TestSemanticAcceptance is Phase 3's headline test: the hugot+nomic
 // embedder, exercised through the full MCP search handler, must rank the
 // tool-registration snippet first for every query in
 // semanticAcceptanceQueries. Skipped under -short so CI can opt out
@@ -90,7 +89,7 @@ func TestSemanticAcceptance(t *testing.T) {
 	defer d.Close()
 
 	for _, doc := range acceptanceCorpus {
-		vec, err := testEmbedder.Embed(doc.Title + "\n" + doc.Content)
+		vec, err := testEmbedder.EmbedDocument(doc.Title + "\n" + doc.Content)
 		if err != nil {
 			t.Fatalf("Embed %q: %v", doc.Title, err)
 		}
@@ -123,16 +122,12 @@ func TestSemanticAcceptance(t *testing.T) {
 	}
 }
 
+// warmEmbedBudget bounds steady-state EmbedQuery calls. This is the number
+// that ultimately bounds MCP query responsiveness, since every search_docs
+// call invokes the embedder once on the user's query. The spike in #67
+// measured ~3.8 ms for nomic-embed-text-v1.5 int8 through ORT, so 100 ms
+// leaves generous headroom for slower CI hardware.
 const (
-	// coldEmbedBudget bounds the very first Embed call after NewHugot.
-	// Covers GoMLX session JIT and first-token tokenizer warmup. The
-	// 500 ms ceiling is a conservative mid-range developer-CPU number;
-	// see issue #20 for the rationale.
-	coldEmbedBudget = 500 * time.Millisecond
-
-	// warmEmbedBudget bounds steady-state Embed calls. This is the
-	// number that ultimately bounds MCP query responsiveness, since
-	// every search_docs call invokes Embed once on the user's query.
 	warmEmbedBudget = 100 * time.Millisecond
 
 	// warmRuns is the sample size for warmEmbedBudget. Median is used
@@ -141,68 +136,44 @@ const (
 	warmRuns = 10
 )
 
-// TestEmbedLatencyBudget enforces the cold and warm-path latency budgets
-// from issue #20. Skipped under -short alongside the semantic acceptance
-// test so the same CI flag toggles both.
+// TestEmbedLatencyBudget enforces the warm-path latency budget from issue
+// #20. Skipped under -short alongside the semantic acceptance test so the
+// same CI flag toggles both.
 //
-// The cold subtest constructs a fresh NewHugot rather than reusing the
-// package-level testEmbedder, because testEmbedder has already paid its
-// first-call warmup cost during package init — measuring it here would
-// just measure a steady-state call. The fresh embedder shares the same
-// on-disk model cache, so no second download is paid.
+// The cold-path subtest was removed when the embedder moved from hugot's
+// GoMLX backend to the ORT one: ORT enforces a single active onnxruntime
+// session per process, so creating a second NewHugot while the
+// package-level testEmbedder is alive fails with "another session is
+// currently active". A cold measurement would need a separate process,
+// which belongs in a standalone benchmark rather than the test suite.
 func TestEmbedLatencyBudget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("latency budget test skipped under -short")
 	}
 
-	t.Run("cold", func(t *testing.T) {
-		fresh, err := embed.NewHugot(embed.DefaultHugotModel, hugotTestCacheDir())
-		if err != nil {
-			t.Fatalf("NewHugot: %v", err)
-		}
-		defer fresh.Close()
+	// Prime the shared embedder so the first sample is warm too —
+	// avoids contaminating the median with a one-off cache miss
+	// from whatever ran before this test.
+	if _, err := testEmbedder.EmbedQuery("warmup"); err != nil {
+		t.Fatalf("warmup EmbedQuery: %v", err)
+	}
 
+	samples := make([]time.Duration, warmRuns)
+	for i := range samples {
 		start := time.Now()
-		v, err := fresh.Embed("how do I expose functions to the LLM")
-		elapsed := time.Since(start)
+		_, err := testEmbedder.EmbedQuery("how do I expose functions to the LLM")
+		samples[i] = time.Since(start)
 		if err != nil {
-			t.Fatalf("Embed: %v", err)
+			t.Fatalf("warm sample %d EmbedQuery: %v", i, err)
 		}
+	}
+	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	median := samples[len(samples)/2]
 
-		if len(v) != fresh.Dim() {
-			t.Fatalf("Embed returned vector of len %d, want %d", len(v), fresh.Dim())
-		}
-		if elapsed > coldEmbedBudget {
-			t.Errorf("cold Embed took %v, budget %v", elapsed, coldEmbedBudget)
-		}
-		t.Logf("cold Embed: %v (budget %v)", elapsed, coldEmbedBudget)
-	})
-
-	t.Run("warm", func(t *testing.T) {
-		// Prime the shared embedder so the first sample is warm too —
-		// avoids contaminating the median with a one-off cache miss
-		// from whatever ran before this subtest.
-		if _, err := testEmbedder.Embed("warmup"); err != nil {
-			t.Fatalf("warmup Embed: %v", err)
-		}
-
-		samples := make([]time.Duration, warmRuns)
-		for i := range samples {
-			start := time.Now()
-			_, err := testEmbedder.Embed("how do I expose functions to the LLM")
-			samples[i] = time.Since(start)
-			if err != nil {
-				t.Fatalf("warm sample %d Embed: %v", i, err)
-			}
-		}
-		sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
-		median := samples[len(samples)/2]
-
-		if median > warmEmbedBudget {
-			t.Errorf("warm Embed median %v exceeds budget %v; samples=%v",
-				median, warmEmbedBudget, samples)
-		}
-		t.Logf("warm Embed median: %v (budget %v, samples=%v)",
+	if median > warmEmbedBudget {
+		t.Errorf("warm EmbedQuery median %v exceeds budget %v; samples=%v",
 			median, warmEmbedBudget, samples)
-	})
+	}
+	t.Logf("warm EmbedQuery median: %v (budget %v, samples=%v)",
+		median, warmEmbedBudget, samples)
 }
