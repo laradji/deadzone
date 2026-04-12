@@ -102,14 +102,28 @@ End users usually only touch the first three. `deadzone-scraper` is for contribu
 | `deadzone-consolidate` | Merges per-lib artifacts into a single `deadzone.db` |
 | `deadzone-scraper` | Re-scrapes a library from its configured sources |
 
-### First-run bootstrap
+### Runtime dependencies
 
-The first time you invoke any binary, deadzone downloads its runtime dependencies into the platform user-cache directory (`~/Library/Caches/deadzone/` on macOS, `~/.cache/deadzone/` on Linux) and verifies the sha256 of each fetch:
+Deadzone follows the same pattern for every native runtime dependency: **no system installs, nothing bundled in the binary, nothing pulled at build time except what links statically**. Instead, each shared library is fetched on first use, SHA256-verified against a pinned manifest, cached in the user-cache dir, and loaded via `purego` (`tursogo`) or `dlopen` (ONNX Runtime) at runtime. Subsequent runs reuse the cache; second-launch startup is instant.
 
-- ONNX Runtime shared library (~33 MB), under `ort/`
-- `nomic-ai/nomic-embed-text-v1.5` ONNX weights (int8 quantized, ~131 MB), under `models/`
+This keeps the install flow to "download the tarball, extract, run" across macOS arm64, Linux amd64, and Linux arm64 without a package manager or a C toolchain. It also makes air-gapped installs easy: pre-populate the caches or point the escape-hatch env vars at hand-positioned libraries.
 
-Subsequent runs reuse the caches. For air-gapped installs, pre-populate `DEADZONE_ORT_LIB_PATH` and `DEADZONE_HUGOT_CACHE` before the first invocation.
+**What gets fetched on first launch of any deadzone binary:**
+
+| Dependency | Size | Where it's cached | Escape-hatch env var |
+|---|---|---|---|
+| ONNX Runtime shared library (`libonnxruntime`) | ~33 MB | `$DEADZONE_ORT_CACHE` (defaults to `<user-cache>/deadzone/ort/`) | `DEADZONE_ORT_LIB_PATH` — point at a hand-positioned library to skip the download |
+| `nomic-ai/nomic-embed-text-v1.5` ONNX weights (int8 quantized) | ~131 MB | `$DEADZONE_HUGOT_CACHE` (defaults to `<user-cache>/deadzone/models/`) | `DEADZONE_HUGOT_CACHE` — set before first launch to pre-position the model |
+
+The platform `<user-cache>` resolves to `~/Library/Caches/` on macOS and `~/.cache/` on Linux (or `$XDG_CACHE_HOME` when set). Both downloads are pinned in the binary (ORT version in `internal/ort/ort.go`, model name in `internal/embed/hugot.go`) and verified with SHA256 before being moved into place — there's no fallback to an un-verified fetch.
+
+**Linked at build time, not fetched:**
+
+- **Go standard library** — pinned to Go 1.26.2 via `.mise.toml`.
+- **`tursogo` (SQLite driver)** — pure Go via `purego`, no C toolchain needed.
+- **`libtokenizers.a` (Rust-built, from `daulet/tokenizers` releases)** — downloaded per-platform by `just fetch-tokenizers` (or CI's `install-native-deps` action), **statically linked** into the binary. Users never see it.
+
+The single CGO surface (hugot's ORT backend + `libtokenizers.a`) is the 2026-04-12 trade-off that unblocked #62 — see [`docs/research/embedder-choice.md`](docs/research/embedder-choice.md) and [`docs/research/ingestion-architecture.md`](docs/research/ingestion-architecture.md) decision 8 for the full reasoning.
 
 ### Hello-world pipeline
 

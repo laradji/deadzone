@@ -148,7 +148,7 @@ Helpers `db.UpsertLibIfNew` and `db.UpdateLibCount` handle the lifecycle: row cr
 - **Composes naturally with #28** — per-lib artifact carries its own `libs` row, merged via plain `INSERT ... SELECT` alongside the `docs` rows in the consolidate transaction.
 - **Inherits future #45 vector index speedups for free** — same table shape, same query pattern.
 - **No cache invalidation logic** — the table IS the state, and the embedding never gets recomputed since the lib_id is the immutable primary key.
-- **Token-overlap approach (option B) was tested empirically** during design and failed on the queries LLMs actually emit. MiniLM handles the semantic projection cleanly where token overlap doesn't.
+- **Token-overlap approach (option B) was tested empirically** during design and failed on the queries LLMs actually emit. The embedder handles the semantic projection cleanly where token overlap doesn't.
 
 ### Trace
 
@@ -158,11 +158,11 @@ Helpers `db.UpsertLibIfNew` and `db.UpdateLibCount` handle the lifecycle: row cr
 
 ### Holds at scale
 
-✅ At 33k libs the libs table has 33k rows of 384-dim float vectors = ~50 MB. Linear scan via `vector_distance_cos` is fine until #45 lands a vector index, at which point both `search_docs` and `search_libraries` get the speedup for free. The embedding is computed once per lib at index time, never recomputed.
+✅ At 33k libs the libs table has 33k rows of 768-dim float vectors = ~100 MB (per the current nomic embedder — decision 8). Linear scan via `vector_distance_cos` is fine until #45 lands a vector index, at which point both `search_docs` and `search_libraries` get the speedup for free. The embedding is computed once per lib at index time, never recomputed.
 
 ### Schema versioning side-effect
 
-#55 also introduced **schema versioning** via `db.CurrentSchemaVersion = 2` and a new `ErrSchemaMismatch` sentinel. Old DBs without the `libs` table now fail open with a clear error instead of silently working with a missing feature. This pattern is reusable for future schema bumps and was extended by #28 to artifact validation in #56.
+#55 also introduced **schema versioning** via `db.CurrentSchemaVersion` (set to `2` at the time, now `3` after the #72 embedder-swap bump — see decision 9) and a new `ErrSchemaMismatch` sentinel. Old DBs without the `libs` table now fail open with a clear error instead of silently working with a missing feature. This pattern is reusable for future schema bumps and was extended by #28 to artifact validation in #56.
 
 ---
 
@@ -370,48 +370,78 @@ The fact that the v1 decision is "wrong" in retrospect is **not a failure** — 
 
 ---
 
-## 8. Embedder: hugot + MiniLM-L6 for v1 (#19/#20)
+## 8. Embedder: hugot + nomic-embed-text-v1.5 on the ORT backend (#19/#20, reworked in #72/#73)
 
 ### Context
 
 Deadzone needs an embedder that:
-- Runs in pure Go (no CGO)
-- Is small enough to ship in a single binary or download on first use
+- Ships as a single cross-platform binary download (users don't install Python/C++/Rust toolchains)
+- Is small enough to fetch on first use without feeling heavy (~100–200 MB model budget)
 - Is deterministic (same input → same output)
-- Has cross-platform support (macOS arm64/amd64, Linux amd64/arm64)
+- Handles the real tail of doc-chunk lengths (long H2 sections, dense reference pages) without truncation or crash
+- Runs at a latency that makes index-time and query-time work practical on a developer laptop
 
 ### Options considered
+
+The decision went through two iterations. **v1 (2026-04-01)** optimized for "pure Go end-to-end" as a hard constraint. **v2 (2026-04-12)** accepted build-time CGO to unlock modern embedders after the v1 choice crashed on real corpora (#62).
+
+**v1 options (pure-Go only):**
 
 | Option | Approach | Verdict |
 |---|---|---|
 | **A** | Call out to OpenAI / Cohere / etc. | Rejected — defeats the local-first goal, requires API key, costs money |
 | **B** | Bundled ONNX model via `onnxruntime-go` | Rejected — onnxruntime requires CGO |
-| **C** | hugot + GoMLX backend running ONNX models | **Selected** |
+| **C** | hugot + GoMLX backend running ONNX models | **Selected (v1)** |
 | **D** | Hand-written transformer in pure Go | Rejected — wheel reinvention, slow dev |
 | **E** | Bundled Rust binary via FFI | Rejected — adds an FFI layer, fights the single-binary goal |
 
+**v2 options (triggered by #62 panic on inputs >512 tokens, forcing a longer-context model):**
+
+| Option | Approach | Verdict |
+|---|---|---|
+| **F** | Stay GoMLX, swap to another ≤512-tok model (BGE-small, e5-small) | Rejected — caps context at the same 512-token limit, #62 still reproduces |
+| **G** | Stay GoMLX, sub-chunk + parent-doc retrieval | Rejected — breaks restitution contract (agents get mid-section fragments); adds `parent_id` schema complexity without fixing the partial-signal problem |
+| **H** | hugot + ORT backend (CGO build, `libtokenizers.a` + `libonnxruntime`) | **Selected (v2)** |
+| **I** | onnxer (purego → libonnxruntime at runtime, no CGO build) | Rejected — 3× longer latency for pipeline rewrite (~200 LOC), 7-line vendor patch needed, higher RSS |
+| **J** | pure-onnx (higher-level wrapper) | Rejected — fixed-padding sequence length causes 3× latency penalty on short queries |
+
 ### Decision
 
-**hugot** (`github.com/knights-analytics/hugot`) with the **GoMLX** backend, running `sentence-transformers/all-MiniLM-L6-v2`. 384-dim vectors, 512-token context window, English-only, ~90 MB on-disk model.
+**v1 (shipped as MVP):** hugot with the GoMLX backend, running `sentence-transformers/all-MiniLM-L6-v2`. 384-dim, 512-token, English-only, ~90 MB.
 
-The embedder is pluggable via the `Embedder` interface in `internal/embed/`, so future swaps don't require call-site changes. The scraper embeds each doc at index time; the server embeds each query at query time. The same embedder must be used at both ends (enforced by `db.Meta` cross-check at DB open time).
+**v2 (current, shipped in #72/#73):** hugot with the **ORT backend** (`hugot.NewORTSession`), running `nomic-ai/nomic-embed-text-v1.5` int8 quantized. 768-dim, 8192-token context, English-only, ~131 MB on-disk model. `libonnxruntime` is auto-fetched + SHA256-verified on first use via `internal/ort.Bootstrap` and cached in `$DEADZONE_ORT_CACHE`; `libtokenizers.a` is statically linked into the binary at build time via `daulet/tokenizers` releases (one archive per platform, pulled by `just fetch-tokenizers` locally and by `.github/actions/install-native-deps` in CI).
 
-### Rationale
+The embedder is still pluggable via the `Embedder` interface in `internal/embed/`, split into `EmbedQuery` / `EmbedDocument` so call sites commit to nomic's retrieval prefixes (`"search_query: "` / `"search_document: "`) up front — skipping them silently degrades retrieval quality. The scraper embeds each doc at index time; the server embeds each query at query time. The same embedder must be used at both ends (enforced by `db.Meta` cross-check at DB open time, schema version bumped 2 → 3 in the same PR to surface the incompatibility as `ErrEmbedderMismatch` on any pre-#72 database).
 
-- **Pure Go end-to-end**: hugot uses GoMLX (also pure Go) under the hood. No CGO, no FFI, no native dependencies.
-- **Smallest fast English model that runs on pure-Go GoMLX** — that was the right call to ship, not necessarily the right call to scale.
-- **Pluggable interface** lets us swap models later without changing call sites. The pluggability also enabled the `MockEmbedder` used in early tests.
-- **Meta consistency check** prevents accidental DB corruption when the embedder changes — the DB metadata records the embedder kind, dimension, and model version, and the server refuses to open a DB indexed with a different embedder. See `db.Meta` and `ErrEmbedderMismatch`.
+### Rationale (v2)
+
+- **Unblocks #62.** nomic's 8192-token window absorbs the long tail of doc-chunk sizes (~47% of real-corpus chunks exceeded MiniLM's 512-token cap). The panic retires without byte-level truncation hacks.
+- **One-line API delta from v1.** `hugot.NewGoSession()` → `hugot.NewORTSession(options.WithOnnxLibraryPath(libDir))` — the rest of the `Embedder` surface, the DB schema path, and the scraper's index loop stay identical. Low-risk swap relative to option I/J, which would have been full rewrites.
+- **"Single binary download" property holds.** `tursogo` stays CGO-free via `purego`. `libtokenizers.a` is static-linked, so it doesn't exist as a runtime dep. `libonnxruntime` is runtime-dlopened after a one-time ~33 MB fetch, cached forever. End users still download one tarball, extract, and run — the only observable change from v1 is that first launch needs internet (or a pre-populated `DEADZONE_ORT_LIB_PATH`).
+- **CI packaging problem solved.** `CGO_ENABLED=1` requires per-platform toolchains, but native GitHub-hosted runners (macOS arm64, Linux amd64/arm64) ship that for free — see `.github/workflows/release.yml` (landed in #74 after the #70 research concluded against goreleaser-cross and Zig CC).
+- **Meta consistency check still prevents DB corruption.** The DB metadata records embedder kind + dimension + model version; any mismatch on open surfaces as `ErrEmbedderMismatch`. Schema version bumped to 3 in the same PR so pre-#72 databases are rejected cleanly.
+- **Apache-2.0 licensing** across hugot, nomic-embed-text-v1.5, `libonnxruntime` (MIT), `daulet/tokenizers` (MIT). `NOTICE` updated accordingly.
 
 ### Trace
 
-- Designed in #2 (parent), implemented across #18 (meta consistency), #19 (hugot integration), #20 (semantic acceptance test)
-- Open follow-up: #50 (embedder model choice research) — the v1 model is showing its age
-- Open follow-up: #62 (hugot panics on >512-token input instead of truncating) — a real bug in v1 that surfaced in smoke test #58, in 0.1 milestone
+- v1: Designed in #2 (parent), implemented across #18 (meta consistency), #19 (hugot integration), #20 (semantic acceptance test)
+- #50 (research) — "is MiniLM the right embedder?" — answered empirically in v2, closed as superseded
+- #62 (bug) — hugot panic on >512-token input, the forcing function that put #50 on the critical path; closed by #72
+- #67 / #68 / #69 — the three inference-backend spikes that selected hugot-ORT over onnxer and pure-onnx
+- #70 (research) — CGO cross-compile strategy, concluded on native runners
+- #72 (PR #82) — landed the embedder swap (model + backend + prefixes + schema v3)
+- #73 (PR #83) — landed `internal/ort.Bootstrap` with pinned ORT v1.24.4 + per-platform SHA256 manifest
+- #74 (PR #87) — native-runner release workflow that ships the CGO-linked binaries
+- [`docs/research/embedder-choice.md`](embedder-choice.md) — full decision log with benchmark matrix
 
 ### Holds at scale
 
-⚠️ Conditional. The 512-token cap, English-only training, and prose-not-code training are all v1 choices that were correct to ship but won't hold at the target corpus size or content mix. #50 is the research issue for the long-term replacement (BGE-M3, E5, mpnet, Nomic, etc.). The architecture (pluggable interface + meta consistency) makes the swap mechanically straightforward; the cost is the corpus rebuild.
+✅ Yes, with the caveats below.
+
+- **Latency.** ~3.8 ms per short query, ~393 ms for a 1500-token document embed (ORT, int8 quantized, dev laptop). Well under any user-perceptible threshold for queries; long-doc embed is fine for index-time work. Full corpus rebuild at 10k libs × 100 docs each is ~11 h on a single laptop — tolerable for a one-shot rebuild; re-scrapes are per-library not global.
+- **Storage.** 768-dim `F32_BLOB` doubles the vector column size versus 384-dim (3 kB per row instead of 1.5 kB). At 1M docs that's ~3 GB of vector payload on disk — fine, no index structure change needed. Linear scan + `vector_distance_cos` still holds at current sizes; #45 tracks the sub-second threshold beyond which an approximate index becomes necessary.
+- **Cold start.** ~164 MB total first-launch fetch (33 MB ORT + 131 MB model), cached forever, pre-populatable via `DEADZONE_ORT_LIB_PATH` + `DEADZONE_HUGOT_CACHE` for air-gapped installs.
+- **Caveats.** nomic-embed-text-v1.5 is **English-trained** — multilingual remains future work. Also **not a code-specific embedder** — dense code snippets still embed into a prose-trained space. Neither is on the 0.1 critical path; both are tracked as future research if the corpus starts surfacing quality issues on non-English or highly-code-dominated libraries.
 
 ---
 
@@ -434,7 +464,7 @@ When #44 (the `libs` vector table) was being designed, it became clear that addi
 
 ### Decision
 
-**`db.CurrentSchemaVersion` constant** (currently `2`) recorded in the `meta` table at create time and cross-checked on every open. `db.Open` and `db.OpenArtifact` both reject DBs whose schema version doesn't match, surfacing `ErrSchemaMismatch` with a clear message.
+**`db.CurrentSchemaVersion` constant** (currently `3` — bumped to 2 in #55 for the `libs` table, then to 3 in #72 for the embedder swap) recorded in the `meta` table at create time and cross-checked on every open. `db.Open` and `db.OpenArtifact` both reject DBs whose schema version doesn't match, surfacing `ErrSchemaMismatch` with a clear message.
 
 When adding a table or making a breaking schema change, bump the constant in the same commit and document the migration step in the PR body.
 
@@ -463,10 +493,10 @@ The decisions above interact in ways that are worth calling out explicitly:
 
 ### The "single primitive" principle
 
-Both `search_docs` and `search_libraries` use the same `vector_distance_cos` query against an `F32_BLOB(384)` column. This means:
+Both `search_docs` and `search_libraries` use the same `vector_distance_cos` query against an `F32_BLOB(N)` column (N is discovered from the embedder at first open — currently 768 for nomic). This means:
 
 - One vector index implementation (when #45 lands) speeds up both searches
-- One embedder family (when #50 lands a replacement) re-embeds both `docs` and `libs` rows
+- One embedder swap (as already happened in #72: MiniLM-L6 → nomic-embed-text-v1.5) re-embeds both `docs` and `libs` rows through the same code path
 - Tests for the `docs` table behavior also test the `libs` table behavior, modulo column names
 
 This was not an explicit decision — it fell out of decisions 3 and 8 — but it's worth preserving in future architecture changes.
@@ -500,21 +530,15 @@ The alternative (silent fallback) would mean shipping a half-broken scrape and d
 These are tracked separately and don't gate the v0 architecture:
 
 - **#1** — JSON-based source kind for structured-API doc sites (the third candidate kind)
-- **#29** — Skip-unchanged consolidation via per-artifact checksums (in 0.1 milestone)
 - **#45** — Vector index for search at scale (the linear scan won't survive past ~100k vectors)
 - **#46** — Source discovery automation (replacing hand-curated YAML URL lists)
 - **#47** — Freshness detection and refresh triggers (per-source change signals)
 - **#49** — Chunking strategy beyond H2 split (the current ParseMarkdown is too coarse for some docs)
-- **#50** — Embedder model choice (replacing MiniLM-L6 with something more capable at scale)
 - **#52** — Library registry long-term (replacing the deliberately-dumb YAML from decision 4)
 - **#53** — Batch scrape pipeline via GitHub Actions matrix (designed, all gates cleared, ready to implement)
-- **#62** — Hugot panics on >512-token input (data-loss bug, in 0.1 milestone)
-- **#63** — Scrape-via-agent error handling hardening (in 0.1 milestone)
 - **#64** — Scrape-via-agent extraction quality on dense doc sites (truncation + verifier loosening, research)
-- **#65** — Lib `doc_count` atomicity (cosmetic, in 0.1 milestone)
-- **#66** — CI/CD release binaries on tag push (in 0.1 milestone)
 
-The `0.1` milestone subset (#29, #62, #63, #65, #66) is the polish that turns the v0 architecture into a tagged release. The research issues are not blockers for any specific tag — they're the long-term agenda for keeping the architecture viable as the corpus grows past v1's design constraints.
+Already-shipped follow-ups from the original list (#50, #62, #63, #65, #66, #29) are closed and recorded in the relevant decision traces above — notably #50/#62/#72 in decision 8. The remaining research issues are not blockers for any specific tag — they're the long-term agenda for keeping the architecture viable as the corpus grows past v1's design constraints.
 
 ---
 
