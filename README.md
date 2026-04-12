@@ -64,18 +64,21 @@ Go 1.26.2 and [`just`](https://just.systems) are pinned via [`.mise.toml`](.mise
 # 1. Install the pinned toolchain — Go + just (one-time)
 mise install
 
-# 2. Build — no CGO required
-just build             # = mise exec -- go build ./...
+# 2. Fetch libtokenizers.a for your platform into ./lib/ (one-time, idempotent)
+just fetch-tokenizers  # darwin-arm64, linux-amd64, linux-arm64
 
-# 3. Pull pre-built per-lib artifacts from the rolling GitHub Release
+# 3. Build (CGO + -tags ORT, links ./lib/libtokenizers.a)
+just build             # = mise exec -- go build -tags ORT ./...
+
+# 4. Pull pre-built per-lib artifacts from the rolling GitHub Release
 just packs-download    # = mise exec -- go run ./cmd/packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
 # → reads artifacts/manifest.yaml and downloads every referenced .db
 # → verifies sha256 on the way down; aborts loudly on mismatch
 
-# 4. Merge the per-lib artifacts into the main deadzone.db
+# 5. Merge the per-lib artifacts into the main deadzone.db
 just consolidate       # = mise exec -- go run ./cmd/consolidate -db deadzone.db -artifacts ./artifacts
 
-# 5. Run the MCP server against the consolidated DB
+# 6. Run the MCP server against the consolidated DB
 just serve             # = mise exec -- go run ./cmd/server -db deadzone.db
 ```
 
