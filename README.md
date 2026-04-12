@@ -46,6 +46,87 @@ search_libraries(name, limit?) → []LibraryHit
 
 Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and stored in a local Turso database file.
 
+## Install
+
+Pre-built binaries for **macOS Apple Silicon**, **Linux amd64**, and **Linux arm64** are published on the [Releases page](https://github.com/laradji/deadzone/releases). Windows is blocked upstream (no `libtokenizers.a`). If you want to build from source instead — most useful if you're contributing or running on an unsupported platform — skip to [Build from source](#build-from-source).
+
+### Quick install
+
+Pick the archive for your platform and extract it into the directory you want to run deadzone from:
+
+```bash
+VERSION=v0.1.0
+
+# macOS Apple Silicon
+curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_darwin_arm64.tar.gz" | tar xz
+
+# Linux amd64
+curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_amd64.tar.gz" | tar xz
+
+# Linux arm64
+curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_arm64.tar.gz" | tar xz
+```
+
+Each archive extracts four binaries (`deadzone-server`, `deadzone-scraper`, `deadzone-consolidate`, `deadzone-packs`) plus `LICENSE`, `NOTICE`, and `README.md`.
+
+### Verify checksums
+
+```bash
+curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_checksums.txt"
+
+# Linux
+sha256sum --ignore-missing -c "deadzone_${VERSION}_checksums.txt"
+
+# macOS
+shasum -a 256 --ignore-missing -c "deadzone_${VERSION}_checksums.txt"
+```
+
+### macOS: clear the quarantine attribute
+
+The 0.1.x binaries are unsigned, so Gatekeeper blocks them on first launch. Strip the quarantine xattr once, after extracting the archive:
+
+```bash
+xattr -d com.apple.quarantine deadzone-*
+```
+
+This workaround goes away once notarization lands.
+
+### Four binaries, briefly
+
+End users usually only touch the first three. `deadzone-scraper` is for contributors maintaining [`libraries_sources.yaml`](libraries_sources.yaml).
+
+| Binary | What it's for |
+|---|---|
+| `deadzone-server` | MCP stdio server — what your AI client talks to |
+| `deadzone-packs` | Pulls (and for contributors, pushes) per-lib artifacts from the rolling GitHub Release |
+| `deadzone-consolidate` | Merges per-lib artifacts into a single `deadzone.db` |
+| `deadzone-scraper` | Re-scrapes a library from its configured sources |
+
+### First-run bootstrap
+
+The first time you invoke any binary, deadzone downloads its runtime dependencies into the platform user-cache directory (`~/Library/Caches/deadzone/` on macOS, `~/.cache/deadzone/` on Linux) and verifies the sha256 of each fetch:
+
+- ONNX Runtime shared library (~33 MB), under `ort/`
+- `sentence-transformers/all-MiniLM-L6-v2` ONNX weights (~90 MB), under `models/`
+
+Subsequent runs reuse the caches. For air-gapped installs, pre-populate `DEADZONE_ORT_LIB_PATH` and `DEADZONE_HUGOT_CACHE` before the first invocation.
+
+### Hello-world pipeline
+
+Fetch the artifact manifest, pull the pre-scraped library packs, merge them into a single database, and serve MCP over stdio:
+
+```bash
+mkdir -p artifacts
+curl -L -o artifacts/manifest.yaml \
+  https://raw.githubusercontent.com/laradji/deadzone/main/artifacts/manifest.yaml
+
+./deadzone-packs download          # per-lib artifacts/*.db from the rolling release
+./deadzone-consolidate             # artifacts/*.db → deadzone.db
+./deadzone-server -db deadzone.db  # MCP stdio server
+```
+
+With the server running, point any MCP-capable client at it — see [Wire it into an MCP client](#wire-it-into-an-mcp-client) for the exact JSON snippet.
+
 ## Stack
 
 | | |
@@ -56,7 +137,9 @@ Documentation is fetched by a separate `scraper` CLI, embedded into vectors, and
 | Embeddings | [`hugot`](https://github.com/knights-analytics/hugot) running [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (384-dim) on the pure-Go GoMLX backend — **CGO-free**, no Python |
 | Protocol | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
 
-## Quick start
+## Build from source
+
+Contributor path — skip this section if you installed a pre-built binary from [Install](#install).
 
 Go 1.26.2 and [`just`](https://just.systems) are pinned via [`.mise.toml`](.mise.toml) and intentionally not on the system `PATH`. The repo ships a `justfile` that wraps every Go invocation in `mise exec --`, so you don't need to remember the prefix:
 
