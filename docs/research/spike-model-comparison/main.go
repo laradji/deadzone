@@ -11,6 +11,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -252,6 +253,50 @@ func downloadModel(spec modelSpec, cacheDir string) (string, onnxVariant, error)
 	return "", onnxVariant{}, fmt.Errorf("all ONNX variants failed for %s", spec.HFRepo)
 }
 
+// ─── Tokenizer Patch ────────────────────────────────────────────────────────
+
+// patchTokenizerTruncation reads tokenizer.json from modelDir, sets
+// truncation.max_length to maxLen if it's currently lower, and writes
+// it back. This fixes upstream HuggingFace models that ship with a
+// default BERT truncation of 512 even when the model supports 8192.
+func patchTokenizerTruncation(modelDir string, maxLen int) (patched bool, err error) {
+	tokPath := filepath.Join(modelDir, "tokenizer.json")
+	raw, err := os.ReadFile(tokPath)
+	if err != nil {
+		return false, fmt.Errorf("read tokenizer.json: %w", err)
+	}
+
+	var tok map[string]any
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		return false, fmt.Errorf("parse tokenizer.json: %w", err)
+	}
+
+	trunc, ok := tok["truncation"]
+	if !ok || trunc == nil {
+		return false, nil // no truncation section → nothing to patch
+	}
+	truncMap, ok := trunc.(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	cur, ok := truncMap["max_length"].(float64) // JSON numbers are float64
+	if !ok || int(cur) >= maxLen {
+		return false, nil // already high enough
+	}
+
+	truncMap["max_length"] = maxLen
+	tok["truncation"] = truncMap
+
+	out, err := json.MarshalIndent(tok, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal tokenizer.json: %w", err)
+	}
+	if err := os.WriteFile(tokPath, out, 0o644); err != nil {
+		return false, fmt.Errorf("write tokenizer.json: %w", err)
+	}
+	return true, nil
+}
+
 // ─── Per-Model Test Runner ──────────────────────────────────────────────────
 
 func testModel(spec modelSpec, ortLibDir, cacheDir string) modelResult {
@@ -265,6 +310,16 @@ func testModel(spec modelSpec, ortLibDir, cacheDir string) modelResult {
 	}
 	res.Variant = variant.Label
 	res.OnnxFileSize = onnxFileSize(cacheDir, spec.HFRepo, variant.OnnxFilename)
+
+	// 1b. Patch tokenizer.json truncation if needed
+	if spec.MaxCtx > 512 {
+		patched, patchErr := patchTokenizerTruncation(modelDir, spec.MaxCtx)
+		if patchErr != nil {
+			fmt.Printf("  [warn] tokenizer patch: %v\n", patchErr)
+		} else if patched {
+			fmt.Printf("  [patched] tokenizer.json truncation.max_length → %d\n", spec.MaxCtx)
+		}
+	}
 
 	// 2. Create ORT session
 	session, err := hugot.NewORTSession(
