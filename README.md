@@ -83,6 +83,24 @@ The `artifacts/*.db` files and `deadzone.db` are both gitignored — `artifacts/
 
 Run `just` (no args) to list every recipe. Override the DB path with positional args: `just consolidate foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
 
+### Building release binaries
+
+`just build` is a fast compile check (`go build ./...` — produces no output binaries). To produce the four named CLIs at the repo root with version info embedded, use `just build-release`:
+
+```bash
+# Local dev build — version/commit/date default from git describe + rev-parse + UTC now
+just build-release
+./deadzone-server -version
+# → deadzone-server v0.1.0-2-gabc1234-dirty (abc1234, built 2026-04-12T12:00:00Z)
+
+# Release build — CI sets VERSION/COMMIT/DATE explicitly from the workflow
+VERSION=v0.1.0 COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%FT%TZ) just build-release
+./deadzone-server -version
+# → deadzone-server v0.1.0 (abc1234, built 2026-04-12T12:00:00Z)
+```
+
+All four binaries accept `-version` (server, scraper, consolidate) or `version` as a subcommand (packs), which prints the banner and exits without touching the DB or embedder. The recipe compiles with `-trimpath -ldflags "-s -w -X main.version=… -X main.commit=… -X main.date=…"`, so absolute build-host paths never leak into the binary and the stripped output stays small despite the CGO ORT dependency.
+
 ### Refreshing a single library
 
 The per-lib artifact layout means one library can be re-scraped, re-uploaded, and re-distributed without touching the others. The flow has four steps and is the same for both single-version libs and multi-version (`/facebook/react/v18`, `/facebook/react/v19`, …) entries:
