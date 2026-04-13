@@ -49,3 +49,100 @@ libraries:
       - https://fastapi.tiangolo.com/tutorial/handling-errors/
       - https://fastapi.tiangolo.com/tutorial/dependencies/
       - https://fastapi.tiangolo.com/tutorial/security/
+
+  # OpenJDK — Java SE 21 API reference. Kind chosen because docs.oracle.com
+  # serves pre-rendered javadoc HTML, not raw markdown. Scrape operator may
+  # want to add more classes; these six are the highest-traffic entries.
+  - lib_id: /openjdk/jdk
+    kind: scrape-via-agent
+    urls:
+      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/String.html
+      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/List.html
+      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Map.html
+      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Optional.html
+      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Stream.html
+      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html
+
+  # Python stdlib — docs.python.org is HTML (Sphinx-rendered).
+  - lib_id: /python/cpython
+    kind: scrape-via-agent
+    urls:
+      - https://docs.python.org/3/library/os.html
+      - https://docs.python.org/3/library/sys.html
+      - https://docs.python.org/3/library/pathlib.html
+      - https://docs.python.org/3/library/json.html
+      - https://docs.python.org/3/library/collections.html
+      - https://docs.python.org/3/library/itertools.html
+      - https://docs.python.org/3/library/functools.html
+      - https://docs.python.org/3/library/subprocess.html
+
+  # HashiCorp Terraform — developer.hashicorp.com is a Next.js site, HTML-only.
+  - lib_id: /hashicorp/terraform
+    kind: scrape-via-agent
+    urls:
+      - https://developer.hashicorp.com/terraform/intro
+      - https://developer.hashicorp.com/terraform/language
+      - https://developer.hashicorp.com/terraform/language/resources
+      - https://developer.hashicorp.com/terraform/language/values/variables
+      - https://developer.hashicorp.com/terraform/language/state
+      - https://developer.hashicorp.com/terraform/language/modules
+      - https://developer.hashicorp.com/terraform/language/providers
+      - https://developer.hashicorp.com/terraform/cli/commands
+
+  # OpenTofu — Docusaurus site at opentofu.org/docs (HTML).
+  - lib_id: /opentofu/opentofu
+    kind: scrape-via-agent
+    urls:
+      - https://opentofu.org/docs/intro/
+      - https://opentofu.org/docs/language/
+      - https://opentofu.org/docs/language/resources/
+      - https://opentofu.org/docs/language/modules/
+      - https://opentofu.org/docs/language/state/
+      - https://opentofu.org/docs/cli/commands/
+
+  # OVHcloud Go SDK — README is the canonical reference.
+  - lib_id: /ovh/go-ovh
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/ovh/go-ovh/master/README.md
+
+  # OVHcloud CLI (v2). Canonical repo name is `ovhcloud-cli`, not `ovh-cli`.
+  - lib_id: /ovh/ovhcloud-cli
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/ovh/ovhcloud-cli/main/README.md
+
+  # OVHcloud Terraform provider — README + top-level provider doc.
+  - lib_id: /ovh/terraform-provider-ovh
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/ovh/terraform-provider-ovh/master/README.md
+      - https://raw.githubusercontent.com/ovh/terraform-provider-ovh/master/docs/index.md
+
+  # Scaleway Go SDK — canonical Scaleway SDK.
+  - lib_id: /scaleway/scaleway-sdk-go
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/scaleway/scaleway-sdk-go/main/README.md
+
+  # Scaleway CLI — README + cookbook + v2 migration guide.
+  - lib_id: /scaleway/scaleway-cli
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/scaleway/scaleway-cli/main/README.md
+      - https://raw.githubusercontent.com/scaleway/scaleway-cli/main/docs/cookbook.md
+      - https://raw.githubusercontent.com/scaleway/scaleway-cli/main/docs/migration_guide_v2.md
+
+  # Scaleway Terraform provider — README + top-level provider doc.
+  - lib_id: /scaleway/terraform-provider-scaleway
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/scaleway/terraform-provider-scaleway/main/README.md
+      - https://raw.githubusercontent.com/scaleway/terraform-provider-scaleway/main/docs/index.md
+
+  # opencode (AI coding CLI, formerly sst/opencode, transferred to anomalyco).
+  # Default branch is `dev`, not `main`.
+  - lib_id: /anomalyco/opencode
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/anomalyco/opencode/dev/README.md
