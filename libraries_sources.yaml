@@ -177,18 +177,10 @@ libraries:
       - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/virtual-environments.md
 
 
-  # OpenJDK — Java SE 21 API reference. Kind chosen because docs.oracle.com
-  # serves pre-rendered javadoc HTML, not raw markdown. Scrape operator may
-  # want to add more classes; these six are the highest-traffic entries.
-  - lib_id: /openjdk/jdk
-    kind: scrape-via-agent
-    urls:
-      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/String.html
-      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/List.html
-      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Map.html
-      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Optional.html
-      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Stream.html
-      - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html
+  # OpenJDK intentionally omitted from 0.1: docs.oracle.com javadoc is
+  # pre-rendered HTML only (no markdown/rst source upstream), so pulling it
+  # would require the scrape-via-agent LLM path. Deferred until we either
+  # parse javadoc HTML directly or accept the quality/perf tradeoff.
 
   # Python stdlib — docs ship as reStructuredText in cpython/Doc/library/,
   # so we pull the raw .rst directly. No HTML scrape, no LLM. The 20
@@ -218,29 +210,106 @@ libraries:
       - https://raw.githubusercontent.com/python/cpython/main/Doc/library/socket.rst
       - https://raw.githubusercontent.com/python/cpython/main/Doc/library/threading.rst
 
-  # HashiCorp Terraform — developer.hashicorp.com is a Next.js site, HTML-only.
+  # HashiCorp Terraform — docs live as MDX in hashicorp/web-unified-docs
+  # under content/terraform/v1.14.x/docs/. MDX is markdown + JSX; goldmark
+  # parses the prose and lets unknown tags through as raw HTML. v1.14.x is
+  # the latest stable at pin time; bump the version prefix in all URLs when
+  # upgrading (no versions: shorthand — the prefix path differs, not a
+  # placeholder).
   - lib_id: /hashicorp/terraform
-    kind: scrape-via-agent
+    kind: github-md
     urls:
-      - https://developer.hashicorp.com/terraform/intro
-      - https://developer.hashicorp.com/terraform/language
-      - https://developer.hashicorp.com/terraform/language/resources
-      - https://developer.hashicorp.com/terraform/language/values/variables
-      - https://developer.hashicorp.com/terraform/language/state
-      - https://developer.hashicorp.com/terraform/language/modules
-      - https://developer.hashicorp.com/terraform/language/providers
-      - https://developer.hashicorp.com/terraform/cli/commands
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/intro/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/intro/core-workflow.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/intro/use-cases.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/style.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/resources/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/resources/configure.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/resources/destroy.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/modules/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/modules/configuration.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/modules/sources.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/variables.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/outputs.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/locals.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/purpose.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/backends.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/remote.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/locking.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/workspaces.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/import.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/references.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/conditionals.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/for.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/function-calls.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/types.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/type-constraints.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/operators.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/strings.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/dynamic-blocks.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/init.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/plan.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/apply.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/destroy.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/import.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/validate.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/fmt.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/list.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/mv.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/rm.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/show.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/workspace/index.mdx
 
-  # OpenTofu — Docusaurus site at opentofu.org/docs (HTML).
+  # OpenTofu — docs are MDX directly in the opentofu repo at
+  # website/docs/. Terraform fork, so the tree shape mirrors hashicorp's.
   - lib_id: /opentofu/opentofu
-    kind: scrape-via-agent
+    kind: github-md
     urls:
-      - https://opentofu.org/docs/intro/
-      - https://opentofu.org/docs/language/
-      - https://opentofu.org/docs/language/resources/
-      - https://opentofu.org/docs/language/modules/
-      - https://opentofu.org/docs/language/state/
-      - https://opentofu.org/docs/cli/commands/
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/core-workflow.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/use-cases.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/upgrading.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/whats-new.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/resources/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/resources/syntax.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/resources/behavior.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/modules/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/modules/syntax.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/modules/sources.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/variables.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/outputs.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/locals.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/purpose.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/backends.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/remote.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/locking.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/workspaces.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/import.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/encryption.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/sensitive-data.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/references.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/conditionals.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/for.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/function-calls.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/types.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/type-constraints.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/operators.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/strings.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/dynamic-blocks.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/init.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/plan.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/apply.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/destroy.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/validate.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/fmt.mdx
 
   # OVHcloud Go SDK — README is the canonical reference.
   - lib_id: /ovh/go-ovh

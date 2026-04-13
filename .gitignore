@@ -1,17 +1,16 @@
 /deadzone
-/deadzone-server
-/deadzone-consolidate
-/deadzone-packs
 /deadzone.db
 /deadzone.db-wal
 /deadzone.db-shm
 # /artifacts/ holds disposable per-lib .db build outputs and tursogo
 # WAL/SHM sidecars, but artifacts/manifest.yaml is a tracked source file
 # (it's the audit trail for which artifact version is canonical — see
-# issue #30). Patterns are .db-only so the manifest stays trackable.
+# issue #30). Patterns cover .db, WAL/SHM, and the per-artifact .db.state
+# sidecars (#96) so the manifest is the only tracked file.
 /artifacts/*.db
 /artifacts/*.db-wal
 /artifacts/*.db-shm
+/artifacts/*.db.state
 # libtokenizers.a and friends land here via `just fetch-tokenizers`;
 # it's a dev artifact directory, never tracked.
 /lib/
