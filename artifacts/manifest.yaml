@@ -1,22 +1,26 @@
-# Deadzone pack manifest — see #30 and the README "Quick start".
+# Deadzone release manifest — see issue #101.
 #
-# This file is the source of truth for which version of each per-lib
-# artifact is currently canonical. Edits MUST come from
-# `deadzone packs upload` — never hand-edit a sha256.
+# Records the most recent `deadzone.db` release uploaded by
+# `deadzone dbrelease` (operator-driven for now; CI will take over
+# distribution later — see #101 Out of scope). The file is committed as
+# a release-history trace; edits MUST come from `deadzone dbrelease`,
+# never hand-edited.
 #
-# Schema:
-#   release_tag  rolling GitHub Release tag that holds every asset
-#   repo         optional default `owner/name` for downloads (the
-#                -repo CLI flag overrides this when explicitly set)
-#   packs        list of per-lib artifacts; one entry per lib_id
-#                (lib_id, asset, sha256, size, indexed_at — all
-#                describe the upload event)
+# Schema (single `release:` block):
+#   tag         release tag (e.g. v0.1.0)
+#   asset       name of the DB asset on the release (always deadzone.db)
+#   sha256      sha256 of deadzone.db (64-char hex)
+#   size        size in bytes
+#   indexed_at  RFC3339 timestamp at release-upload time
+#   embedder    {kind, model, dim} snapshot at release time
+#   lib_count   count of rows in libs at release time
+#   doc_count   count of rows in docs at release time
 #
-# Content-level metadata (embedder, schema_version, url_count,
-# doc_count, created_at, updated_at) lives in the per-artifact
-# `<asset>.state` YAML sidecar published next to each `.db` on the
-# rolling release (#96).
+# When per-artifact distribution returns (see #101), a sibling `packs:`
+# block is expected to come back. Until then the file carries only the
+# single release record. The `release.tag: ""` placeholder below is
+# the pre-v0.1.0 shape; the first `deadzone dbrelease v0.1.0` rewrites
+# everything.
 
-release_tag: packs
-repo: laradji/deadzone
-packs: []
+release:
+  tag: ""

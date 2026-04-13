@@ -12,19 +12,19 @@ import (
 	_ "turso.tech/database/tursogo"
 )
 
-// makeArtifact builds a fresh artifact file at <dir>/<basename>.db
-// containing one libs row and the supplied docs. The basename is taken
-// from the lib_id with "/" turned into "_" and the leading slash
-// stripped — i.e. it follows the same naming rule the scraper uses, so
-// the test fixtures double as a regression check on the filename
-// scheme. Returns the artifact's on-disk path.
+// makeArtifact builds a fresh artifact file at
+// <dir>/<slug>/artifact.db containing one libs row and the supplied
+// docs. The slug matches the scraper's naming rule (leading "/" stripped,
+// remaining "/" → "_"), so the test fixtures double as a regression
+// check on the folder-per-lib layout introduced by #101. Returns the
+// artifact's on-disk path.
 func makeArtifact(t *testing.T, dir, libID string, docs []db.Doc) string {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll %s: %v", dir, err)
+	libDir := filepath.Join(dir, artifactBasename(libID))
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", libDir, err)
 	}
-	name := artifactBasename(libID) + ".db"
-	path := filepath.Join(dir, name)
+	path := filepath.Join(libDir, "artifact.db")
 
 	a, err := db.OpenArtifact(path, metaFor(testEmbedder), libID)
 	if err != nil {

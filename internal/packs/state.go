@@ -1,30 +1,30 @@
 package packs
 
-// state.go implements the per-artifact `<lib>.db.state` YAML sidecar
-// introduced by #96.
+// state.go implements the per-lib `state.yaml` YAML sidecar introduced
+// by #96 and moved to `<artifactsDir>/<slug>/state.yaml` by #101.
 //
 // The sidecar carries metadata about an artifact's *contents* (embedder
 // identity, schema version, scrape lifecycle dates, doc counts). The
-// manifest.yaml entry next to it carries metadata about the *upload
-// event* (sha256, size, indexed_at). Keeping the two concepts in
-// separate files is the whole point of the split — don't conflate
-// them.
+// top-level artifacts/manifest.yaml carries metadata about the
+// *release event* (sha256, size, indexed_at of the consolidated
+// deadzone.db). Keeping the two concepts in separate files is the
+// whole point of the split — don't conflate them.
 //
-// Lifecycle, as implemented here and in cmd/scraper/main.go:
+// Lifecycle, as implemented here and in cmd/deadzone/scrape.go:
 //
-//   - The scraper reads the existing `.state` (if any) BEFORE wiping
-//     the `.db` + WAL/SHM sidecars, to capture `created_at` so it
-//     survives a re-scrape.
+//   - The scraper reads the existing `state.yaml` (if any) BEFORE
+//     wiping the `artifact.db` + WAL/SHM sidecars, to capture
+//     `created_at` so it survives a re-scrape.
 //   - After a lib finishes successfully (after UpdateLibCount) the
-//     scraper writes a fresh `.state` with `created_at` preserved (or
-//     set to now on first scrape) and `updated_at = now`.
-//   - On lib failure the `.state` is NOT rewritten. The pre-existing
-//     `.state` stays in place even though the `.db` was wiped; an
-//     operator re-running the scrape overwrites both. This is a
+//     scraper writes a fresh `state.yaml` with `created_at` preserved
+//     (or set to now on first scrape) and `updated_at = now`.
+//   - On lib failure the `state.yaml` is NOT rewritten. The pre-existing
+//     sidecar stays in place even though the `artifact.db` was wiped;
+//     an operator re-running the scrape overwrites both. This is a
 //     documented trade-off (see the scraper call-site).
-//   - `packs upload` ships the `.state` as a release asset alongside
-//     the `.db`, and `packs download` fetches both. `packs list`
-//     reads the downloaded `.state` to surface rich columns.
+//
+// The path helpers (`StatePath`, `ArtifactDir`, `ArtifactDBPath`,
+// `Slug`) live in paths.go.
 
 import (
 	"fmt"
@@ -57,12 +57,6 @@ type EmbedderState struct {
 	Model string `yaml:"model"`
 	Dim   int    `yaml:"dim"`
 }
-
-// StatePath returns the canonical sidecar path for an artifact `.db`
-// path: the same path with a `.state` suffix appended. Keeping the
-// `.db` prefix ensures `ls artifacts/` groups each pair next to each
-// other and a glob like `*.db*` picks up both.
-func StatePath(dbPath string) string { return dbPath + ".state" }
 
 // LoadState reads and parses a sidecar. A missing file is surfaced as
 // an `os.IsNotExist`-detectable error so callers can branch cleanly

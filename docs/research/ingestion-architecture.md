@@ -121,15 +121,21 @@ The main DB is a **derived view**; artifacts are the local source of truth.
 
 ✅ At 3,000 libs the artifacts directory is ~1 GB total, manageable on disk. The consolidate step is bounded by the number of changed artifacts (combined with #29 for skip-unchanged), not by total corpus size. Distribution is handled by decision 6 below.
 
-### Sidecar metadata (`<lib>.db.state`, #96)
+### Sidecar metadata (`state.yaml`, #96, relocated in #101)
 
-Each per-lib `.db` ships with a YAML sidecar at `<lib>.db.state` carrying *content* metadata that doesn't belong in the `.db` file itself or in the upload-event `manifest.yaml`:
+Each per-lib folder ships with a YAML sidecar at `<artifactsDir>/<slug>/state.yaml` carrying *content* metadata that doesn't belong in the `.db` file itself or in the release-event `manifest.yaml`:
 
 - `lib_id`, `schema_version`, `embedder.{kind,model,dim}`
 - `created_at` (preserved across re-scrapes), `updated_at`
 - `url_count`, `doc_count`
 
-The scraper writes the sidecar atomically after a successful lib finishes; `packs upload` ships `.db` + `.state` as sibling release assets and refuses to upload a `.db` whose sidecar is missing; `packs download` fetches both; `packs list` reads the local sidecar to surface embedder, doc count, and updated-at columns. The split keeps `manifest.yaml` describing **the upload event** (sha256, size, indexed_at) and the sidecar describing **the artifact contents**.
+The scraper writes the sidecar atomically after a successful lib finishes. The split keeps `manifest.yaml` describing **the release event** (tag, sha256, size, indexed_at of the consolidated `deadzone.db`) and the sidecar describing **the artifact contents**.
+
+### Folder-per-lib layout (#101, 2026-04-13)
+
+The per-lib on-disk shape moved from flat `artifacts/<slug>.db` + `<slug>.db.state` pairs to `artifacts/<slug>/{artifact.db, state.yaml}` folders. Each lib now owns a private directory, which gives each artifact a private home before the per-URL fetch logs / extraction-quality dumps planned for #64 need somewhere to land. Path helpers (`packs.Slug`, `packs.ArtifactDir`, `packs.ArtifactDBPath`, `packs.StatePath`) live in `internal/packs/paths.go`.
+
+Release-asset names can't contain `/` ([docs.github.com/en/rest/releases/assets](https://docs.github.com/en/rest/releases/assets), confirmed by [actions/upload-artifact #647](https://github.com/actions/upload-artifact/issues/647)), so the folder shape is strictly local-on-disk. When per-artifact distribution returns, each folder will need to be tarballed.
 
 ---
 
@@ -273,11 +279,22 @@ Three subcommands shipped under `deadzone packs` (originally `cmd/packs`, consol
 ### Trace
 
 - Designed in #30, merged in #59
-- The first-time clone flow is now: `git clone → just build → just packs-download → just consolidate → just serve`
+- Per-artifact distribution paused by #101 (2026-04-13) — see v2 below
+- The first-time clone flow is now: `git clone → curl -L deadzone.db → deadzone server` (the tagged release carries the consolidated DB as a single asset)
 
 ### Holds at scale
 
 ✅ At 3,000 libs the manifest is ~3,000 lines (manageable as a YAML diff in PR review), and selective download means the typical user pulls a small subset rather than the full corpus. Git LFS or git-native tracking wouldn't have scaled here. The rolling tag is bounded by GitHub's per-release asset limit (~hundreds of GB before friction), which is far above the projected corpus size.
+
+### v2 (2026-04-13, #101): manual operator-driven `deadzone.db` release, per-artifact paused
+
+Per-artifact distribution via the rolling `packs` release hasn't shipped a real 0.1 yet. Trying to ship it in 0.1 adds risk to the milestone for no operator-facing benefit, and v0.1.0 has exactly one operator (the maintainer) — the complexity of the per-artifact upload/download/list + manifest-diffing flow is strictly premature until there are multiple contributors each refreshing different libs.
+
+**Decision:** pause the per-artifact path; ship **only** the consolidated `deadzone.db` on each tagged release, uploaded manually from the operator's laptop by a new `deadzone dbrelease` subcommand (and `just dbrelease v0.1.0` recipe). CI no longer runs `packs download` + `consolidate`; `release.yml` publishes per-platform binary tarballs + their checksum file and stops. `deadzone.db` + `deadzone.db.sha256` are attached to the same release object by `dbrelease`.
+
+The per-artifact upload/download/list code is **commented out, not deleted**. The design and the tests are preserved for the eventual revival when CI takes over distribution at scale. The manifest schema is rewritten: `artifacts/manifest.yaml` now records the most recent `deadzone.db` release (tag, asset, sha256, size, indexed_at, embedder, lib_count, doc_count) as a release-history trace rather than a list of pack assets. When per-artifact distribution returns, the schema is expected to grow a sibling `packs:` block.
+
+The folder-per-lib layout (addendum to decision 2) is orthogonal to this v2 — it landed in the same PR as part of #101 to unblock #64 but stays useful regardless of the distribution pipeline.
 
 ---
 

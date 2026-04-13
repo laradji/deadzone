@@ -1,41 +1,36 @@
 package main
 
-import (
-	"context"
-	"errors"
-	"flag"
-	"fmt"
-	"log/slog"
-	"net/http"
-	"os"
-	"time"
+// DISABLED — see issue #101. Per-artifact pack distribution is paused
+// while the operator drives deadzone.db releases manually via
+// `deadzone dbrelease`. The upload/download/list subcommands used to
+// wrap the per-lib flow in internal/packs/upload.go etc.; those are
+// disabled (see banners there) and every dispatch entry here returns a
+// clear error pointing at dbrelease. The original runPacksUpload /
+// runPacksDownload / runPacksList / resolvePacksRepo helpers are
+// preserved verbatim in the commented block at the bottom for the
+// eventual revival.
 
-	"github.com/laradji/deadzone/internal/logs"
-	"github.com/laradji/deadzone/internal/packs"
+import (
+	"errors"
+	"fmt"
+	"os"
 )
 
-// runPacks is the `deadzone packs` entry point. It owns the second
-// level of subcommand routing (upload / download / list) — the same
-// `os.Args` switch + `flag.NewFlagSet` per sub pattern the old
-// cmd/packs/main.go already used, preserved verbatim as a nested
-// router under the top-level `deadzone` binary.
-//
-// Ordering matters: packs subs produce human output on stdout (list)
-// vs. structured logs on stderr (upload/download), so callers can pipe
-// `deadzone packs list` into awk/column without slog noise.
+var errPacksSubDisabled = errors.New("per-artifact pack distribution disabled — see #101; use 'deadzone dbrelease' for the deadzone.db release flow")
+
+// runPacks is the `deadzone packs` entry point. It now short-circuits
+// every subcommand to the disabled error; the help path still works so
+// an operator running `deadzone packs` sees the explanation rather
+// than a silent no-op.
 func runPacks(args []string) error {
 	if len(args) == 0 {
 		packsUsage()
 		os.Exit(2)
 	}
-	sub, rest := args[0], args[1:]
+	sub := args[0]
 	switch sub {
-	case "upload":
-		return runPacksUpload(rest)
-	case "download":
-		return runPacksDownload(rest)
-	case "list":
-		return runPacksList(rest)
+	case "upload", "download", "list":
+		return errPacksSubDisabled
 	case "-h", "--help", "help":
 		packsUsage()
 		return nil
@@ -49,18 +44,38 @@ func packsUsage() {
 	fmt.Fprintln(os.Stderr, `Usage: deadzone packs <subcommand> [flags]
 
 Subcommands:
-  upload    Upload local artifacts/*.db to the rolling GitHub Release
-  download  Download release assets referenced by the manifest into ./artifacts
-  list      Print the manifest as a table
+  upload    DISABLED (#101) — use 'deadzone dbrelease' to ship deadzone.db
+  download  DISABLED (#101) — per-artifact distribution paused
+  list      DISABLED (#101) — manifest now records a single release entry
 
-Run "deadzone packs <subcommand> -h" for the flags supported by each.`)
+The per-artifact flow is expected to return when CI takes over
+distribution at scale. Until then, ship the consolidated deadzone.db to
+the tagged GitHub Release via:
+
+  just dbrelease v0.1.0
+  # or: deadzone dbrelease -tag v0.1.0 -db deadzone.db`)
 }
 
-// runPacksUpload parses upload-specific flags, sets up logging, resolves
-// the repo from (-repo flag) || manifest.repo || DefaultRepo, builds
-// the production GHReleaser, and calls packs.RunUpload. The repo
-// resolution chain is logged so a misconfigured run is visible in
-// stderr without --verbose.
+/*
+// Original pre-#101 implementation — DISABLED; see issue #101. The
+// runPacksUpload / runPacksDownload / runPacksList / resolvePacksRepo
+// helpers below are preserved verbatim for the eventual revival of
+// per-artifact distribution. They reference Manifest.Packs / Pack /
+// DefaultReleaseTag which were removed in the manifest-schema rewrite;
+// reviving the dispatch means restoring those alongside the rest of
+// the internal/packs upload/download/list files.
+
+import (
+	"context"
+	"flag"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/laradji/deadzone/internal/logs"
+	"github.com/laradji/deadzone/internal/packs"
+)
+
 func runPacksUpload(args []string) error {
 	fs := flag.NewFlagSet("packs upload", flag.ExitOnError)
 	artifactsDir := fs.String("artifacts", "./artifacts", "directory containing per-lib *.db artifact files")
@@ -105,10 +120,6 @@ func runPacksUpload(args []string) error {
 	return nil
 }
 
-// runPacksDownload mirrors runPacksUpload's structure for the download
-// path. The production Fetcher wraps http.DefaultClient — public
-// release assets don't need auth, and DefaultClient transparently
-// follows GitHub's 302 to objects.githubusercontent.com.
 func runPacksDownload(args []string) error {
 	fs := flag.NewFlagSet("packs download", flag.ExitOnError)
 	artifactsDir := fs.String("artifacts", "./artifacts", "directory to write downloaded *.db files into")
@@ -156,10 +167,6 @@ func runPacksDownload(args []string) error {
 	return nil
 }
 
-// runPacksList parses the small list flag set and writes the table to
-// stdout. Logs still go to stderr — the table is the only thing on
-// stdout so callers can pipe it into `column`, `awk`, or similar
-// without slog noise.
 func runPacksList(args []string) error {
 	fs := flag.NewFlagSet("packs list", flag.ExitOnError)
 	manifestPath := fs.String("manifest", "./artifacts/manifest.yaml", "path to artifacts/manifest.yaml")
@@ -175,15 +182,6 @@ func runPacksList(args []string) error {
 	}, os.Stdout)
 }
 
-// resolvePacksRepo implements the three-tier repo resolution: explicit
-// -repo flag wins, then the manifest's `repo:` field if any, then the
-// hardcoded default. Returns the chosen value and a "source" string
-// for the structured log line so misconfiguration is visible.
-//
-// The manifest read here is best-effort: a missing manifest is NOT
-// fatal because the upload subcommand will surface the same error in
-// its real Load call. A malformed manifest IS fatal — surfacing it
-// here gives the operator a single error message instead of two.
 func resolvePacksRepo(manifestPath, flagValue string) (string, string, error) {
 	if flagValue != "" {
 		return flagValue, "flag", nil
@@ -197,3 +195,4 @@ func resolvePacksRepo(manifestPath, flagValue string) (string, string, error) {
 	}
 	return packs.DefaultRepo, "default", nil
 }
+*/

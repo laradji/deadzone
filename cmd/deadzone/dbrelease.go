@@ -1,0 +1,245 @@
+package main
+
+// dbrelease is the `deadzone dbrelease` subcommand introduced in #101.
+// It wraps the manual "ship deadzone.db to a tagged GitHub Release"
+// flow the operator drives from their laptop until CI takes over
+// distribution at scale.
+//
+// Assumptions (§F of #101):
+//   - The tag already exists on the origin remote (operator pushed it).
+//   - CI's release.yml has already run for that tag and created the
+//     release object with the per-platform binary tarballs attached.
+//   - deadzone.db exists locally at -db (default ./deadzone.db).
+//
+// Steps:
+//  1. sha256 ./deadzone.db and write ./deadzone.db.sha256 next to it.
+//  2. Open the DB via a bare sql.Open (no embedder load) and read the
+//     embedder identity + lib/doc counts via SELECTs against meta/libs/docs.
+//  3. EnsureRelease, then Upload both deadzone.db and deadzone.db.sha256
+//     with --clobber.
+//  4. Rewrite artifacts/manifest.yaml with the new Release record and
+//     log a one-line summary reminding the operator to commit.
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/laradji/deadzone/internal/logs"
+	"github.com/laradji/deadzone/internal/packs"
+	_ "turso.tech/database/tursogo"
+)
+
+// runDBRelease is the entry point wired into the top-level dispatch in
+// main.go.
+func runDBRelease(args []string) error {
+	fs := flag.NewFlagSet("dbrelease", flag.ExitOnError)
+	dbPath := fs.String("db", "deadzone.db", "path to the consolidated deadzone.db")
+	tag := fs.String("tag", "", "release tag to upload to (required; the tag must already exist on origin)")
+	repo := fs.String("repo", "", "GitHub owner/name (default: from git remote via `gh`, falling back to "+packs.DefaultRepo+")")
+	manifestPath := fs.String("manifest", "./artifacts/manifest.yaml", "manifest to update")
+	verbose := fs.Bool("verbose", false, "enable Debug-level slog output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	slog.SetDefault(logs.New(os.Stderr, *verbose))
+
+	if strings.TrimSpace(*tag) == "" {
+		return errors.New("dbrelease: -tag is required")
+	}
+
+	fi, err := os.Stat(*dbPath)
+	if err != nil {
+		return fmt.Errorf("dbrelease: stat %s: %w", *dbPath, err)
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("dbrelease: -db %s is a directory", *dbPath)
+	}
+
+	resolvedRepo := strings.TrimSpace(*repo)
+	if resolvedRepo == "" {
+		resolvedRepo = resolveRepoFromGit(*manifestPath)
+	}
+	slog.Info("dbrelease.start",
+		"db_path", *dbPath,
+		"tag", *tag,
+		"repo", resolvedRepo,
+		"manifest_path", *manifestPath,
+	)
+
+	hash, err := fileSHA256(*dbPath)
+	if err != nil {
+		return fmt.Errorf("dbrelease: sha256 %s: %w", *dbPath, err)
+	}
+
+	shaPath := *dbPath + ".sha256"
+	shaLine := fmt.Sprintf("%s  %s\n", hash, filepath.Base(*dbPath))
+	if err := os.WriteFile(shaPath, []byte(shaLine), 0o644); err != nil {
+		return fmt.Errorf("dbrelease: write %s: %w", shaPath, err)
+	}
+
+	stats, err := readDBStats(*dbPath)
+	if err != nil {
+		return fmt.Errorf("dbrelease: read db stats: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	releaser := packs.NewGHReleaser()
+	if err := releaser.EnsureRelease(ctx, resolvedRepo, *tag); err != nil {
+		return fmt.Errorf("dbrelease: %w", err)
+	}
+	if err := releaser.Upload(ctx, resolvedRepo, *tag, *dbPath); err != nil {
+		return fmt.Errorf("dbrelease: upload db: %w", err)
+	}
+	if err := releaser.Upload(ctx, resolvedRepo, *tag, shaPath); err != nil {
+		return fmt.Errorf("dbrelease: upload sha256: %w", err)
+	}
+
+	// Manifest rewrite happens AFTER the successful upload so a failed
+	// run leaves the committed manifest unchanged and the operator can
+	// retry without polluting git state.
+	m := &packs.Manifest{
+		Release: packs.ReleaseRecord{
+			Tag:       *tag,
+			Asset:     filepath.Base(*dbPath),
+			SHA256:    hash,
+			Size:      fi.Size(),
+			IndexedAt: time.Now().UTC(),
+			Embedder: packs.EmbedderRecord{
+				Kind:  stats.embedderKind,
+				Model: stats.modelVersion,
+				Dim:   stats.embeddingDim,
+			},
+			LibCount: stats.libCount,
+			DocCount: stats.docCount,
+		},
+	}
+	if err := m.Save(*manifestPath); err != nil {
+		return fmt.Errorf("dbrelease: save manifest: %w", err)
+	}
+
+	slog.Info("dbrelease.done",
+		"tag", *tag,
+		"asset", filepath.Base(*dbPath),
+		"sha256", hash,
+		"size", fi.Size(),
+		"lib_count", stats.libCount,
+		"doc_count", stats.docCount,
+		"manifest_path", *manifestPath,
+	)
+	fmt.Fprintf(os.Stderr, "dbrelease: wrote %s — remember to commit it.\n", *manifestPath)
+	return nil
+}
+
+// dbStats bundles the bits dbrelease pulls out of deadzone.db for the
+// manifest record. Populated by readDBStats via a bare sql.Open so the
+// subcommand does not load an embedder (the operator might be on a
+// machine with no model cache and we don't want to stall the release
+// behind a 131 MB download).
+type dbStats struct {
+	embedderKind string
+	modelVersion string
+	embeddingDim int
+	libCount     int
+	docCount     int
+}
+
+// readDBStats opens path via tursogo's bare sql driver, reads the
+// embedder identity from the meta table, and counts rows in libs and
+// docs. Mirrors db.ReadArtifactMeta's approach of staying upstream of
+// db.Open so the 90MB+ model cache isn't a prerequisite for shipping a
+// release.
+func readDBStats(path string) (dbStats, error) {
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		return dbStats{}, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer raw.Close()
+	raw.SetMaxOpenConns(1)
+
+	var stats dbStats
+	rows, err := raw.Query(`SELECT key, value FROM meta WHERE key IN (?, ?, ?)`,
+		"embedder_kind", "embedding_dim", "model_version")
+	if err != nil {
+		return dbStats{}, fmt.Errorf("query meta: %w", err)
+	}
+	values := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			rows.Close()
+			return dbStats{}, fmt.Errorf("scan meta: %w", err)
+		}
+		values[k] = v
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return dbStats{}, fmt.Errorf("iter meta: %w", err)
+	}
+	rows.Close()
+
+	stats.embedderKind = values["embedder_kind"]
+	stats.modelVersion = values["model_version"]
+	if dimStr := values["embedding_dim"]; dimStr != "" {
+		dim, err := strconv.Atoi(dimStr)
+		if err != nil {
+			return dbStats{}, fmt.Errorf("parse embedding_dim %q: %w", dimStr, err)
+		}
+		stats.embeddingDim = dim
+	}
+
+	if err := raw.QueryRow(`SELECT count(*) FROM libs`).Scan(&stats.libCount); err != nil {
+		return dbStats{}, fmt.Errorf("count libs: %w", err)
+	}
+	if err := raw.QueryRow(`SELECT count(*) FROM docs`).Scan(&stats.docCount); err != nil {
+		return dbStats{}, fmt.Errorf("count docs: %w", err)
+	}
+	return stats, nil
+}
+
+// fileSHA256 is a small streaming hasher kept local to dbrelease — the
+// packs package's FileSHA256 works but pulling it in here would also
+// drag in the (disabled) per-artifact upload flow's sibling code.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// resolveRepoFromGit falls back to `gh repo view --json nameWithOwner`
+// when -repo is unset, giving the operator a sensible default on a
+// typical clone. On any failure we drop to packs.DefaultRepo — the
+// GHReleaser call will surface a clearer error if the ultimate target
+// is wrong.
+func resolveRepoFromGit(_ string) string {
+	out, err := exec.Command("gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").Output()
+	if err != nil {
+		return packs.DefaultRepo
+	}
+	repo := strings.TrimSpace(string(out))
+	if repo == "" {
+		return packs.DefaultRepo
+	}
+	return repo
+}

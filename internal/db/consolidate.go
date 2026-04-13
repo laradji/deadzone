@@ -24,10 +24,13 @@ type ConsolidateResult struct {
 	LibsMerged int
 }
 
-// Consolidate merges every *.db file in artifactsDir into main. It is
-// the inverse of the per-lib scrape: each artifact replaces (not
-// appends to) the rows in main that share its lib_id, in both the docs
-// and libs tables, atomically.
+// Consolidate merges every per-lib artifact in artifactsDir into main.
+// Each lib lives in its own subdirectory (artifacts/<slug>/artifact.db
+// + state.yaml, see #101), so consolidation globs the nested shape
+// rather than the old flat *.db layout. It is the inverse of the
+// per-lib scrape: each artifact replaces (not appends to) the rows in
+// main that share its lib_id, in both the docs and libs tables,
+// atomically.
 //
 // The operation runs in two passes:
 //
@@ -54,7 +57,7 @@ type ConsolidateResult struct {
 func Consolidate(main *DB, artifactsDir string) (ConsolidateResult, error) {
 	var result ConsolidateResult
 
-	matches, err := filepath.Glob(filepath.Join(artifactsDir, "*.db"))
+	matches, err := filepath.Glob(filepath.Join(artifactsDir, "*", "artifact.db"))
 	if err != nil {
 		return result, fmt.Errorf("glob artifacts dir %s: %w", artifactsDir, err)
 	}

@@ -100,10 +100,11 @@ func TestScrapeSources_ContinueOnError(t *testing.T) {
 		t.Errorf("expected second lib to index >=1 doc, got 0")
 	}
 
-	// The successful lib's artifact must be on disk; the failing lib's
-	// must not (the "delete then open" rebuild wipes the file before
-	// open, and the failure aborts before a successful close).
-	okArtifact := filepath.Join(artifacts, "test_works.db")
+	// The successful lib's artifact must be on disk at the folder-per-lib
+	// layout (artifacts/<slug>/artifact.db); the failing lib's must not
+	// (the "delete then open" rebuild wipes the file before open, and
+	// the failure aborts before a successful close).
+	okArtifact := filepath.Join(artifacts, "test_works", "artifact.db")
 	if _, err := os.Stat(okArtifact); err != nil {
 		t.Errorf("expected successful artifact at %s: %v", okArtifact, err)
 	}
@@ -227,7 +228,7 @@ func TestScraper_WritesState_FirstScrape(t *testing.T) {
 		t.Fatalf("scrape failed: %v", results[0].err)
 	}
 
-	statePath := filepath.Join(artifacts, "test_fresh.db.state")
+	statePath := filepath.Join(artifacts, "test_fresh", "state.yaml")
 	got, err := packs.LoadState(statePath)
 	if err != nil {
 		t.Fatalf("LoadState %s: %v", statePath, err)
@@ -263,7 +264,11 @@ func TestScraper_WritesState_RescrapePreservesCreatedAt(t *testing.T) {
 	artifacts := t.TempDir()
 	e, meta := newStubMeta()
 	libID := "/test/rescrape"
-	statePath := filepath.Join(artifacts, "test_rescrape.db.state")
+	libDir := filepath.Join(artifacts, "test_rescrape")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir seed libDir: %v", err)
+	}
+	statePath := filepath.Join(libDir, "state.yaml")
 
 	pastCreated := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	seed := &packs.StateFile{
@@ -322,7 +327,11 @@ func TestScraper_NoStateOnFailure(t *testing.T) {
 	artifacts := t.TempDir()
 	e, meta := newStubMeta()
 	libID := "/test/keepstate"
-	statePath := filepath.Join(artifacts, "test_keepstate.db.state")
+	libDir := filepath.Join(artifacts, "test_keepstate")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir seed libDir: %v", err)
+	}
+	statePath := filepath.Join(libDir, "state.yaml")
 
 	pastCreated := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	seed := &packs.StateFile{
