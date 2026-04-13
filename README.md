@@ -282,7 +282,7 @@ libraries:
 | Field | Required | Purpose |
 |---|---|---|
 | `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
-| `kind` | yes | source kind discriminator — `github-md` for raw markdown, `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
+| `kind` | yes | source kind discriminator — `github-md` for raw markdown, `github-rst` for raw reStructuredText (cpython, Django, NumPy, …), `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
 | `urls` | yes | list of doc URLs (with optional `{version}` placeholder) |
 | `versions` | no | list of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version |
 
@@ -310,7 +310,7 @@ mise exec -- go run ./cmd/scraper -artifacts ./artifacts -lib /facebook/react/v1
 
 > ⚠️ **Experimental.** The `scrape-via-agent` path is the messy half of Deadzone. It works, and it's how non-markdown sources (Terraform providers, mkdocs, etc.) get indexed today, but the LLM-extraction → strict-verifier loop is sensitive to: input truncation cutting mid code-block (the 48 KiB cap below), the model's HTML→markdown skill, and the verifier's appetite for verbatim code matches. Real-world hit rate on dense doc sites is currently ~50% per URL — see [#64](https://github.com/laradji/deadzone/issues/64). Prefer `github-md` whenever the project ships its docs as committed markdown in the repo (most do, including FastAPI, OpenTofu's mkdocs source, etc.). Reach for `scrape-via-agent` only when the docs genuinely live HTML-only on a doc site.
 
-The `github-md` kind only works on libraries that publish raw markdown on GitHub. For everything else — Terraform providers (HTML), React (`react.dev`), mkdocs/docusaurus/vitepress sites, GitBook, ReadTheDocs — Deadzone supports a second source kind, `scrape-via-agent`, that delegates **content → clean markdown** extraction to any OpenAI-compatible chat completions endpoint.
+The `github-md` and `github-rst` kinds only work on libraries that publish raw markdown or reStructuredText on GitHub. For everything else — Terraform providers (HTML), React (`react.dev`), mkdocs/docusaurus/vitepress sites, GitBook, ReadTheDocs — Deadzone supports a third source kind, `scrape-via-agent`, that delegates **content → clean markdown** extraction to any OpenAI-compatible chat completions endpoint.
 
 Deadzone does **not** host an LLM. You bring your own runtime — [Ollama](https://ollama.ai), [llama.cpp server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server), [vLLM](https://github.com/vllm-project/vllm), [LocalAI](https://localai.io), [LM Studio](https://lmstudio.ai), [Groq](https://groq.com), OpenAI itself, anything that speaks `POST /v1/chat/completions` — and point Deadzone at the endpoint via three environment variables:
 

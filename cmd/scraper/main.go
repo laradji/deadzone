@@ -4,9 +4,11 @@
 // Parallelism model (see #93). The outer loop over resolved libraries
 // runs concurrently, bounded per kind by two independent semaphores:
 //
-//   - github-md libs are pure HTTP and safe to run N-wide in parallel
-//     (default 4; override with -parallel-github-md or
-//     DEADZONE_SCRAPE_PARALLEL_GITHUB_MD).
+//   - github-md and github-rst libs are pure HTTP and safe to run
+//     N-wide in parallel. Both kinds share the -parallel-github-md
+//     bound (default 4; env DEADZONE_SCRAPE_PARALLEL_GITHUB_MD) since
+//     they have identical I/O characteristics — see #95 for the choice
+//     to reuse the existing flag rather than introduce a per-kind one.
 //   - scrape-via-agent libs share one LLM endpoint that is usually
 //     single-threaded on consumer hardware (oMLX, Ollama). Default
 //     concurrency is 1 to preserve today's behavior; raise it with
@@ -94,7 +96,7 @@ func run() error {
 	libFilter := flag.String("lib", "", "scrape only this lib_id (matches base or /base/version); empty = scrape all")
 	parallelGithubMD := flag.Int("parallel-github-md",
 		envIntOr(EnvParallelGithubMD, defaultParallelGithubMD),
-		"max concurrent github-md libs (env: "+EnvParallelGithubMD+"; flag wins over env)")
+		"max concurrent github-* libs (github-md, github-rst — env: "+EnvParallelGithubMD+"; flag wins over env)")
 	parallelScrapeViaAgent := flag.Int("parallel-scrape-via-agent",
 		envIntOr(EnvParallelScrapeViaAgent, defaultParallelScrapeViaAgent),
 		"max concurrent scrape-via-agent libs (env: "+EnvParallelScrapeViaAgent+"; flag wins over env)")
@@ -189,6 +191,7 @@ func run() error {
 	runStart := time.Now()
 	parallelByKind := map[string]int{
 		scraper.KindGithubMD:       *parallelGithubMD,
+		scraper.KindGithubRST:      *parallelGithubMD,
 		scraper.KindScrapeViaAgent: *parallelScrapeViaAgent,
 	}
 	results := scrapeSources(ctx, http.DefaultClient, agent, e, meta, *artifactsDir, sources, parallelByKind)
@@ -376,6 +379,8 @@ func scrapeLibToArtifact(
 		switch src.Kind {
 		case scraper.KindGithubMD:
 			res, err = scraper.FetchOne(ctx, client, src.LibID, u)
+		case scraper.KindGithubRST:
+			res, err = scraper.FetchOneViaGithubRST(ctx, client, src.LibID, u)
 		case scraper.KindScrapeViaAgent:
 			res, err = scraper.FetchOneViaAgent(ctx, client, agent, src.LibID, u)
 		default:
