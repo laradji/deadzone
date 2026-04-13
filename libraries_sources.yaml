@@ -36,7 +36,9 @@ libraries:
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/troubleshooting.md
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/rough_edges.md
 
-  - lib_id: /tiangolo/fastapi
+  # FastAPI — repo transferred from tiangolo/fastapi to fastapi/fastapi
+  # (new fastapi org). Docs still live at fastapi.tiangolo.com.
+  - lib_id: /fastapi/fastapi
     kind: scrape-via-agent
     urls:
       - https://fastapi.tiangolo.com/tutorial/first-steps/
