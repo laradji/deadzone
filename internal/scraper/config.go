@@ -14,13 +14,19 @@ import (
 // (single-version entries, version strings themselves).
 const versionPlaceholder = "{version}"
 
-// Kind discriminators for LibrarySource.Kind. Both branches feed the
-// same downstream pipeline (ParseMarkdown → embed → store); they only
-// differ in how the markdown is obtained.
+// Kind discriminators for LibrarySource.Kind. All branches feed the
+// same downstream pipeline (parse → embed → store); they only differ
+// in how the source markup is obtained and which parser turns it into
+// db.Doc entries.
 const (
 	// KindGithubMD is the fast path: HTTP GET on raw markdown URLs and
 	// straight into ParseMarkdown. No LLM, no preprocessing.
 	KindGithubMD = "github-md"
+
+	// KindGithubRST mirrors KindGithubMD for projects that ship docs as
+	// reStructuredText in the source repo (cpython, Django, NumPy, …).
+	// HTTP GET → ParseRST → db.Doc. No LLM. See #95.
+	KindGithubRST = "github-rst"
 
 	// KindScrapeViaAgent delegates content → clean markdown extraction
 	// to an OpenAI-compatible chat completions endpoint (Ollama, vLLM,
@@ -34,6 +40,7 @@ const (
 // the schema.
 var validKinds = map[string]bool{
 	KindGithubMD:       true,
+	KindGithubRST:      true,
 	KindScrapeViaAgent: true,
 }
 
@@ -112,7 +119,7 @@ func (l LibrarySource) validate() error {
 		return fmt.Errorf("kind is required")
 	}
 	if !validKinds[l.Kind] {
-		return fmt.Errorf("unknown kind %q (valid: %s, %s)", l.Kind, KindGithubMD, KindScrapeViaAgent)
+		return fmt.Errorf("unknown kind %q (valid: %s, %s, %s)", l.Kind, KindGithubMD, KindGithubRST, KindScrapeViaAgent)
 	}
 	if len(l.URLs) == 0 {
 		return fmt.Errorf("urls must be non-empty")

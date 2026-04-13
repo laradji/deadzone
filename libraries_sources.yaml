@@ -5,6 +5,9 @@
 #   lib_id   canonical "/org/project" identifier (matches db.docs.lib_id)
 #   kind     source kind discriminator. Valid values:
 #              - github-md         raw markdown URLs, no LLM (fast path)
+#              - github-rst        raw reStructuredText URLs, no LLM
+#                                  (fast path for cpython, Django, NumPy,
+#                                  and other Sphinx-doc'd projects)
 #              - scrape-via-agent  HTML/text via an OpenAI-compatible
 #                                  chat completions endpoint (set the
 #                                  DEADZONE_AGENT_ENDPOINT[_*] env vars;
@@ -187,18 +190,33 @@ libraries:
       - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Stream.html
       - https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html
 
-  # Python stdlib — docs.python.org is HTML (Sphinx-rendered).
+  # Python stdlib — docs ship as reStructuredText in cpython/Doc/library/,
+  # so we pull the raw .rst directly. No HTML scrape, no LLM. The 20
+  # modules below are the "core 20" decided in #95: highest-traffic stdlib
+  # entries that cover ~80% of typical Python questions.
   - lib_id: /python/cpython
-    kind: scrape-via-agent
+    kind: github-rst
     urls:
-      - https://docs.python.org/3/library/os.html
-      - https://docs.python.org/3/library/sys.html
-      - https://docs.python.org/3/library/pathlib.html
-      - https://docs.python.org/3/library/json.html
-      - https://docs.python.org/3/library/collections.html
-      - https://docs.python.org/3/library/itertools.html
-      - https://docs.python.org/3/library/functools.html
-      - https://docs.python.org/3/library/subprocess.html
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/os.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/sys.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/pathlib.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/json.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/collections.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/itertools.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/functools.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/subprocess.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/asyncio.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/argparse.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/re.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/datetime.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/typing.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/dataclasses.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/enum.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/logging.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/urllib.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/http.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/socket.rst
+      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/threading.rst
 
   # HashiCorp Terraform — developer.hashicorp.com is a Next.js site, HTML-only.
   - lib_id: /hashicorp/terraform

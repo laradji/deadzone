@@ -24,7 +24,9 @@ Two earlier decisions in deadzone's history (the original "list_libraries flat e
 
 ---
 
-## 1. Two source kinds, never more (#27)
+## 1. A small, bounded set of source kinds (#27)
+
+> **2026-04-13 update (#95).** This decision originally read "Two source kinds, never more". The "two" was a v0 framing — the principle was always **bounded by source shapes, not by source families**, with `json-api` already flagged as a possible third in #1. #95 makes it three by adding `github-rst` for projects that ship reStructuredText in the source repo (cpython, Django, NumPy, the scientific-Python stack). The pipeline-shape rule is unchanged: each kind is HTTP fetch → kind-specific parser → the same `db.Doc{Title, Content}` shape into the same embed/store path.
 
 ### Context
 
@@ -44,19 +46,20 @@ Documentation lives in radically different shapes across the ecosystem: raw mark
 
 ### Decision
 
-**Two source kinds**, never more, distinguished by `kind:` in `libraries_sources.yaml`:
+**A small, bounded set of source kinds**, distinguished by `kind:` in `libraries_sources.yaml`:
 
 - `github-md` — raw markdown URLs, fast HTTP path, zero LLM. The fast path for sources that publish reliable raw markdown.
+- `github-rst` — raw reStructuredText URLs, same fast HTTP path, dedicated `ParseRST` instead of `ParseMarkdown`. Added in #95 for cpython/Django/NumPy/scientific-Python projects that ship docs as `.rst` in the source repo.
 - `scrape-via-agent` — HTML/text via an OpenAI-compatible chat completions endpoint (Ollama, vLLM, oMLX, OpenAI proper, …). The catch-all for everything else.
 
-The downstream pipeline (`ParseMarkdown` → chunk → embed → store) is **identical** for both kinds. The only difference is where the markdown came from.
+The downstream pipeline (parse → chunk → embed → store) is **identical** for every kind. The only differences are where the source bytes come from and which parser turns them into `db.Doc`.
 
-A third kind (`json-api`) is being researched in #1 (terraform.io discovery surfaced JSON:API endpoints under `/v2/` that bypass the SPA shell). If it ships, it joins the short list. The principle stays: **the kind set is bounded by source shapes, not by source families**.
+A `json-api` kind is being researched in #1 (terraform.io discovery surfaced JSON:API endpoints under `/v2/` that bypass the SPA shell). If it ships, it joins the short list. The principle stays: **the kind set is bounded by source shapes, not by source families**.
 
 ### Rationale
 
-- **Bounded code surface**: at 3,000 libs, the kind set stays at 2 or 3. Per-source code is replaced by per-source config in `libraries_sources.yaml`.
-- **Single pipeline**: `ParseMarkdown` and the embed/store path stay stable. Only fetch+preprocess differs by kind.
+- **Bounded code surface**: at 3,000 libs, the kind set stays small (3 today, 4 if `json-api` ships). Per-source code is replaced by per-source config in `libraries_sources.yaml`.
+- **Single pipeline**: chunk/embed/store stay stable. Only fetch+parse differs by kind, and each parser emits the same `db.Doc{Title, Content}` shape.
 - **Stay out of the LLM hosting business**: deadzone speaks `POST /v1/chat/completions` and nothing else. The user brings their own runtime. This keeps the binary CGO-free, single-file, ~30 MB. Compatible with every inference server in the 2026 ecosystem.
 - **The verifier protects against the most dangerous LLM failure mode** (hallucinated code blocks, see decision 9 below).
 
@@ -64,6 +67,7 @@ A third kind (`json-api`) is being researched in #1 (terraform.io discovery surf
 
 - Designed in #27, merged in #57
 - Two follow-ups landed: #60→#61 (reasoning suppression) and the still-open #63 (error handling hardening), #64 (extraction quality)
+- Kind set extended in #95 (`github-rst`) for cpython et al. — same fast-HTTP shape as `github-md`, only the parser differs
 
 ### Holds at scale
 
