@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/laradji/deadzone/internal/db"
+	"github.com/laradji/deadzone/internal/packs"
 	"github.com/laradji/deadzone/internal/scraper"
 )
 
@@ -186,6 +187,172 @@ func TestScrapeSources_UnknownKind(t *testing.T) {
 	}
 	if !strings.Contains(results[0].err.Error(), "unknown kind") {
 		t.Errorf("expected 'unknown kind' in err, got %v", results[0].err)
+	}
+}
+
+// markdownSrv spins up a minimal httptest.Server that returns a single
+// markdown page parsing into >=1 doc. Shared by the state-writing
+// tests to keep them dependency-free of the real internet.
+func markdownSrv(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown")
+		fmt.Fprint(w, "# Hi\n\n## Section\n\nContent body.\n")
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestScraper_WritesState_FirstScrape covers the happy first-scrape
+// path: no pre-existing `.state`, run scrape, assert sidecar appears
+// next to the `.db` with `created_at == updated_at` and the right
+// counts.
+func TestScraper_WritesState_FirstScrape(t *testing.T) {
+	t.Parallel()
+	srv := markdownSrv(t)
+
+	artifacts := t.TempDir()
+	e, meta := newStubMeta()
+	sources := []scraper.ResolvedSource{{
+		LibID: "/test/fresh", BaseLibID: "/test/fresh",
+		Kind: scraper.KindGithubMD, URLs: []string{srv.URL + "/p.md"},
+	}}
+
+	results := scrapeSources(context.Background(), http.DefaultClient, nil, e, meta, artifacts, sources,
+		map[string]int{scraper.KindGithubMD: 1})
+	if results[0].err != nil {
+		t.Fatalf("scrape failed: %v", results[0].err)
+	}
+
+	statePath := filepath.Join(artifacts, "test_fresh.db.state")
+	got, err := packs.LoadState(statePath)
+	if err != nil {
+		t.Fatalf("LoadState %s: %v", statePath, err)
+	}
+	if got.LibID != "/test/fresh" {
+		t.Errorf("LibID = %q", got.LibID)
+	}
+	if got.SchemaVersion != db.CurrentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", got.SchemaVersion, db.CurrentSchemaVersion)
+	}
+	if got.Embedder.Kind != "stub" || got.Embedder.Dim != 8 {
+		t.Errorf("Embedder = %+v", got.Embedder)
+	}
+	if !got.CreatedAt.Equal(got.UpdatedAt) {
+		t.Errorf("first scrape: CreatedAt %v != UpdatedAt %v", got.CreatedAt, got.UpdatedAt)
+	}
+	if got.URLCount != 1 {
+		t.Errorf("URLCount = %d, want 1", got.URLCount)
+	}
+	if got.DocCount != results[0].docs {
+		t.Errorf("DocCount = %d, want docs from scrape = %d", got.DocCount, results[0].docs)
+	}
+}
+
+// TestScraper_WritesState_RescrapePreservesCreatedAt seeds a sidecar
+// with a past `created_at`, re-scrapes the same lib, and asserts the
+// `created_at` survives while `updated_at` advances.
+func TestScraper_WritesState_RescrapePreservesCreatedAt(t *testing.T) {
+	t.Parallel()
+	srv := markdownSrv(t)
+
+	artifacts := t.TempDir()
+	e, meta := newStubMeta()
+	libID := "/test/rescrape"
+	statePath := filepath.Join(artifacts, "test_rescrape.db.state")
+
+	pastCreated := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	seed := &packs.StateFile{
+		LibID: libID, SchemaVersion: 1,
+		Embedder:  packs.EmbedderState{Kind: "stale", Model: "stale-m", Dim: 8},
+		CreatedAt: pastCreated, UpdatedAt: pastCreated,
+		URLCount: 99, DocCount: 99,
+	}
+	if err := seed.Save(statePath); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	sources := []scraper.ResolvedSource{{
+		LibID: libID, BaseLibID: libID,
+		Kind: scraper.KindGithubMD, URLs: []string{srv.URL + "/p.md"},
+	}}
+	results := scrapeSources(context.Background(), http.DefaultClient, nil, e, meta, artifacts, sources,
+		map[string]int{scraper.KindGithubMD: 1})
+	if results[0].err != nil {
+		t.Fatalf("scrape failed: %v", results[0].err)
+	}
+
+	got, err := packs.LoadState(statePath)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if !got.CreatedAt.Equal(pastCreated) {
+		t.Errorf("CreatedAt = %v, want preserved %v", got.CreatedAt, pastCreated)
+	}
+	if !got.UpdatedAt.After(pastCreated) {
+		t.Errorf("UpdatedAt %v should be after CreatedAt %v", got.UpdatedAt, pastCreated)
+	}
+	// Counts and embedder identity should reflect the new run, not
+	// the seeded values.
+	if got.Embedder.Kind != "stub" {
+		t.Errorf("Embedder.Kind = %q, want stub (overwrite)", got.Embedder.Kind)
+	}
+	if got.URLCount != 1 {
+		t.Errorf("URLCount = %d, want 1 (overwrite)", got.URLCount)
+	}
+}
+
+// TestScraper_NoStateOnFailure: a pre-existing sidecar must be left
+// untouched if the scrape fails mid-way (the .db is wiped, but the
+// .state stays so an operator can still see the last successful
+// metadata until they re-run).
+func TestScraper_NoStateOnFailure(t *testing.T) {
+	t.Parallel()
+
+	failSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer failSrv.Close()
+
+	artifacts := t.TempDir()
+	e, meta := newStubMeta()
+	libID := "/test/keepstate"
+	statePath := filepath.Join(artifacts, "test_keepstate.db.state")
+
+	pastCreated := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	seed := &packs.StateFile{
+		LibID: libID, SchemaVersion: 1,
+		Embedder:  packs.EmbedderState{Kind: "old", Model: "old-m", Dim: 8},
+		CreatedAt: pastCreated, UpdatedAt: pastCreated,
+		URLCount: 99, DocCount: 7,
+	}
+	if err := seed.Save(statePath); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	originalBytes, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read seed: %v", err)
+	}
+
+	failURLs := make([]string, maxSkipsPerLib)
+	for i := range failURLs {
+		failURLs[i] = failSrv.URL + fmt.Sprintf("/x-%d.md", i)
+	}
+	sources := []scraper.ResolvedSource{{
+		LibID: libID, BaseLibID: libID, Kind: scraper.KindGithubMD, URLs: failURLs,
+	}}
+	results := scrapeSources(context.Background(), http.DefaultClient, nil, e, meta, artifacts, sources,
+		map[string]int{scraper.KindGithubMD: 1})
+	if results[0].err == nil {
+		t.Fatal("expected scrape to fail (skipped_ceiling)")
+	}
+
+	finalBytes, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read final state: %v", err)
+	}
+	if string(originalBytes) != string(finalBytes) {
+		t.Errorf("pre-existing .state was rewritten on failure\nbefore:\n%s\nafter:\n%s", originalBytes, finalBytes)
 	}
 }
 

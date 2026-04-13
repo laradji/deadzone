@@ -191,12 +191,16 @@ func runDownload(args []string) error {
 func runList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	manifestPath := fs.String("manifest", "./artifacts/manifest.yaml", "path to artifacts/manifest.yaml")
+	artifactsDir := fs.String("artifacts", "./artifacts", "directory to read local *.db.state sidecars from for the extended columns")
 	verbose := fs.Bool("verbose", false, "enable Debug-level slog output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	slog.SetDefault(logs.New(os.Stderr, *verbose))
-	return packs.RunList(packs.ListOptions{ManifestPath: *manifestPath}, os.Stdout)
+	return packs.RunList(packs.ListOptions{
+		ManifestPath: *manifestPath,
+		ArtifactsDir: *artifactsDir,
+	}, os.Stdout)
 }
 
 // resolveRepo implements the three-tier repo resolution: explicit

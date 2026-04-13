@@ -149,6 +149,18 @@ func RunDownload(ctx context.Context, opts DownloadOptions) (DownloadSummary, er
 		}
 
 		if !needsDownload {
+			// `.db` is verified locally. Fetch the `.state` sidecar
+			// only if it is absent locally — the sidecar has no
+			// sha256 in the manifest, so we can't re-verify an
+			// existing local copy and "present means good enough".
+			// This keeps the idempotent "verified-only" run's HTTP
+			// count at zero.
+			if err := ensureStateIfMissing(ctx, opts.Fetcher, opts.Repo, manifest.ReleaseTag, opts.ArtifactsDir, p); err != nil {
+				slog.Warn("packs.state_download_failed",
+					"lib_id", p.LibID,
+					"err", err.Error(),
+				)
+			}
 			continue
 		}
 
@@ -169,9 +181,82 @@ func RunDownload(ctx context.Context, opts DownloadOptions) (DownloadSummary, er
 		} else {
 			summary.Downloaded++
 		}
+
+		// Fetch the sidecar alongside the `.db`. A sidecar fetch
+		// failure is non-fatal: the `.db` is still usable by
+		// consolidate/server, and `packs list` will just render
+		// em-dashes for the missing metadata. Surface it as a warning
+		// so an operator can spot the drift without a failed run.
+		if err := ensureStateDownloaded(ctx, opts.Fetcher, opts.Repo, manifest.ReleaseTag, opts.ArtifactsDir, p); err != nil {
+			slog.Warn("packs.state_download_failed",
+				"lib_id", p.LibID,
+				"err", err.Error(),
+			)
+		}
 	}
 
 	return summary, nil
+}
+
+// ensureStateIfMissing fetches the `.state` sidecar only when the
+// local file is absent, so the verified-local happy path remains a
+// zero-HTTP operation. Use ensureStateDownloaded when the sidecar is
+// always expected to be (re)fetched.
+func ensureStateIfMissing(ctx context.Context, fetcher Fetcher, repo, tag, artifactsDir string, p Pack) error {
+	destPath := filepath.Join(artifactsDir, p.Asset+".state")
+	if _, err := os.Stat(destPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat sidecar %s: %w", destPath, err)
+	}
+	return ensureStateDownloaded(ctx, fetcher, repo, tag, artifactsDir, p)
+}
+
+// ensureStateDownloaded fetches the `.state` sidecar for a pack into
+// ArtifactsDir, overwriting any existing sidecar. It is a best-effort
+// helper called after the "download fresh" branch — the sidecar has
+// no sha256 in the manifest and no verification step, it's just small
+// YAML metadata that travels with the `.db` on the rolling release.
+func ensureStateDownloaded(ctx context.Context, fetcher Fetcher, repo, tag, artifactsDir string, p Pack) error {
+	stateAsset := p.Asset + ".state"
+	destPath := filepath.Join(artifactsDir, stateAsset)
+	url := assetURL(repo, tag, stateAsset)
+
+	body, err := fetcher.Get(ctx, url)
+	if err != nil {
+		return fmt.Errorf("fetch sidecar %s: %w", url, err)
+	}
+	defer body.Close()
+
+	tmp := destPath + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return fmt.Errorf("create sidecar tmp %s: %w", tmp, err)
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	if _, err := io.Copy(f, body); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("stream sidecar %s: %w", url, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close sidecar tmp %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, destPath); err != nil {
+		return fmt.Errorf("rename sidecar %s -> %s: %w", tmp, destPath, err)
+	}
+	cleanup = false
+
+	slog.Info("packs.state_downloaded",
+		"lib_id", p.LibID,
+		"state_asset", stateAsset,
+	)
+	return nil
 }
 
 // streamToFileVerified fetches url and streams the body into <dest>.tmp,

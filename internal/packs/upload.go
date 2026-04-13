@@ -118,8 +118,9 @@ func RunUpload(ctx context.Context, opts UploadOptions) (UploadSummary, error) {
 	sort.Strings(matches)
 
 	type pending struct {
-		path string
-		pack Pack
+		path      string
+		statePath string
+		pack      Pack
 	}
 	var (
 		toUpload []pending
@@ -158,16 +159,30 @@ func RunUpload(ctx context.Context, opts UploadOptions) (UploadSummary, error) {
 			continue
 		}
 
+		// Per #96: every uploaded `.db` must ship with its `.state`
+		// sidecar. Missing sidecars point at either a hand-copied `.db`
+		// or a pre-#96 artifact — both signal "re-scrape" so the
+		// rolling release never carries a `.db` whose contents are
+		// unreadable without opening the sqlite file.
+		statePath := StatePath(path)
+		if _, err := os.Stat(statePath); err != nil {
+			if os.IsNotExist(err) {
+				return summary, fmt.Errorf(
+					"upload: missing sidecar %s — re-run `just scrape %s` to regenerate",
+					statePath, meta.LibID)
+			}
+			return summary, fmt.Errorf("upload: stat sidecar %s: %w", statePath, err)
+		}
+
 		toUpload = append(toUpload, pending{
-			path: path,
+			path:      path,
+			statePath: statePath,
 			pack: Pack{
-				LibID:               meta.LibID,
-				Asset:               assetName,
-				SHA256:              hash,
-				Size:                fi.Size(),
-				IndexedAt:           time.Now().UTC(),
-				ScrapedWithEmbedder: meta.EmbedderKind,
-				ScrapedWithModel:    meta.ModelVersion,
+				LibID:     meta.LibID,
+				Asset:     assetName,
+				SHA256:    hash,
+				Size:      fi.Size(),
+				IndexedAt: time.Now().UTC(),
 			},
 		})
 	}
@@ -190,11 +205,15 @@ func RunUpload(ctx context.Context, opts UploadOptions) (UploadSummary, error) {
 			if err := opts.Releaser.Upload(ctx, opts.Repo, manifest.ReleaseTag, item.path); err != nil {
 				return summary, fmt.Errorf("upload: upload %s: %w", item.path, err)
 			}
+			if err := opts.Releaser.Upload(ctx, opts.Repo, manifest.ReleaseTag, item.statePath); err != nil {
+				return summary, fmt.Errorf("upload: upload sidecar %s: %w", item.statePath, err)
+			}
 			slog.Info("packs.upload.uploaded",
 				"lib_id", item.pack.LibID,
 				"asset", item.pack.Asset,
 				"sha256", item.pack.SHA256,
 				"size", item.pack.Size,
+				"state_asset", filepath.Base(item.statePath),
 			)
 			manifest.Replace(item.pack)
 			summary.Uploaded++

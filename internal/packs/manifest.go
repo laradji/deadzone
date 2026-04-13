@@ -52,13 +52,11 @@ var sha256HexRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // always serializes lib_id first so the YAML diffs in PRs are easy to
 // read.
 type Pack struct {
-	LibID               string    `yaml:"lib_id"`
-	Asset               string    `yaml:"asset"`
-	SHA256              string    `yaml:"sha256"`
-	Size                int64     `yaml:"size"`
-	IndexedAt           time.Time `yaml:"indexed_at"`
-	ScrapedWithEmbedder string    `yaml:"scraped_with_embedder,omitempty"`
-	ScrapedWithModel    string    `yaml:"scraped_with_model,omitempty"`
+	LibID     string    `yaml:"lib_id"`
+	Asset     string    `yaml:"asset"`
+	SHA256    string    `yaml:"sha256"`
+	Size      int64     `yaml:"size"`
+	IndexedAt time.Time `yaml:"indexed_at"`
 }
 
 // Manifest is the parsed artifacts/manifest.yaml. ReleaseTag is the
@@ -107,9 +105,9 @@ func Load(path string) (*Manifest, error) {
 //   - lib_id is unique across all Packs
 //   - asset is unique across all Packs
 //
-// Embedder identity fields (scraped_with_embedder, scraped_with_model)
-// are intentionally optional — they're informational, not load-bearing,
-// and a manifest produced before #30 added them should still parse.
+// Content-level metadata (embedder identity, schema version, doc count,
+// scrape dates) lives in the per-artifact `<lib>.db.state` sidecar,
+// NOT in the manifest — see internal/packs/state.go.
 func (m *Manifest) validate() error {
 	if strings.TrimSpace(m.ReleaseTag) == "" {
 		return errors.New("release_tag is required")

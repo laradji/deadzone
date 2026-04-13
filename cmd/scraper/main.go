@@ -40,6 +40,7 @@ import (
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
+	"github.com/laradji/deadzone/internal/packs"
 	"github.com/laradji/deadzone/internal/scraper"
 )
 
@@ -321,12 +322,35 @@ func scrapeLibToArtifact(
 	src scraper.ResolvedSource,
 ) (int, int, error) {
 	artifactPath := filepath.Join(artifactsDir, artifactFilename(src.LibID))
+	statePath := packs.StatePath(artifactPath)
+
+	// Read any pre-existing `.state` sidecar BEFORE the wipe loop so
+	// `created_at` survives a re-scrape. A missing file is the first-
+	// scrape case and is handled below by falling back to time.Now().
+	// Any other read/parse error is logged and treated as absent —
+	// the scraper is not going to abort a whole run because a sidecar
+	// is corrupt; the next successful write will overwrite it.
+	var existingState *packs.StateFile
+	if s, err := packs.LoadState(statePath); err == nil {
+		existingState = s
+	} else if !os.IsNotExist(err) {
+		slog.Warn("scraper.state_load_failed",
+			"lib_id", src.LibID,
+			"state_path", statePath,
+			"err", err.Error(),
+		)
+	}
 
 	// Wipe any prior artifact + tursogo sidecar files. The sidecars
 	// are journaling state; an orphaned -wal/-shm pointing at a now-
 	// deleted main file confuses the next Open. Errors from os.Remove
 	// for non-existent files are ignored — the only thing we care
 	// about is that nothing from a previous run survives this point.
+	//
+	// Note: we intentionally do NOT wipe the `.state` sidecar here —
+	// it carries the `created_at` value captured above. On a mid-scrape
+	// failure the `.state` is left untouched, still reflecting the last
+	// successful scrape (the re-run will overwrite both on success).
 	for _, p := range []string{artifactPath, artifactPath + "-wal", artifactPath + "-shm"} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return 0, 0, fmt.Errorf("remove stale artifact %s: %w", p, err)
@@ -508,11 +532,39 @@ func scrapeLibToArtifact(
 		return docsTotal, skippedThisLib, fmt.Errorf("update lib count %q: %w", src.LibID, err)
 	}
 
+	// Write the `.state` sidecar AFTER the `.db` is committed and the
+	// libs catalog row is updated, so a failure mid-scrape leaves any
+	// pre-existing sidecar intact (operators can re-run the scrape to
+	// regenerate both). `created_at` is preserved from the sidecar we
+	// read before the wipe; absent or zero on the first scrape, in
+	// which case it is seeded from `now` below.
+	now := time.Now().UTC()
+	state := &packs.StateFile{
+		LibID:         src.LibID,
+		SchemaVersion: db.CurrentSchemaVersion,
+		Embedder: packs.EmbedderState{
+			Kind:  e.Kind(),
+			Model: e.ModelVersion(),
+			Dim:   e.Dim(),
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+		URLCount:  len(src.URLs),
+		DocCount:  docsTotal,
+	}
+	if existingState != nil && !existingState.CreatedAt.IsZero() {
+		state.CreatedAt = existingState.CreatedAt
+	}
+	if err := state.Save(statePath); err != nil {
+		return docsTotal, skippedThisLib, fmt.Errorf("write state %s: %w", statePath, err)
+	}
+
 	slog.Info("scraper.lib_done",
 		"lib_id", src.LibID,
 		"docs_total", docsTotal,
 		"duration_ms", time.Since(libStart).Milliseconds(),
 		"artifact_path", artifactPath,
+		"state_path", statePath,
 	)
 	return docsTotal, skippedThisLib, nil
 }

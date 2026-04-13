@@ -160,10 +160,12 @@ mkdir -p artifacts
 curl -L -o artifacts/manifest.yaml \
   https://raw.githubusercontent.com/laradji/deadzone/main/artifacts/manifest.yaml
 
-./deadzone-packs download          # per-lib artifacts/*.db from the rolling release
+./deadzone-packs download          # pulls per-lib `.db` + `.db.state` pairs from the rolling release
 ./deadzone-consolidate             # artifacts/*.db → deadzone.db
 ./deadzone-server -db deadzone.db  # MCP stdio server
 ```
+
+Each `.db` ships with a small `.db.state` YAML sidecar (embedder, doc count, scrape dates) — `packs list` reads them to surface human-friendly columns and `packs upload` refuses to ship a `.db` without one.
 
 With the server running, point any MCP-capable client at it — see [Wire it into an MCP client](#wire-it-into-an-mcp-client) for the exact JSON snippet.
 
