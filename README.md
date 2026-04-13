@@ -127,7 +127,33 @@ The single CGO surface (hugot's ORT backend + `libtokenizers.a`) is the 2026-04-
 
 ### Hello-world pipeline
 
-Fetch the artifact manifest, pull the pre-scraped library packs, merge them into a single database, and serve MCP over stdio:
+Two paths, pick one. The first is the fastest way to get a working `deadzone.db`; the second is what you want if you're tracking the rolling corpus between tagged releases.
+
+#### One-curl path (prebuilt DB, tagged releases)
+
+Starting with `v0.1.0`, every tagged release ships a prebuilt `deadzone.db` covering the libraries listed in [`libraries_sources.yaml`](libraries_sources.yaml). Grab the binary tarball, then the DB, and you're done:
+
+```bash
+VERSION=v0.1.0
+
+curl -L -o deadzone.db \
+  "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone.db"
+curl -L -o deadzone.db.sha256 \
+  "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone.db.sha256"
+
+# Linux
+sha256sum -c deadzone.db.sha256
+# macOS
+shasum -a 256 -c deadzone.db.sha256
+
+./deadzone-server -db deadzone.db  # MCP stdio server
+```
+
+The aggregated `deadzone_${VERSION}_checksums.txt` release asset also includes the `deadzone.db` hash, so `sha256sum --ignore-missing -c deadzone_${VERSION}_checksums.txt` works against everything in one shot.
+
+#### Three-step path (rolling corpus, latest per-lib artifacts)
+
+Use this when you want the freshest per-lib artifacts (refreshed between tags), or when you've pulled a single library via `deadzone-packs download lib=/org/project` and want to re-consolidate:
 
 ```bash
 mkdir -p artifacts
