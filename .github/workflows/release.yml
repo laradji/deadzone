@@ -110,9 +110,87 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Clean-runner smoke test — re-downloads each platform's tarball onto a
+  # fresh runner with no source checkout, no Go toolchain, no libtokenizers,
+  # no model cache. Catches runtime issues the inline build-runner smoke
+  # (step "Smoke test -version" above) can't see because that runner carries
+  # every build-time dep on PATH already:
+  #   - `@rpath` references that point at a build-host-local directory
+  #   - libonnxruntime auto-download (#73) failing on a truly fresh machine
+  #   - missing runtime libs (libstdc++ / libgcc variant) on a stock runner
+  #   - GOOS/GOARCH matrix mismatches that only surface at exec time
+  # A failure here blocks `release` via the needs: chain below.
+  smoke:
+    name: smoke (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    # 2-minute ceiling per runner matches #78's AC — if ORT bootstrap or
+    # a `-version` call takes longer than this, something is wrong and
+    # we want the job to fail loudly rather than hang the release.
+    timeout-minutes: 2
+    steps:
+      # Deliberately no actions/checkout — the whole point of this job is
+      # to prove the tarball works without any project files on disk.
+      - uses: actions/download-artifact@v4
+        with:
+          name: deadzone-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - name: Extract tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exactly one tarball lands here (download-artifact by name).
+          tar -xzf deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          ls -l deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}/
+
+      - name: Verify binaries launch (-version on all four)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}
+          # -version short-circuits before embedder/DB load in every
+          # binary, so this runs with no model cache and no DB on disk.
+          # It proves: dylib linkage resolves, @rpath is clean, ldflags
+          # injected a real version string, and the binary actually
+          # boots on a machine that never saw the build toolchain.
+          ./deadzone-server -version
+          ./deadzone-scraper -version
+          ./deadzone-consolidate -version
+          ./deadzone-packs -version
+
+      - name: Exercise ORT bootstrap (#73)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}
+          # deadzone-consolidate loads the hugot embedder before it
+          # checks the artifacts dir (see cmd/consolidate/main.go), so
+          # pointing it at an empty dir triggers the full ORT
+          # auto-download + libtokenizers + libonnxruntime bootstrap,
+          # then exits 0 with zero artifacts merged. This is the only
+          # smoke path that proves #73's fresh-machine download works
+          # on each target platform's real ORT asset URL.
+          mkdir -p empty-artifacts
+          ./deadzone-consolidate \
+            -artifacts ./empty-artifacts \
+            -db /tmp/deadzone-smoke.db
+
   release:
     name: publish release
-    needs: build
+    needs: [build, smoke]
     runs-on: ubuntu-24.04
     # The job itself runs for both tag pushes and workflow_dispatch so
     # the dry-run path can validate the prebuilt-DB pipeline on a
