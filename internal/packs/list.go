@@ -1,4 +1,31 @@
+// DISABLED — per-artifact distribution paused while operator drives
+// deadzone.db releases manually. Will be re-enabled when CI takes over
+// distribution at scale. See issue #101.
+//
+// The per-artifact list flow (pretty-print manifest.packs as a
+// tabwriter table with sidecar-derived columns) is preserved — not
+// deleted — for the eventual revival.
+
 package packs
+
+import "io"
+
+// ListOptions is kept as a type so disabled-but-present callers
+// compile; see file banner.
+type ListOptions struct {
+	ManifestPath string
+	ArtifactsDir string
+}
+
+// RunList always returns errPerArtifactDisabled. Revival path: drop
+// this stub and uncomment the original body preserved below.
+func RunList(_ ListOptions, _ io.Writer) error {
+	return errPerArtifactDisabled
+}
+
+/*
+// Original implementation — DISABLED; see #101. Preserved verbatim so
+// the revival patch is a one-banner-delete + restore.
 
 import (
 	"fmt"
@@ -8,34 +35,8 @@ import (
 	"text/tabwriter"
 )
 
-// emDash is the placeholder rendered in state-derived columns when the
-// `.state` sidecar is missing locally. Using an em-dash (rather than
-// "N/A" or a blank) keeps the table visibly aligned and makes missing
-// metadata obvious at a glance.
 const emDash = "—"
 
-// ListOptions is the input to the list subcommand.
-type ListOptions struct {
-	// ManifestPath is the manifest to print. The other ListOptions
-	// fields are reserved for future filtering — kept as a struct so
-	// adding `-lib` later doesn't break the call signature.
-	ManifestPath string
-	// ArtifactsDir is the local directory where `.state` sidecars are
-	// read from. Empty = use the manifest's directory (this is the
-	// production behaviour — sidecars live next to the manifest in
-	// `./artifacts/`).
-	ArtifactsDir string
-}
-
-// RunList prints the manifest as a tabwriter table to w. The output is
-// optimized for human eyeballing on a terminal: columns are LIB_ID,
-// ASSET, SIZE, SHA256 (12-char prefix), INDEXED_AT (RFC3339), plus
-// EMBEDDER, DOCS, and UPDATED_AT pulled from the per-artifact `.state`
-// sidecar when present locally (em-dash when not).
-//
-// Stdout vs. stderr separation: cmd/packs sends list output to stdout
-// while logs go to stderr (same convention as the rest of the binaries
-// — stderr is structured, stdout is human-facing).
 func RunList(opts ListOptions, w io.Writer) error {
 	manifest, err := Load(opts.ManifestPath)
 	if err != nil {
@@ -64,8 +65,6 @@ func RunList(opts ListOptions, w io.Writer) error {
 				updatedAt = s.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")
 			}
 		} else if !os.IsNotExist(err) {
-			// A corrupt sidecar shouldn't blow up the whole list; show
-			// em-dash and continue. The operator still sees a row.
 			embedder = emDash
 		}
 
@@ -88,3 +87,4 @@ func RunList(opts ListOptions, w io.Writer) error {
 	}
 	return nil
 }
+*/

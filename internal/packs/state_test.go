@@ -12,7 +12,11 @@ import (
 
 func TestStateFile_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "x_y.db.state")
+	libDir := filepath.Join(dir, "x_y")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(libDir, "state.yaml")
 
 	created := time.Date(2026, 4, 12, 14, 0, 0, 0, time.UTC)
 	updated := time.Date(2026, 4, 13, 14, 32, 0, 0, time.UTC)
@@ -61,7 +65,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 }
 
 func TestStateFile_LoadMissingIsIsNotExist(t *testing.T) {
-	_, err := packs.LoadState(filepath.Join(t.TempDir(), "nope.state"))
+	_, err := packs.LoadState(filepath.Join(t.TempDir(), "nope.yaml"))
 	if !os.IsNotExist(err) {
 		t.Fatalf("err = %v, want os.IsNotExist", err)
 	}
@@ -69,7 +73,11 @@ func TestStateFile_LoadMissingIsIsNotExist(t *testing.T) {
 
 func TestStateFile_AtomicWrite(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "x_y.db.state")
+	libDir := filepath.Join(dir, "x_y")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(libDir, "state.yaml")
 
 	// Concurrent writers thrashing on the same destination should
 	// never leave a partial / corrupt YAML behind. Each iteration
@@ -108,7 +116,7 @@ func TestStateFile_AtomicWrite(t *testing.T) {
 	}
 
 	// And no .tmp file leaked.
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(libDir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
@@ -116,11 +124,5 @@ func TestStateFile_AtomicWrite(t *testing.T) {
 		if filepath.Ext(e.Name()) == ".tmp" {
 			t.Errorf("temp file leaked: %s", e.Name())
 		}
-	}
-}
-
-func TestStatePath(t *testing.T) {
-	if got := packs.StatePath("artifacts/openjdk_jdk.db"); got != "artifacts/openjdk_jdk.db.state" {
-		t.Errorf("StatePath = %q", got)
 	}
 }

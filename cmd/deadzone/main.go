@@ -4,10 +4,11 @@
 //
 //	deadzone server        run the MCP stdio server against a deadzone.db
 //	deadzone scrape        index libraries_sources.yaml into ./artifacts
-//	deadzone consolidate   merge ./artifacts/*.db into a single deadzone.db
+//	deadzone consolidate   merge ./artifacts/<slug>/artifact.db into a single deadzone.db
+//	deadzone dbrelease     upload ./deadzone.db to a tagged GitHub Release
 //	deadzone packs {upload|download|list}
-//	                       manage the per-lib artifacts on the rolling
-//	                       GitHub Release
+//	                       DISABLED per #101; returns a clear error. See
+//	                       `deadzone dbrelease` for the current release flow.
 //
 // Top-level `-version` short-circuits before any embedder/DB load so
 // the smoke test in release.yml can call it on a stock runner with no
@@ -48,8 +49,9 @@ Usage:
 Subcommands:
   server        run the MCP stdio server against a deadzone.db
   scrape        index libraries from libraries_sources.yaml into ./artifacts
-  consolidate   merge ./artifacts/*.db into a single deadzone.db
-  packs         upload/download/list per-lib artifacts on the rolling release
+  consolidate   merge ./artifacts/<slug>/artifact.db files into a single deadzone.db
+  dbrelease     upload ./deadzone.db to a tagged GitHub Release (operator-driven)
+  packs         (disabled; see 'deadzone dbrelease')
 
 Run "deadzone <subcommand> -h" for subcommand flags.
 `
@@ -90,6 +92,8 @@ func dispatch(args []string) error {
 		return runScrape(rest)
 	case "consolidate":
 		return runConsolidate(rest)
+	case "dbrelease":
+		return runDBRelease(rest)
 	case "packs":
 		return runPacks(rest)
 	default:

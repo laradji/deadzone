@@ -27,7 +27,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -299,10 +298,14 @@ func scrapeLibToArtifact(
 	artifactsDir string,
 	src scraper.ResolvedSource,
 ) (int, int, error) {
-	artifactPath := filepath.Join(artifactsDir, artifactFilename(src.LibID))
-	statePath := packs.StatePath(artifactPath)
+	artifactDir := packs.ArtifactDir(artifactsDir, src.LibID)
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		return 0, 0, fmt.Errorf("create artifact dir %s: %w", artifactDir, err)
+	}
+	artifactPath := packs.ArtifactDBPath(artifactsDir, src.LibID)
+	statePath := packs.StatePath(artifactsDir, src.LibID)
 
-	// Read any pre-existing `.state` sidecar BEFORE the wipe loop so
+	// Read any pre-existing sidecar BEFORE the wipe loop so
 	// `created_at` survives a re-scrape. A missing file is the first-
 	// scrape case and is handled below by falling back to time.Now().
 	// Any other read/parse error is logged and treated as absent —
@@ -582,21 +585,6 @@ func classifyFetchErr(err error) (reason string, soft bool) {
 		return "transport", true
 	}
 	return "other", false
-}
-
-// artifactFilename derives the on-disk basename for a lib_id's
-// artifact: the leading "/" is stripped and the remaining slashes
-// become underscores. Example:
-//
-//	/modelcontextprotocol/go-sdk → modelcontextprotocol_go-sdk.db
-//	/facebook/react/v18         → facebook_react_v18.db
-//
-// The mapping is deterministic and 1:1 with the lib_id, so an operator
-// can read the file listing of artifacts/ and recover every lib by
-// inspection. Hyphens and dots are preserved.
-func artifactFilename(libID string) string {
-	trimmed := strings.TrimPrefix(libID, "/")
-	return strings.ReplaceAll(trimmed, "/", "_") + ".db"
 }
 
 // setupAgent decides whether the scrape-via-agent path is needed for

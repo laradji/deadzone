@@ -125,20 +125,14 @@ serve db="deadzone.db":
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone server -db {{db}}
 
-# Upload local artifacts/*.db files to the rolling GitHub Release (see #30)
-packs-upload:
-    mise exec -- go run ./cmd/deadzone packs upload -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
+# Upload ./deadzone.db to the GH Release at the given tag (operator-driven release, see #101).
+# Assumes the tag already exists on origin and CI's release.yml has created the release object.
+dbrelease tag:
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go run -tags ORT ./cmd/deadzone dbrelease -db deadzone.db -tag {{tag}}
 
-# Download release assets referenced by the manifest into ./artifacts (pass lib=/org/project to fetch one)
-packs-download lib="":
-    mise exec -- go run ./cmd/deadzone packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml {{ if lib != "" { "-lib " + lib } else { "" } }}
-
-# Print the manifest as a table to stdout
-packs-list:
-    mise exec -- go run ./cmd/deadzone packs list -manifest ./artifacts/manifest.yaml
-
-# Remove the built binary, per-lib artifacts, and the local DB files (preserves artifacts/manifest.yaml)
+# Remove the built binary, per-lib artifact folders, and the local DB files (preserves artifacts/manifest.yaml)
 clean:
     rm -f deadzone
-    rm -f deadzone.db deadzone.db-wal deadzone.db-shm
-    rm -f artifacts/*.db artifacts/*.db-wal artifacts/*.db-shm
+    rm -f deadzone.db deadzone.db-wal deadzone.db-shm deadzone.db.sha256
+    rm -rf artifacts/*/

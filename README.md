@@ -98,9 +98,10 @@ End users usually only touch the first three. `deadzone scrape` is for contribut
 | Subcommand | What it's for |
 |---|---|
 | `deadzone server` | MCP stdio server — what your AI client talks to |
-| `deadzone packs` | Pulls (and for contributors, pushes) per-lib artifacts from the rolling GitHub Release |
 | `deadzone consolidate` | Merges per-lib artifacts into a single `deadzone.db` |
 | `deadzone scrape` | Re-scrapes a library from its configured sources |
+| `deadzone dbrelease` | Operator-driven: uploads `deadzone.db` + `.sha256` to a tagged GitHub Release |
+| `deadzone packs` | Disabled (see [#101](https://github.com/laradji/deadzone/issues/101)); use `dbrelease` |
 
 Run `deadzone -h` for the subcommand list, or `deadzone <sub> -h` for a subcommand's flags. `deadzone -version` prints the banner without touching the DB or embedder.
 
@@ -129,11 +130,7 @@ The single CGO surface (hugot's ORT backend + `libtokenizers.a`) is the 2026-04-
 
 ### Hello-world pipeline
 
-Two paths, pick one. The first is the fastest way to get a working `deadzone.db`; the second is what you want if you're tracking the rolling corpus between tagged releases.
-
-#### One-curl path (prebuilt DB, tagged releases)
-
-Starting with `v0.1.0`, every tagged release ships a prebuilt `deadzone.db` covering the libraries listed in [`libraries_sources.yaml`](libraries_sources.yaml). Grab the binary tarball, then the DB, and you're done:
+Tagged releases ship a prebuilt `deadzone.db` covering the libraries listed in [`libraries_sources.yaml`](libraries_sources.yaml). Grab the binary tarball, then the DB, and you're done:
 
 ```bash
 VERSION=v0.1.0
@@ -151,23 +148,7 @@ shasum -a 256 -c deadzone.db.sha256
 ./deadzone server -db deadzone.db  # MCP stdio server
 ```
 
-The aggregated `deadzone_${VERSION}_checksums.txt` release asset also includes the `deadzone.db` hash, so `sha256sum --ignore-missing -c deadzone_${VERSION}_checksums.txt` works against everything in one shot.
-
-#### Three-step path (rolling corpus, latest per-lib artifacts)
-
-Use this when you want the freshest per-lib artifacts (refreshed between tags), or when you've pulled a single library via `deadzone packs download -lib /org/project` and want to re-consolidate:
-
-```bash
-mkdir -p artifacts
-curl -L -o artifacts/manifest.yaml \
-  https://raw.githubusercontent.com/laradji/deadzone/main/artifacts/manifest.yaml
-
-./deadzone packs download          # pulls per-lib `.db` + `.db.state` pairs from the rolling release
-./deadzone consolidate             # artifacts/*.db → deadzone.db
-./deadzone server -db deadzone.db  # MCP stdio server
-```
-
-Each `.db` ships with a small `.db.state` YAML sidecar (embedder, doc count, scrape dates) — `packs list` reads them to surface human-friendly columns and `packs upload` refuses to ship a `.db` without one.
+The per-platform binary tarballs and their aggregated `deadzone_${VERSION}_checksums.txt` are uploaded by CI when the tag is pushed; `deadzone.db` and `deadzone.db.sha256` are uploaded separately by the maintainer via `deadzone dbrelease` (see [Releasing a new `deadzone.db`](#releasing-a-new-deadzonedb) below). The two halves live on the same release object.
 
 With the server running, point any MCP-capable client at it — see [Wire it into an MCP client](#wire-it-into-an-mcp-client) for the exact JSON snippet.
 
@@ -197,19 +178,19 @@ just fetch-tokenizers  # darwin-arm64, linux-amd64, linux-arm64
 # 3. Build (CGO + -tags ORT, links ./lib/libtokenizers.a)
 just build             # = mise exec -- go build -tags ORT ./...
 
-# 4. Pull pre-built per-lib artifacts from the rolling GitHub Release
-just packs-download    # = mise exec -- go run ./cmd/deadzone packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
-# → reads artifacts/manifest.yaml and downloads every referenced .db
-# → verifies sha256 on the way down; aborts loudly on mismatch
+# 4. Scrape the full corpus locally — one artifact folder per lib under ./artifacts/
+just scrape            # = mise exec -- go run -tags ORT ./cmd/deadzone scrape -artifacts ./artifacts
 
 # 5. Merge the per-lib artifacts into the main deadzone.db
-just consolidate       # = mise exec -- go run ./cmd/deadzone consolidate -db deadzone.db -artifacts ./artifacts
+just consolidate       # = mise exec -- go run -tags ORT ./cmd/deadzone consolidate -db deadzone.db -artifacts ./artifacts
 
 # 6. Run the MCP server against the consolidated DB
-just serve             # = mise exec -- go run ./cmd/deadzone server -db deadzone.db
+just serve             # = mise exec -- go run -tags ORT ./cmd/deadzone server -db deadzone.db
 ```
 
-The `artifacts/*.db` files and `deadzone.db` are both gitignored — `artifacts/*.db` are the per-lib source-of-truth blobs (distributed via GitHub Releases, see [Refreshing a single library](#refreshing-a-single-library)) and `deadzone.db` is the derived view the server reads. The committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) is the audit trail mapping every lib to its current sha256. The server refuses to start if `deadzone.db` is missing and tells you to run `consolidate` first; it never auto-creates an empty file.
+The per-lib artifact folders under `./artifacts/<slug>/` (each containing `artifact.db` + `state.yaml`) and `deadzone.db` are all gitignored — they're local build outputs. The committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) records the most recent `deadzone.db` release (tag, sha256, embedder, counts) as a release-history trace; it's rewritten by `deadzone dbrelease`, not by hand. The server refuses to start if `deadzone.db` is missing and tells you to run `consolidate` first; it never auto-creates an empty file.
+
+> **Note.** The per-artifact GitHub Release distribution flow (`deadzone packs {upload,download,list}`) is paused as of [#101](https://github.com/laradji/deadzone/issues/101) — contributors who want a working DB run `just scrape && just consolidate` locally. Releases carry `deadzone.db` as a single consolidated asset; per-artifact distribution will return when CI takes over at scale.
 
 Run `just` (no args) to list every recipe. Override the DB path with positional args: `just consolidate foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
 
@@ -233,30 +214,43 @@ VERSION=v0.1.0 COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%FT%TZ) just
 
 ### Refreshing a single library
 
-The per-lib artifact layout means one library can be re-scraped, re-uploaded, and re-distributed without touching the others. The flow has four steps and is the same for both single-version libs and multi-version (`/facebook/react/v18`, `/facebook/react/v19`, …) entries:
+The per-lib folder layout means one library can be re-scraped without touching the others. The flow is the same for both single-version libs and multi-version (`/facebook/react/v18`, `/facebook/react/v19`, …) entries:
 
 ```bash
-# 1. Re-scrape locally (rebuilds exactly the matching artifacts/*.db files)
+# Re-scrape locally (rebuilds exactly the matching artifacts/<slug>/artifact.db)
 just scrape /facebook/react           # base — every versioned child
 just scrape /facebook/react/v18       # one expanded version
 
-# 2. Push the refreshed artifact(s) to the rolling GitHub Release.
-#    Idempotent: artifacts whose sha256 already matches the manifest
-#    are skipped, no `gh` calls made.
-just packs-upload
-
-# 3. Commit the manifest diff so reviewers can see exactly which libs
-#    were refreshed (sha256 + indexed_at change in lockstep).
-git add artifacts/manifest.yaml && git commit -m "refresh /facebook/react"
-git push
-
-# 4. Anyone else just runs `just packs-download && just consolidate` to
-#    pick up the new artifact.
+# Then re-consolidate to pick up the change in the main DB.
+just consolidate
 ```
 
-`packs upload` shells out to `gh release upload <tag> <file> --clobber` for each changed artifact, auto-creating the release on first use. The `gh` CLI handles auth via your existing `gh auth login` state — Deadzone does not handle GitHub tokens directly. Override the target repo with `-repo owner/name` if you're working from a fork.
+Each scrape rewrites `artifacts/<slug>/artifact.db` (and its `state.yaml`) in place; re-running `consolidate` merges the refreshed rows over the top of the existing main-DB slice under the same `lib_id`. There is currently no incremental distribution of individual libs — maintainers who want the whole refreshed corpus on a release ship the consolidated `deadzone.db` via `just dbrelease <tag>` (see below).
 
-Use `just packs-list` to print the current manifest contents as a table, or `just packs-download lib=/facebook/react` to fetch only one library's assets without pulling the whole corpus.
+### Releasing a new `deadzone.db`
+
+Releases are **two-phase** as of [#101](https://github.com/laradji/deadzone/issues/101): CI publishes the per-platform binary tarballs when the tag is pushed, and the maintainer uploads the consolidated `deadzone.db` + its sha256 to the same release from their laptop.
+
+```bash
+# 1. Regenerate deadzone.db from the committed scraper config.
+just scrape
+just consolidate
+
+# 2. Tag + push. CI's release.yml builds the three binary tarballs,
+#    uploads them, and creates the release object.
+git tag v0.1.0
+git push --tags
+
+# 3. Ship the DB to the same tag (sha256 is computed on-the-fly and
+#    uploaded as a sibling asset). Rewrites artifacts/manifest.yaml
+#    with the new release record.
+just dbrelease v0.1.0
+
+# 4. Commit the manifest diff so the release-history trace lands in git.
+git add artifacts/manifest.yaml && git commit -m "release v0.1.0" && git push
+```
+
+`deadzone dbrelease` shells out to `gh release upload <tag> deadzone.db deadzone.db.sha256 --clobber`. The `gh` CLI handles auth via your existing `gh auth login` state. Override the target repo with `-repo owner/name` when working from a fork.
 
 ### Configuring which libraries to scrape
 
@@ -308,7 +302,7 @@ mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /facebook/
 mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /facebook/react/v18
 ```
 
-`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<lib_id>.db` file — the leading `/` is stripped and the remaining `/` characters become `_`, so `/facebook/react/v18` lands at `artifacts/facebook_react_v18.db`.
+`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<slug>/artifact.db` file (+ `state.yaml` sidecar) — the leading `/` is stripped from the `lib_id` and the remaining `/` characters become `_`, so `/facebook/react/v18` lands at `artifacts/facebook_react_v18/artifact.db`.
 
 ### Scraping non-trivial doc sources (`scrape-via-agent`)
 
@@ -392,15 +386,16 @@ deadzone/
 │                      #   server       — MCP stdio entrypoint (search_docs / search_libraries)
 │                      #   scrape       — fetch, embed & write per-lib artifacts
 │                      #   consolidate  — merge per-lib artifacts into the main DB
-│                      #   packs        — upload/download per-lib artifacts via GitHub Releases
+│                      #   dbrelease    — upload ./deadzone.db to a tagged GitHub Release
+│                      #   packs        — disabled (#101); use dbrelease instead
 ├── internal/
 │   ├── db/            # Turso schema, vector queries, consolidation helper
 │   ├── embed/         # Embedder interface + hugot/MiniLM implementation
 │   ├── scraper/       # Markdown fetcher + parser (H2-split, fence-aware)
-│   └── packs/         # Manifest schema, upload/download/list, gh wrapper
+│   └── packs/         # Folder layout helpers, manifest schema, gh wrapper
 ├── artifacts/
-│   ├── manifest.yaml  # tracked: sha256 + indexed_at audit trail
-│   └── *.db           # gitignored: per-lib source-of-truth files
+│   ├── manifest.yaml  # tracked: release-history trace (tag, sha256, counts)
+│   └── <slug>/        # gitignored: per-lib folder with artifact.db + state.yaml
 └── docs/
     └── research/      # Design notes (Context7 analysis, tursogo migration, etc.)
 ```
@@ -417,7 +412,7 @@ Every subcommand emits structured JSON logs to **stderr** using `log/slog`. Stdo
 
 - **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`, and `kind`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error. When any source uses `kind: scrape-via-agent`, expect `scraper.agent_configured` and `scraper.agent_ping_ok` once at startup; per-doc hallucination drops show up as `scraper.agent_verification_failed`, and oversized inputs as `agent.input_truncated`.
 - **Consolidate.** `just consolidate` emits a `consolidate.start` and a `consolidate.done` with the `artifacts` count, `docs_merged`, `libs_merged`, and `duration_ms`. A failure aborts before any write reaches the main DB; the wrapped error names the offending artifact.
-- **Packs.** `just packs-upload` emits `packs.upload.start` (with the resolved repo and `repo_source=flag|manifest|default`), one `packs.upload.skipped` per artifact whose sha256 already matches the manifest, one `packs.upload.uploaded` per artifact pushed via `gh release upload`, an optional `packs.upload.creating_release` if the rolling tag didn't exist yet, and a final `packs.upload.done` with `uploaded`/`skipped`/`preserved` counts. `just packs-download` emits `packs.download.start`, one `packs.verified` per local file whose sha256 matches the manifest (zero network calls), `packs.verified_redownload` when a tampered local file is being silently re-fetched, `packs.downloaded` per fresh fetch, and `packs.download.done` with the rollup. Server-side sha256 mismatches abort with a `download <lib_id>: sha256 mismatch` error and never overwrite the canonical local file.
+- **DB release.** `just dbrelease v0.1.0` emits `dbrelease.start` (with `db_path`, `tag`, `repo`), then `packs.dbrelease.uploaded` per uploaded asset (`deadzone.db` + `deadzone.db.sha256`), and a final `dbrelease.done` line carrying `sha256`, `size`, `lib_count`, `doc_count`, and the manifest path. The operator then commits the manifest diff to record the release.
 - **Server.** `deadzone server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. If the configured `-db` is missing the server refuses to start and prints a one-liner pointing at `deadzone consolidate`.
 - **Verbose mode.** Every subcommand takes `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
 
