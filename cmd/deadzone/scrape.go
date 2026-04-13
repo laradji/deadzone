@@ -1,8 +1,6 @@
-// cmd/scraper is the per-lib indexer that turns libraries_sources.yaml
-// into one artifact DB per resolved library in ./artifacts/.
-//
-// Parallelism model (see #93). The outer loop over resolved libraries
-// runs concurrently, bounded per kind by two independent semaphores:
+// Parallelism model for `deadzone scrape` (see #93). The outer loop
+// over resolved libraries runs concurrently, bounded per kind by two
+// independent semaphores:
 //
 //   - github-md and github-rst libs are pure HTTP and safe to run
 //     N-wide in parallel. Both kinds share the -parallel-github-md
@@ -36,20 +34,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/laradji/deadzone/internal/packs"
 	"github.com/laradji/deadzone/internal/scraper"
-)
-
-// Build-time values overridden by `-ldflags -X main.version=…` at
-// release build time (see justfile's build-release recipe).
-var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
 )
 
 // maxSkipsPerLib caps the number of per-URL failures tolerated inside a
@@ -63,9 +52,9 @@ var (
 const maxSkipsPerLib = 5
 
 // Env-var knobs for per-kind parallelism, read as the default value of
-// the matching -parallel-* flag. Explicit flags always win (see run()
-// for the wiring). Naming mirrors DEADZONE_AGENT_ENDPOINT* so an
-// operator configuring both ends of the pipeline sees one prefix.
+// the matching -parallel-* flag. Explicit flags always win (see
+// runScrape for the wiring). Naming mirrors DEADZONE_AGENT_ENDPOINT* so
+// an operator configuring both ends of the pipeline sees one prefix.
 const (
 	EnvParallelGithubMD       = "DEADZONE_SCRAPE_PARALLEL_GITHUB_MD"
 	EnvParallelScrapeViaAgent = "DEADZONE_SCRAPE_PARALLEL_SCRAPE_VIA_AGENT"
@@ -82,34 +71,24 @@ const (
 	defaultParallelScrapeViaAgent = 1
 )
 
-func main() {
-	if err := run(); err != nil {
-		slog.Error("scraper fatal", "err", err.Error())
-		os.Exit(1)
-	}
-}
-
-func run() error {
-	artifactsDir := flag.String("artifacts", "./artifacts", "directory to write per-lib artifact .db files into")
-	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
-	verbose := flag.Bool("verbose", false, "emit per-doc Debug log lines in addition to per-URL summaries")
-	configPath := flag.String("config", "libraries_sources.yaml", "path to libraries_sources.yaml registry")
-	libFilter := flag.String("lib", "", "scrape only this lib_id (matches base or /base/version); empty = scrape all")
-	parallelGithubMD := flag.Int("parallel-github-md",
+// runScrape is the `deadzone scrape` entry point. The per-lib indexer
+// turns libraries_sources.yaml into one artifact DB per resolved
+// library in ./artifacts/.
+func runScrape(args []string) error {
+	fs := flag.NewFlagSet("scrape", flag.ExitOnError)
+	artifactsDir := fs.String("artifacts", "./artifacts", "directory to write per-lib artifact .db files into")
+	embedderKind := fs.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
+	verbose := fs.Bool("verbose", false, "emit per-doc Debug log lines in addition to per-URL summaries")
+	configPath := fs.String("config", "libraries_sources.yaml", "path to libraries_sources.yaml registry")
+	libFilter := fs.String("lib", "", "scrape only this lib_id (matches base or /base/version); empty = scrape all")
+	parallelGithubMD := fs.Int("parallel-github-md",
 		envIntOr(EnvParallelGithubMD, defaultParallelGithubMD),
 		"max concurrent github-* libs (github-md, github-rst — env: "+EnvParallelGithubMD+"; flag wins over env)")
-	parallelScrapeViaAgent := flag.Int("parallel-scrape-via-agent",
+	parallelScrapeViaAgent := fs.Int("parallel-scrape-via-agent",
 		envIntOr(EnvParallelScrapeViaAgent, defaultParallelScrapeViaAgent),
 		"max concurrent scrape-via-agent libs (env: "+EnvParallelScrapeViaAgent+"; flag wins over env)")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
-
-	// Short-circuit before any config load / embedder setup so
-	// `deadzone-scraper -version` works on a checkout with no env
-	// vars and no model cache.
-	if *showVersion {
-		fmt.Println(buildinfo.Format("deadzone-scraper", version, commit, date))
-		return nil
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
 	if *parallelGithubMD < 1 {
@@ -119,8 +98,8 @@ func run() error {
 		return fmt.Errorf("-parallel-scrape-via-agent must be >= 1, got %d", *parallelScrapeViaAgent)
 	}
 
-	// stderr-only JSON logging keeps the scraper consistent with
-	// cmd/server (which has a hard stdout-is-JSON-RPC constraint).
+	// stderr-only JSON logging keeps scrape consistent with the server
+	// subcommand (which has a hard stdout-is-JSON-RPC constraint).
 	slog.SetDefault(logs.New(os.Stderr, *verbose))
 
 	cfg, err := scraper.LoadConfig(*configPath)
@@ -138,9 +117,9 @@ func run() error {
 		return fmt.Errorf("no libraries to scrape in %s", *configPath)
 	}
 
-	// One artifacts/ dir per scraper run; created on demand so the
-	// first invocation on a fresh checkout doesn't require an extra
-	// `mkdir -p` step in the README.
+	// One artifacts/ dir per scrape run; created on demand so the first
+	// invocation on a fresh checkout doesn't require an extra `mkdir -p`
+	// step in the README.
 	if err := os.MkdirAll(*artifactsDir, 0o755); err != nil {
 		return fmt.Errorf("create artifacts dir %s: %w", *artifactsDir, err)
 	}
@@ -163,8 +142,7 @@ func run() error {
 	// Ordered AFTER embed.New so a missing model file or other
 	// embedder failure short-circuits before we pay the agent ping
 	// latency. Sources without any agent-kind entry skip this entirely
-	// so the scraper still works on a clean checkout with no env vars
-	// set.
+	// so scrape still works on a clean checkout with no env vars set.
 	ctx := context.Background()
 	agent, err := setupAgent(ctx, sources)
 	if err != nil {

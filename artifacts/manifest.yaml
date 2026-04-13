@@ -2,7 +2,7 @@
 #
 # This file is the source of truth for which version of each per-lib
 # artifact is currently canonical. Edits MUST come from
-# `deadzone-packs upload` — never hand-edit a sha256.
+# `deadzone packs upload` — never hand-edit a sha256.
 #
 # Schema:
 #   release_tag  rolling GitHub Release tag that holds every asset

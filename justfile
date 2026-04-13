@@ -67,7 +67,7 @@ build:
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go build -tags ORT ./...
 
-# Build the four CLI binaries with version/commit/date injected via ldflags.
+# Build the single `deadzone` CLI with version/commit/date injected via ldflags.
 #
 # Reads VERSION / COMMIT / DATE from the environment. Release CI sets them
 # explicitly from the workflow matrix (see #74's release.yml):
@@ -89,10 +89,8 @@ build-release:
     ldflags="-s -w -X main.version=${ver} -X main.commit=${sha} -X main.date=${built}"
     export CGO_ENABLED=1
     export CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}"
-    for bin in server scraper consolidate packs; do
-        mise exec -- go build -tags ORT -trimpath -ldflags "${ldflags}" -o "deadzone-${bin}" "./cmd/${bin}"
-    done
-    echo "built deadzone-{server,scraper,consolidate,packs} ${ver} (${sha}, built ${built})"
+    mise exec -- go build -tags ORT -trimpath -ldflags "${ldflags}" -o ./deadzone ./cmd/deadzone
+    echo "built ./deadzone ${ver} (${sha}, built ${built})"
 
 # Run the full test suite
 test:
@@ -115,32 +113,32 @@ tidy:
 # Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry)
 scrape lib="":
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
-        mise exec -- go run -tags ORT ./cmd/scraper -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }}
+        mise exec -- go run -tags ORT ./cmd/deadzone scrape -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }}
 
 # Merge per-lib artifacts in ./artifacts/ into the main deadzone DB
 consolidate db="deadzone.db":
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
-        mise exec -- go run -tags ORT ./cmd/consolidate -db {{db}} -artifacts ./artifacts
+        mise exec -- go run -tags ORT ./cmd/deadzone consolidate -db {{db}} -artifacts ./artifacts
 
 # Run the MCP server against the given DB file (must already be consolidated)
 serve db="deadzone.db":
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
-        mise exec -- go run -tags ORT ./cmd/server -db {{db}}
+        mise exec -- go run -tags ORT ./cmd/deadzone server -db {{db}}
 
 # Upload local artifacts/*.db files to the rolling GitHub Release (see #30)
 packs-upload:
-    mise exec -- go run ./cmd/packs upload -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
+    mise exec -- go run ./cmd/deadzone packs upload -artifacts ./artifacts -manifest ./artifacts/manifest.yaml
 
 # Download release assets referenced by the manifest into ./artifacts (pass lib=/org/project to fetch one)
 packs-download lib="":
-    mise exec -- go run ./cmd/packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml {{ if lib != "" { "-lib " + lib } else { "" } }}
+    mise exec -- go run ./cmd/deadzone packs download -artifacts ./artifacts -manifest ./artifacts/manifest.yaml {{ if lib != "" { "-lib " + lib } else { "" } }}
 
 # Print the manifest as a table to stdout
 packs-list:
-    mise exec -- go run ./cmd/packs list -manifest ./artifacts/manifest.yaml
+    mise exec -- go run ./cmd/deadzone packs list -manifest ./artifacts/manifest.yaml
 
-# Remove built binaries, per-lib artifacts, and the local DB files (preserves artifacts/manifest.yaml)
+# Remove the built binary, per-lib artifacts, and the local DB files (preserves artifacts/manifest.yaml)
 clean:
-    rm -f deadzone deadzone-server deadzone-scraper deadzone-consolidate deadzone-packs
+    rm -f deadzone
     rm -f deadzone.db deadzone.db-wal deadzone.db-shm
     rm -f artifacts/*.db artifacts/*.db-wal artifacts/*.db-shm
