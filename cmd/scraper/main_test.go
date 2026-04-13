@@ -208,7 +208,10 @@ func markdownSrv(t *testing.T) *httptest.Server {
 // next to the `.db` with `created_at == updated_at` and the right
 // counts.
 func TestScraper_WritesState_FirstScrape(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): tursogo+purego trips checkptr under -race when
+	// multiple goroutines hammer the FFI concurrently. Existing parallel
+	// scraper tests skim under the threshold; adding more pushed it over.
+	// Serial execution adds <1s wall-time per test in CI.
 	srv := markdownSrv(t)
 
 	artifacts := t.TempDir()
@@ -253,7 +256,8 @@ func TestScraper_WritesState_FirstScrape(t *testing.T) {
 // with a past `created_at`, re-scrapes the same lib, and asserts the
 // `created_at` survives while `updated_at` advances.
 func TestScraper_WritesState_RescrapePreservesCreatedAt(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): see TestScraper_WritesState_FirstScrape for the
+	// purego+race+checkptr trade-off.
 	srv := markdownSrv(t)
 
 	artifacts := t.TempDir()
@@ -307,7 +311,8 @@ func TestScraper_WritesState_RescrapePreservesCreatedAt(t *testing.T) {
 // .state stays so an operator can still see the last successful
 // metadata until they re-run).
 func TestScraper_NoStateOnFailure(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): see TestScraper_WritesState_FirstScrape for the
+	// purego+race+checkptr trade-off.
 
 	failSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
