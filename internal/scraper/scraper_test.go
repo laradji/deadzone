@@ -2,6 +2,7 @@ package scraper_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -164,5 +165,29 @@ func TestFetch_404Error(t *testing.T) {
 	_, err := scraper.Fetch(context.Background(), srv.Client(), src)
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
+	}
+}
+
+// TestFetchOne_Non200ReturnsHTTPStatusError pins the contract that the
+// github-md fast path returns a typed *HTTPStatusError on non-200, so
+// cmd/deadzone/scrape.go's classifyFetchErr can errors.As-match it and
+// soft-skip 5xx (instead of treating it as reason="other" and aborting
+// the whole lib on the first transient blip from raw.gh's CDN).
+func TestFetchOne_Non200ReturnsHTTPStatusError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	_, err := scraper.FetchOne(context.Background(), srv.Client(), "/test/lib", srv.URL+"/x.md")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var httpErr *scraper.HTTPStatusError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected *HTTPStatusError, got %T: %v", err, err)
+	}
+	if httpErr.Status != 503 {
+		t.Errorf("Status = %d, want 503", httpErr.Status)
 	}
 }

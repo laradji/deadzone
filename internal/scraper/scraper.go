@@ -151,7 +151,7 @@ func FetchOne(ctx context.Context, client *http.Client, libID, url string) (Fetc
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return FetchOneResult{}, fmt.Errorf("fetch %s: HTTP %d", url, resp.StatusCode)
+		return FetchOneResult{}, &HTTPStatusError{Status: resp.StatusCode, URL: url}
 	}
 
 	// Derive source name from URL filename without extension.
