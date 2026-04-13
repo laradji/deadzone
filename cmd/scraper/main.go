@@ -1,3 +1,22 @@
+// cmd/scraper is the per-lib indexer that turns libraries_sources.yaml
+// into one artifact DB per resolved library in ./artifacts/.
+//
+// Parallelism model (see #93). The outer loop over resolved libraries
+// runs concurrently, bounded per kind by two independent semaphores:
+//
+//   - github-md libs are pure HTTP and safe to run N-wide in parallel
+//     (default 4; override with -parallel-github-md or
+//     DEADZONE_SCRAPE_PARALLEL_GITHUB_MD).
+//   - scrape-via-agent libs share one LLM endpoint that is usually
+//     single-threaded on consumer hardware (oMLX, Ollama). Default
+//     concurrency is 1 to preserve today's behavior; raise it with
+//     -parallel-scrape-via-agent or DEADZONE_SCRAPE_PARALLEL_SCRAPE_VIA_AGENT
+//     when pointed at a concurrent backend (vLLM, OpenAI).
+//
+// Per-URL semantics (soft-skip + skipped_ceiling, see #63) are unchanged;
+// only the lib-level orchestration is parallel. Errors are aggregated
+// continue-on-error style: one lib's failure no longer aborts the rest,
+// and the process exits 1 iff at least one lib failed.
 package main
 
 import (
@@ -9,8 +28,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/db"
@@ -37,6 +59,26 @@ var (
 // loosening this is a product decision, not an operational knob.
 const maxSkipsPerLib = 5
 
+// Env-var knobs for per-kind parallelism, read as the default value of
+// the matching -parallel-* flag. Explicit flags always win (see run()
+// for the wiring). Naming mirrors DEADZONE_AGENT_ENDPOINT* so an
+// operator configuring both ends of the pipeline sees one prefix.
+const (
+	EnvParallelGithubMD       = "DEADZONE_SCRAPE_PARALLEL_GITHUB_MD"
+	EnvParallelScrapeViaAgent = "DEADZONE_SCRAPE_PARALLEL_SCRAPE_VIA_AGENT"
+)
+
+// Default concurrency per kind. github-md is HTTP-bound; 4 concurrent
+// fetches stays polite to any one doc host while clearing a 13-lib
+// backlog fast. scrape-via-agent defaults to 1 because local LLM
+// runtimes (oMLX, Ollama single-model) serialize requests at the
+// backend regardless of how many we fan out from here — raising this
+// only helps against a concurrent backend (vLLM, OpenAI).
+const (
+	defaultParallelGithubMD       = 4
+	defaultParallelScrapeViaAgent = 1
+)
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("scraper fatal", "err", err.Error())
@@ -50,6 +92,12 @@ func run() error {
 	verbose := flag.Bool("verbose", false, "emit per-doc Debug log lines in addition to per-URL summaries")
 	configPath := flag.String("config", "libraries_sources.yaml", "path to libraries_sources.yaml registry")
 	libFilter := flag.String("lib", "", "scrape only this lib_id (matches base or /base/version); empty = scrape all")
+	parallelGithubMD := flag.Int("parallel-github-md",
+		envIntOr(EnvParallelGithubMD, defaultParallelGithubMD),
+		"max concurrent github-md libs (env: "+EnvParallelGithubMD+"; flag wins over env)")
+	parallelScrapeViaAgent := flag.Int("parallel-scrape-via-agent",
+		envIntOr(EnvParallelScrapeViaAgent, defaultParallelScrapeViaAgent),
+		"max concurrent scrape-via-agent libs (env: "+EnvParallelScrapeViaAgent+"; flag wins over env)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -59,6 +107,13 @@ func run() error {
 	if *showVersion {
 		fmt.Println(buildinfo.Format("deadzone-scraper", version, commit, date))
 		return nil
+	}
+
+	if *parallelGithubMD < 1 {
+		return fmt.Errorf("-parallel-github-md must be >= 1, got %d", *parallelGithubMD)
+	}
+	if *parallelScrapeViaAgent < 1 {
+		return fmt.Errorf("-parallel-scrape-via-agent must be >= 1, got %d", *parallelScrapeViaAgent)
 	}
 
 	// stderr-only JSON logging keeps the scraper consistent with
@@ -127,26 +182,116 @@ func run() error {
 		"embedder_kind", e.Kind(),
 		"embedding_dim", e.Dim(),
 		"model_version", e.ModelVersion(),
+		"parallel_github_md", *parallelGithubMD,
+		"parallel_scrape_via_agent", *parallelScrapeViaAgent,
 	)
 
 	runStart := time.Now()
-	var docsTotal int
+	parallelByKind := map[string]int{
+		scraper.KindGithubMD:       *parallelGithubMD,
+		scraper.KindScrapeViaAgent: *parallelScrapeViaAgent,
+	}
+	results := scrapeSources(ctx, http.DefaultClient, agent, e, meta, *artifactsDir, sources, parallelByKind)
 
-	for _, src := range sources {
-		libDocs, err := scrapeLibToArtifact(ctx, http.DefaultClient, agent, e, meta, *artifactsDir, src)
-		if err != nil {
-			return err
+	var joined error
+	var okCount, failedCount, docsTotal int
+	var failedIDs []string
+	for _, r := range results {
+		if r.err != nil {
+			joined = errors.Join(joined, fmt.Errorf("%s: %w", r.libID, r.err))
+			failedCount++
+			failedIDs = append(failedIDs, r.libID)
+			slog.Error("scraper.lib_failed",
+				"lib_id", r.libID,
+				"skipped_count", r.skipped,
+				"err", r.err.Error(),
+			)
+			continue
 		}
-		docsTotal += libDocs
+		okCount++
+		docsTotal += r.docs
 	}
 
 	slog.Info("scraper.done",
-		"lib_count", len(sources),
+		"libs_ok", okCount,
+		"libs_failed", failedCount,
+		"libs_failed_ids", failedIDs,
 		"docs_total", docsTotal,
 		"duration_ms", time.Since(runStart).Milliseconds(),
 		"artifacts_dir", *artifactsDir,
 	)
-	return nil
+
+	return joined
+}
+
+// libResult is the per-lib outcome produced by scrapeSources. docs is
+// the count of successfully indexed snippets (0 on failure); err is the
+// lib-fatal error or nil. skipped carries the per-URL soft-fail count
+// so the scraper.lib_failed log line can surface whether the lib died
+// on a ceiling trip vs a hard error.
+type libResult struct {
+	libID   string
+	docs    int
+	skipped int
+	err     error
+}
+
+// scrapeSources drives the lib-level loop with per-kind bounded
+// concurrency via errgroup + a semaphore per kind. Each lib's error is
+// captured into results[i].err rather than returned from the worker,
+// so one lib's failure never cancels its siblings (continue-on-error
+// per #93). The caller aggregates counts and decides the process exit
+// code.
+//
+// The semaphore map is keyed by scraper.Kind* discriminators. Unknown
+// kinds surface as a per-lib error so the rest of the run still makes
+// progress; LoadConfig already rejects unknown kinds at parse time, so
+// this branch is belt-and-braces.
+func scrapeSources(
+	ctx context.Context,
+	client *http.Client,
+	agent *scraper.Agent,
+	e embed.Embedder,
+	meta db.Meta,
+	artifactsDir string,
+	sources []scraper.ResolvedSource,
+	parallelByKind map[string]int,
+) []libResult {
+	sems := make(map[string]chan struct{}, len(parallelByKind))
+	for kind, n := range parallelByKind {
+		if n < 1 {
+			n = 1
+		}
+		sems[kind] = make(chan struct{}, n)
+	}
+
+	results := make([]libResult, len(sources))
+	group, gctx := errgroup.WithContext(ctx)
+	for i, src := range sources {
+		i, src := i, src
+		group.Go(func() error {
+			sem, ok := sems[src.Kind]
+			if !ok {
+				results[i] = libResult{libID: src.LibID, err: fmt.Errorf("unknown kind %q", src.Kind)}
+				return nil
+			}
+			select {
+			case sem <- struct{}{}:
+			case <-gctx.Done():
+				results[i] = libResult{libID: src.LibID, err: gctx.Err()}
+				return nil
+			}
+			defer func() { <-sem }()
+
+			docs, skipped, err := scrapeLibToArtifact(gctx, client, agent, e, meta, artifactsDir, src)
+			results[i] = libResult{libID: src.LibID, docs: docs, skipped: skipped, err: err}
+			// Never propagate — aggregation happens in the caller so
+			// sibling libs are not cancelled by errgroup.
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return results
 }
 
 // scrapeLibToArtifact handles one resolved library end-to-end: it
@@ -155,7 +300,7 @@ func run() error {
 // from a clean slate, opens a fresh per-lib DB via OpenArtifact, runs
 // the per-URL fetch/embed/insert loop, updates the libs catalog row,
 // and closes the artifact. Returns the number of docs successfully
-// indexed for the operator log.
+// indexed and the per-URL soft-skip count for the operator log.
 //
 // Each artifact contains exactly one lib_id by construction; the
 // "delete then open" rebuild model is intentional — the per-lib
@@ -171,7 +316,7 @@ func scrapeLibToArtifact(
 	meta db.Meta,
 	artifactsDir string,
 	src scraper.ResolvedSource,
-) (int, error) {
+) (int, int, error) {
 	artifactPath := filepath.Join(artifactsDir, artifactFilename(src.LibID))
 
 	// Wipe any prior artifact + tursogo sidecar files. The sidecars
@@ -181,13 +326,13 @@ func scrapeLibToArtifact(
 	// about is that nothing from a previous run survives this point.
 	for _, p := range []string{artifactPath, artifactPath + "-wal", artifactPath + "-shm"} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return 0, fmt.Errorf("remove stale artifact %s: %w", p, err)
+			return 0, 0, fmt.Errorf("remove stale artifact %s: %w", p, err)
 		}
 	}
 
 	d, err := db.OpenArtifact(artifactPath, meta, src.LibID)
 	if err != nil {
-		return 0, fmt.Errorf("open artifact %s: %w", artifactPath, err)
+		return 0, 0, fmt.Errorf("open artifact %s: %w", artifactPath, err)
 	}
 	defer d.Close()
 
@@ -209,7 +354,7 @@ func scrapeLibToArtifact(
 	// /org/project/version values from cfg.Resolve), so a single
 	// upsert per source is the correct grain.
 	if err := db.UpsertLibIfNew(d, src.LibID, e); err != nil {
-		return 0, fmt.Errorf("upsert lib %q: %w", src.LibID, err)
+		return 0, 0, fmt.Errorf("upsert lib %q: %w", src.LibID, err)
 	}
 
 	libStart := time.Now()
@@ -234,7 +379,7 @@ func scrapeLibToArtifact(
 		case scraper.KindScrapeViaAgent:
 			res, err = scraper.FetchOneViaAgent(ctx, client, agent, src.LibID, u)
 		default:
-			return docsTotal, fmt.Errorf("unsupported kind %q for lib %q", src.Kind, src.LibID)
+			return docsTotal, skippedThisLib, fmt.Errorf("unsupported kind %q for lib %q", src.Kind, src.LibID)
 		}
 		fetchDur := time.Since(fetchStart)
 		if err != nil {
@@ -261,7 +406,7 @@ func scrapeLibToArtifact(
 					"err", err.Error(),
 				)
 				if skippedThisLib >= maxSkipsPerLib {
-					return docsTotal, fmt.Errorf(
+					return docsTotal, skippedThisLib, fmt.Errorf(
 						"too many failed URLs in %s (%d skipped, ceiling %d): %w",
 						src.LibID, skippedThisLib, maxSkipsPerLib, err)
 				}
@@ -275,7 +420,7 @@ func scrapeLibToArtifact(
 				"duration_ms", fetchDur.Milliseconds(),
 				"err", err.Error(),
 			)
-			return docsTotal, fmt.Errorf("fetch %s: %w", u, err)
+			return docsTotal, skippedThisLib, fmt.Errorf("fetch %s: %w", u, err)
 		}
 		slog.Info("scraper.fetch",
 			"lib_id", src.LibID,
@@ -319,7 +464,7 @@ func scrapeLibToArtifact(
 					"url", u,
 					"err", err.Error(),
 				)
-				return docsTotal, fmt.Errorf("insert %q: %w", doc.Title, err)
+				return docsTotal, skippedThisLib, fmt.Errorf("insert %q: %w", doc.Title, err)
 			}
 			insertTotal += time.Since(insertStart)
 			docsInserted++
@@ -355,7 +500,7 @@ func scrapeLibToArtifact(
 			"docs_total", docsTotal,
 			"err", err.Error(),
 		)
-		return docsTotal, fmt.Errorf("update lib count %q: %w", src.LibID, err)
+		return docsTotal, skippedThisLib, fmt.Errorf("update lib count %q: %w", src.LibID, err)
 	}
 
 	slog.Info("scraper.lib_done",
@@ -364,7 +509,7 @@ func scrapeLibToArtifact(
 		"duration_ms", time.Since(libStart).Milliseconds(),
 		"artifact_path", artifactPath,
 	)
-	return docsTotal, nil
+	return docsTotal, skippedThisLib, nil
 }
 
 // classifyFetchErr tags a fetch/extract error with a short reason and
@@ -431,6 +576,10 @@ func artifactFilename(libID string) string {
 //
 // The agent value is shared across every scrape-via-agent source for
 // the run; the http.Client inside it carries its own per-call timeout.
+// Agent.Extract is claimed safe for concurrent use (see
+// internal/scraper/agent.go's type doc) — the -parallel-scrape-via-agent
+// default of 1 means we do not lean on that claim in practice until the
+// operator explicitly raises the knob.
 func setupAgent(ctx context.Context, sources []scraper.ResolvedSource) (*scraper.Agent, error) {
 	needs := false
 	for _, s := range sources {
@@ -461,4 +610,23 @@ func setupAgent(ctx context.Context, sources []scraper.ResolvedSource) (*scraper
 		"model", agent.Model(),
 	)
 	return agent, nil
+}
+
+// envIntOr reads an integer from env var name, falling back to def if
+// the var is unset, empty, or unparseable. Used to make the
+// -parallel-* flag defaults env-overridable without needing a separate
+// config file. Silent fallback on parse error is deliberate: the flag
+// default is always a safe number, so a typo in the env var shouldn't
+// abort the run — the flag help text tells the operator which var they
+// set and `scraper.start` logs the effective parallelism.
+func envIntOr(name string, def int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return def
+	}
+	return n
 }
