@@ -86,7 +86,7 @@ jobs:
           # ORT build tag so the CGO-only deps (daulet/tokenizers,
           # yalue/onnxruntime_go) are audited alongside the rest.
           GOFLAGS: -tags=ORT
-        run: go-licenses check ./cmd/server ./cmd/scraper --disallowed_types=forbidden,restricted
+        run: go-licenses check ./cmd/deadzone --disallowed_types=forbidden,restricted
 
   test:
     name: test

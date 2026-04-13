@@ -1,9 +1,10 @@
 name: Release
 
 # Triggered by a tag push like `git tag v0.1.0-rc1 && git push --tags`.
-# Builds the four deadzone CLIs natively on one runner per target,
+# Builds the single `deadzone` CLI natively on one runner per target,
 # uploads per-platform tarballs as build artifacts, then aggregates
-# them into a GitHub Release with a sha256 checksums file.
+# them into a GitHub Release with a sha256 checksums file. Each tarball
+# contains one binary (`deadzone`) plus `LICENSE`, `NOTICE`, `README.md`.
 #
 # Native runners (no cross-compile) because the hugot ORT backend
 # requires CGO_ENABLED=1 and a matching libtokenizers.a — see #70 for
@@ -85,11 +86,7 @@ jobs:
       # load, so it runs on any machine without a model cache. This
       # also proves ldflags injection actually landed.
       - name: Smoke test -version
-        run: |
-          ./deadzone-server -version
-          ./deadzone-scraper -version
-          ./deadzone-consolidate -version
-          ./deadzone-packs -version
+        run: ./deadzone -version
 
       - name: Package archive
         id: pkg
@@ -98,7 +95,7 @@ jobs:
           set -euo pipefail
           name="deadzone_${{ steps.meta.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}"
           mkdir "${name}"
-          cp deadzone-server deadzone-scraper deadzone-consolidate deadzone-packs "${name}/"
+          cp deadzone "${name}/"
           cp LICENSE NOTICE README.md "${name}/"
           tar -czf "${name}.tar.gz" "${name}"
           echo "archive=${name}.tar.gz" >> "$GITHUB_OUTPUT"
@@ -156,35 +153,32 @@ jobs:
           tar -xzf deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
           ls -l deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}/
 
-      - name: Verify binaries launch (-version on all four)
+      - name: Verify binary launches (-version)
         shell: bash
         run: |
           set -euo pipefail
           cd deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}
-          # -version short-circuits before embedder/DB load in every
-          # binary, so this runs with no model cache and no DB on disk.
-          # It proves: dylib linkage resolves, @rpath is clean, ldflags
-          # injected a real version string, and the binary actually
-          # boots on a machine that never saw the build toolchain.
-          ./deadzone-server -version
-          ./deadzone-scraper -version
-          ./deadzone-consolidate -version
-          ./deadzone-packs -version
+          # -version short-circuits before embedder/DB load, so this
+          # runs with no model cache and no DB on disk. It proves:
+          # dylib linkage resolves, @rpath is clean, ldflags injected a
+          # real version string, and the binary actually boots on a
+          # machine that never saw the build toolchain.
+          ./deadzone -version
 
       - name: Exercise ORT bootstrap (#73)
         shell: bash
         run: |
           set -euo pipefail
           cd deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}
-          # deadzone-consolidate loads the hugot embedder before it
-          # checks the artifacts dir (see cmd/consolidate/main.go), so
-          # pointing it at an empty dir triggers the full ORT
+          # `deadzone consolidate` loads the hugot embedder before it
+          # checks the artifacts dir (see cmd/deadzone/consolidate.go),
+          # so pointing it at an empty dir triggers the full ORT
           # auto-download + libtokenizers + libonnxruntime bootstrap,
           # then exits 0 with zero artifacts merged. This is the only
           # smoke path that proves #73's fresh-machine download works
           # on each target platform's real ORT asset URL.
           mkdir -p empty-artifacts
-          ./deadzone-consolidate \
+          ./deadzone consolidate \
             -artifacts ./empty-artifacts \
             -db /tmp/deadzone-smoke.db
 
@@ -227,12 +221,12 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf "dist/deadzone_${VERSION}_linux_amd64.tar.gz" -C /tmp
-          # Put deadzone-packs + deadzone-consolidate on PATH for the next steps.
+          # Put `deadzone` on PATH for the next steps.
           echo "/tmp/deadzone_${VERSION}_linux_amd64" >> "$GITHUB_PATH"
 
       - name: Build consolidated deadzone.db from rolling packs release
         env:
-          # `deadzone-packs download` shells out to `gh release download`,
+          # `deadzone packs download` shells out to `gh release download`,
           # which needs an auth token on ubuntu-24.04 runners.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Keep hugot's first-run model download inside the job workspace;
@@ -244,9 +238,9 @@ jobs:
           mkdir -p artifacts "$DEADZONE_HUGOT_CACHE"
           # artifacts/manifest.yaml is committed in the repo; it names every
           # per-lib .db asset on the rolling `packs` release. The operator
-          # runs `deadzone-packs upload` locally before tagging.
-          deadzone-packs download
-          deadzone-consolidate
+          # runs `deadzone packs upload` locally before tagging.
+          deadzone packs download
+          deadzone consolidate
           ls -l deadzone.db
           # Move into dist/ so the checksums + release upload steps see it
           # alongside the per-platform tarballs.

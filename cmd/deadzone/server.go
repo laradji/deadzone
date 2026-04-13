@@ -10,20 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/laradji/deadzone/internal/buildinfo"
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-// Build-time values overridden by `-ldflags -X main.version=…` at
-// release build time (see justfile's build-release recipe). The
-// defaults are what an unflagged `go build ./cmd/server` produces.
-var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
 )
 
 // Library IDs follow the format /org/project (e.g. /hashicorp/terraform)
@@ -231,27 +221,17 @@ func libAttrs(input SearchLibrariesInput, name string, limit int, verbose bool, 
 	return attrs
 }
 
-func main() {
-	if err := run(); err != nil {
-		slog.Error("server fatal", "err", err.Error())
-		os.Exit(1)
-	}
-}
-
-func run() error {
-	dbPath := flag.String("db", "deadzone.db", "path to turso database file")
-	embedderKind := flag.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
-	verbose := flag.Bool("verbose", false, "include the raw query text in per-call logs")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
-
-	// -version is the fastest path through the binary: no embedder
-	// load, no DB stat, no slog wiring. Short-circuit before anything
-	// else so `deadzone-server -version` works in a container with no
-	// db and no model cache.
-	if *showVersion {
-		fmt.Println(buildinfo.Format("deadzone-server", version, commit, date))
-		return nil
+// runServer is the `deadzone server` entry point. The body is the
+// former cmd/server/main.go run(), with `flag.*` replaced by a per-sub
+// flag.FlagSet so the top-level dispatch can own os.Args without
+// colliding with the sibling subcommands' flag definitions.
+func runServer(args []string) error {
+	fs := flag.NewFlagSet("server", flag.ExitOnError)
+	dbPath := fs.String("db", "deadzone.db", "path to turso database file")
+	embedderKind := fs.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
+	verbose := fs.Bool("verbose", false, "include the raw query text in per-call logs")
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
 	// Wire slog before any other work so subsequent error paths emit
@@ -263,9 +243,9 @@ func run() error {
 	// must NOT auto-create a fresh empty file (that would silently
 	// hide a missed `consolidate` step and serve zero results to
 	// every query). Stat first; if missing, point the operator at
-	// the consolidate command before any other work happens.
+	// the consolidate subcommand before any other work happens.
 	if _, err := os.Stat(*dbPath); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s not found. Run `deadzone-consolidate -db %s -artifacts ./artifacts` first to merge per-lib artifacts into the main database", *dbPath, *dbPath)
+		return fmt.Errorf("%s not found. Run `deadzone consolidate -db %s -artifacts ./artifacts` first to merge per-lib artifacts into the main database", *dbPath, *dbPath)
 	} else if err != nil {
 		return fmt.Errorf("stat db %s: %w", *dbPath, err)
 	}

@@ -98,7 +98,7 @@ The original scraper wrote everything into a single monolithic `deadzone.db`. Th
 
 ### Decision
 
-**One Turso `.db` artifact per `lib_id`**, written into `./artifacts/` (gitignored), then merged into `deadzone.db` via an explicit `cmd/consolidate` command. The consolidate step uses `ATTACH DATABASE` + `DELETE WHERE lib_id=?` + `INSERT ... SELECT` inside a single transaction, enforcing meta consistency at merge time.
+**One Turso `.db` artifact per `lib_id`**, written into `./artifacts/` (gitignored), then merged into `deadzone.db` via an explicit `deadzone consolidate` subcommand. The consolidate step uses `ATTACH DATABASE` + `DELETE WHERE lib_id=?` + `INSERT ... SELECT` inside a single transaction, enforcing meta consistency at merge time.
 
 The main DB is a **derived view**; artifacts are the local source of truth.
 
@@ -185,7 +185,7 @@ Helpers `db.UpsertLibIfNew` and `db.UpdateLibCount` handle the lifecycle: row cr
 
 ### Context
 
-Before #51, the scraper hardcoded a single library and its URLs as Go constants in `cmd/scraper/main.go`. Adding a second lib meant editing source and recompiling — a hard blocker for any multi-library demo. But **what** the long-term registry should look like (federated? committed? generated? versioned?) is a research question with no good answer yet.
+Before #51, the scraper hardcoded a single library and its URLs as Go constants in the scraper entry point (then `cmd/scraper/main.go`, today `cmd/deadzone/scrape.go` after #98). Adding a second lib meant editing source and recompiling — a hard blocker for any multi-library demo. But **what** the long-term registry should look like (federated? committed? generated? versioned?) is a research question with no good answer yet.
 
 ### Options considered
 
@@ -220,7 +220,7 @@ No metadata. No lifecycle. No sharing model. **Just enough to lift Deadzone out 
 
 - **Deliberately dumb so #52 (the long-term registry research) is free to redesign** without backwards-compat burden. The data structure is trivially convertible to whatever shape #52 picks.
 - **Migration cost is bounded** at the current corpus size. The minute the corpus grows, the cost of switching schemas grows with it — but at 1-10 libs, conversion is a script.
-- **Composable with the other decisions**: the 4-field schema is exactly what `cmd/scraper -lib X` and `cmd/scraper -config Y` need to do per-lib filtering and per-lib artifact production.
+- **Composable with the other decisions**: the 4-field schema is exactly what `deadzone scrape -lib X` and `deadzone scrape -config Y` need to do per-lib filtering and per-lib artifact production.
 
 ### Trace
 
@@ -254,7 +254,7 @@ Per-lib artifacts (decision 2) live as `.db` files in a local `artifacts/` direc
 
 **Single rolling GitHub Release tagged `packs`** with clobber semantics. Each upload uses `--clobber` to overwrite the previous asset for that lib. A committed `artifacts/manifest.yaml` is the source of truth about "what should be in `artifacts/` after a fresh clone" — and that file IS diffable in PRs, providing an audit trail.
 
-Three CLI subcommands shipped via `cmd/packs`:
+Three subcommands shipped under `deadzone packs` (originally `cmd/packs`, consolidated into the single `cmd/deadzone` binary in #98):
 
 - **`upload`** — walks `artifacts/*.db`, computes SHA-256, uploads changed files via `gh release upload --clobber`, rewrites the manifest
 - **`download`** — fetches every asset listed in the manifest, verifies SHA-256, drops files into `./artifacts`
