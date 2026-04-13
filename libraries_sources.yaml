@@ -37,20 +37,22 @@ libraries:
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/rough_edges.md
 
   # FastAPI — repo transferred from tiangolo/fastapi to fastapi/fastapi
-  # (new fastapi org). Docs still live at fastapi.tiangolo.com.
+  # (new fastapi org). Docs site at fastapi.tiangolo.com is rendered
+  # from docs/en/docs/*.md in the repo, so we pull the raw markdown
+  # directly: no LLM extraction, no truncation, no verifier skips.
   - lib_id: /fastapi/fastapi
-    kind: scrape-via-agent
+    kind: github-md
     urls:
-      - https://fastapi.tiangolo.com/tutorial/first-steps/
-      - https://fastapi.tiangolo.com/tutorial/path-params/
-      - https://fastapi.tiangolo.com/tutorial/query-params/
-      - https://fastapi.tiangolo.com/tutorial/body/
-      - https://fastapi.tiangolo.com/tutorial/response-model/
-      - https://fastapi.tiangolo.com/tutorial/extra-models/
-      - https://fastapi.tiangolo.com/tutorial/response-status-code/
-      - https://fastapi.tiangolo.com/tutorial/handling-errors/
-      - https://fastapi.tiangolo.com/tutorial/dependencies/
-      - https://fastapi.tiangolo.com/tutorial/security/
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/first-steps.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/path-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/query-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/body.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/response-model.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/extra-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/response-status-code.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/handling-errors.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/security/index.md
 
   # OpenJDK — Java SE 21 API reference. Kind chosen because docs.oracle.com
   # serves pre-rendered javadoc HTML, not raw markdown. Scrape operator may
