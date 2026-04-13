@@ -6,8 +6,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/laradji/deadzone/internal/packs"
 	_ "turso.tech/database/tursogo"
@@ -93,7 +95,37 @@ func fakeArtifact(t *testing.T, dir, basename, libID, body string) string {
 		}
 	}
 
+	// Every `.db` in these tests ships with a `.state` sidecar — the
+	// upload path requires it (#96), and scraper-produced artifacts
+	// always have one.
+	writeFakeState(t, path, libID)
+
 	return path
+}
+
+// writeFakeState writes a minimal, valid `.state` sidecar next to an
+// artifact `.db` path. Tests that want custom fields (past
+// created_at, zero doc_count, etc.) should call StateFile.Save
+// directly instead.
+func writeFakeState(t *testing.T, dbPath, libID string) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	s := &packs.StateFile{
+		LibID:         libID,
+		SchemaVersion: 3,
+		Embedder: packs.EmbedderState{
+			Kind:  "hugot",
+			Model: "sentence-transformers/all-MiniLM-L6-v2",
+			Dim:   384,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+		URLCount:  1,
+		DocCount:  42,
+	}
+	if err := s.Save(packs.StatePath(dbPath)); err != nil {
+		t.Fatalf("write fake state: %v", err)
+	}
 }
 
 // seedManifest writes a placeholder manifest with no packs to artifactsDir,
@@ -128,8 +160,16 @@ func TestUpload_FreshArtifactIsUploaded(t *testing.T) {
 	if len(rel.ensureCalls) != 1 {
 		t.Errorf("EnsureRelease called %d times, want 1", len(rel.ensureCalls))
 	}
-	if len(rel.uploadCalls) != 1 {
-		t.Errorf("Upload called %d times, want 1", len(rel.uploadCalls))
+	// Two Upload calls per lib since #96: the `.db` and its `.state`
+	// sidecar are pushed as sibling release assets.
+	if len(rel.uploadCalls) != 2 {
+		t.Errorf("Upload called %d times, want 2 (db + state)", len(rel.uploadCalls))
+	}
+	wantAssets := []string{"x_y.db", "x_y.db.state"}
+	for i, want := range wantAssets {
+		if got := filepath.Base(rel.uploadCalls[i].File); got != want {
+			t.Errorf("uploadCalls[%d].File basename = %q, want %q", i, got, want)
+		}
 	}
 
 	// Manifest should now have the new entry.
@@ -148,9 +188,6 @@ func TestUpload_FreshArtifactIsUploaded(t *testing.T) {
 	}
 	if len(m.Packs[0].SHA256) != 64 {
 		t.Errorf("SHA256 length = %d, want 64", len(m.Packs[0].SHA256))
-	}
-	if m.Packs[0].ScrapedWithEmbedder != "hugot" {
-		t.Errorf("ScrapedWithEmbedder = %q", m.Packs[0].ScrapedWithEmbedder)
 	}
 }
 
@@ -235,8 +272,8 @@ func TestUpload_ChangedArtifactIsReuploaded(t *testing.T) {
 	if summary.Uploaded != 1 || summary.Skipped != 0 {
 		t.Errorf("summary = %+v, want Uploaded:1 Skipped:0", summary)
 	}
-	if len(rel2.uploadCalls) != 1 {
-		t.Errorf("Upload called %d times, want 1", len(rel2.uploadCalls))
+	if len(rel2.uploadCalls) != 2 {
+		t.Errorf("Upload called %d times, want 2 (db + state)", len(rel2.uploadCalls))
 	}
 }
 
@@ -333,6 +370,61 @@ func TestUpload_RequiresRepo(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for missing Repo, got nil")
+	}
+}
+
+// TestUpload_IncludesState asserts both `.db` and `.db.state` are
+// pushed as siblings on the rolling release for every queued upload.
+func TestUpload_IncludesState(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := seedManifest(t, dir)
+	fakeArtifact(t, dir, "x_y.db", "/x/y", "body-1")
+
+	rel := &fakeReleaser{}
+	if _, err := packs.RunUpload(context.Background(), packs.UploadOptions{
+		ArtifactsDir: dir, ManifestPath: manifestPath, Repo: "laradji/deadzone-test", Releaser: rel,
+	}); err != nil {
+		t.Fatalf("RunUpload: %v", err)
+	}
+	if len(rel.uploadCalls) != 2 {
+		t.Fatalf("Upload calls = %d, want 2 (db + state)", len(rel.uploadCalls))
+	}
+	got := []string{filepath.Base(rel.uploadCalls[0].File), filepath.Base(rel.uploadCalls[1].File)}
+	want := []string{"x_y.db", "x_y.db.state"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("uploadCalls[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestUpload_FailsOnMissingState asserts the upload short-circuits
+// with a clear error pointing at the missing sidecar path.
+func TestUpload_FailsOnMissingState(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := seedManifest(t, dir)
+	// Build the .db then delete the auto-created .state to mimic a
+	// pre-#96 artifact / hand-copied .db.
+	dbPath := fakeArtifact(t, dir, "x_y.db", "/x/y", "body-1")
+	if err := os.Remove(packs.StatePath(dbPath)); err != nil {
+		t.Fatalf("rm sidecar: %v", err)
+	}
+
+	rel := &fakeReleaser{}
+	_, err := packs.RunUpload(context.Background(), packs.UploadOptions{
+		ArtifactsDir: dir, ManifestPath: manifestPath, Repo: "laradji/deadzone-test", Releaser: rel,
+	})
+	if err == nil {
+		t.Fatal("expected missing-sidecar error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing sidecar") {
+		t.Errorf("err = %v, want 'missing sidecar' in message", err)
+	}
+	if !strings.Contains(err.Error(), "x_y.db.state") {
+		t.Errorf("err = %v, want sidecar path in message", err)
+	}
+	if len(rel.uploadCalls) != 0 {
+		t.Errorf("Upload called despite missing sidecar: %d times", len(rel.uploadCalls))
 	}
 }
 

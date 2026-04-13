@@ -115,10 +115,21 @@ The main DB is a **derived view**; artifacts are the local source of truth.
 
 - Designed in #28, merged in #56
 - Companion: #29 (skip-unchanged consolidation, designed, in 0.1 milestone)
+- Sidecar metadata: #96 — see addendum below
 
 ### Holds at scale
 
 ✅ At 3,000 libs the artifacts directory is ~1 GB total, manageable on disk. The consolidate step is bounded by the number of changed artifacts (combined with #29 for skip-unchanged), not by total corpus size. Distribution is handled by decision 6 below.
+
+### Sidecar metadata (`<lib>.db.state`, #96)
+
+Each per-lib `.db` ships with a YAML sidecar at `<lib>.db.state` carrying *content* metadata that doesn't belong in the `.db` file itself or in the upload-event `manifest.yaml`:
+
+- `lib_id`, `schema_version`, `embedder.{kind,model,dim}`
+- `created_at` (preserved across re-scrapes), `updated_at`
+- `url_count`, `doc_count`
+
+The scraper writes the sidecar atomically after a successful lib finishes; `packs upload` ships `.db` + `.state` as sibling release assets and refuses to upload a `.db` whose sidecar is missing; `packs download` fetches both; `packs list` reads the local sidecar to surface embedder, doc count, and updated-at columns. The split keeps `manifest.yaml` describing **the upload event** (sha256, size, indexed_at) and the sidecar describing **the artifact contents**.
 
 ---
 

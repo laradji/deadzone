@@ -148,9 +148,14 @@ func TestDownload_AlreadyPresentSkipsHTTP(t *testing.T) {
 	fs := newFileServer(t, files)
 	artifactsDir, manifestPath := writeManifestWithPacks(t, files)
 
-	// Pre-populate the canonical file with the right contents.
+	// Pre-populate the canonical file with the right contents AND the
+	// `.state` sidecar — when both are present locally the verified
+	// path must issue zero HTTP requests.
 	if err := os.WriteFile(filepath.Join(artifactsDir, "x_y.db"), files["x_y.db"], 0o600); err != nil {
 		t.Fatalf("seed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactsDir, "x_y.db.state"), []byte("lib_id: /x/y\n"), 0o600); err != nil {
+		t.Fatalf("seed sidecar: %v", err)
 	}
 
 	summary, err := packs.RunDownload(context.Background(), packs.DownloadOptions{
@@ -340,6 +345,66 @@ func TestDownload_MissingAssetOnServerErrors(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for missing asset, got nil")
+	}
+}
+
+// TestDownload_FetchesState asserts the sidecar is downloaded into
+// the artifacts dir alongside the .db on a fresh-clone run.
+func TestDownload_FetchesState(t *testing.T) {
+	files := map[string][]byte{
+		"x_y.db":       []byte("body-of-x-y"),
+		"x_y.db.state": []byte("lib_id: /x/y\n"),
+	}
+	fs := newFileServer(t, files)
+	// writeManifestWithPacks lists every key in `files` as a manifest
+	// entry, but the sidecar isn't a pack of its own — it's a sibling
+	// asset. Build the manifest with only the .db, while serving both.
+	manifestFiles := map[string][]byte{"x_y.db": files["x_y.db"]}
+	artifactsDir, manifestPath := writeManifestWithPacks(t, manifestFiles)
+
+	summary, err := packs.RunDownload(context.Background(), packs.DownloadOptions{
+		ArtifactsDir: artifactsDir,
+		ManifestPath: manifestPath,
+		Repo:         "laradji/deadzone-test",
+		Fetcher:      fs.fetcherFor(t),
+	})
+	if err != nil {
+		t.Fatalf("RunDownload: %v", err)
+	}
+	if summary.Downloaded != 1 {
+		t.Errorf("Downloaded = %d, want 1", summary.Downloaded)
+	}
+	for _, name := range []string{"x_y.db", "x_y.db.state"} {
+		if _, err := os.Stat(filepath.Join(artifactsDir, name)); err != nil {
+			t.Errorf("expected %s in artifactsDir: %v", name, err)
+		}
+	}
+}
+
+// TestDownload_StateMissingOnServerIsWarning asserts a sidecar 404 on
+// the server doesn't fail the run — the .db is still usable.
+func TestDownload_StateMissingOnServerIsWarning(t *testing.T) {
+	files := map[string][]byte{
+		"x_y.db": []byte("body-of-x-y"),
+		// No x_y.db.state on the server.
+	}
+	fs := newFileServer(t, files)
+	artifactsDir, manifestPath := writeManifestWithPacks(t, files)
+
+	summary, err := packs.RunDownload(context.Background(), packs.DownloadOptions{
+		ArtifactsDir: artifactsDir,
+		ManifestPath: manifestPath,
+		Repo:         "laradji/deadzone-test",
+		Fetcher:      fs.fetcherFor(t),
+	})
+	if err != nil {
+		t.Fatalf("RunDownload (sidecar 404 should warn, not fail): %v", err)
+	}
+	if summary.Downloaded != 1 {
+		t.Errorf("Downloaded = %d, want 1", summary.Downloaded)
+	}
+	if _, err := os.Stat(filepath.Join(artifactsDir, "x_y.db.state")); !os.IsNotExist(err) {
+		t.Error("sidecar should not exist locally when server lacks it")
 	}
 }
 

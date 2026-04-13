@@ -20,8 +20,6 @@ packs:
     sha256: 9f2e8c4b1a0d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f
     size: 152834
     indexed_at: 2026-04-10T16:23:00Z
-    scraped_with_embedder: hugot
-    scraped_with_model: sentence-transformers/all-MiniLM-L6-v2
 `
 
 func writeManifest(t *testing.T, contents string) string {

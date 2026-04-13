@@ -9,6 +9,13 @@
 #   repo         optional default `owner/name` for downloads (the
 #                -repo CLI flag overrides this when explicitly set)
 #   packs        list of per-lib artifacts; one entry per lib_id
+#                (lib_id, asset, sha256, size, indexed_at — all
+#                describe the upload event)
+#
+# Content-level metadata (embedder, schema_version, url_count,
+# doc_count, created_at, updated_at) lives in the per-artifact
+# `<asset>.state` YAML sidecar published next to each `.db` on the
+# rolling release (#96).
 
 release_tag: packs
 repo: laradji/deadzone
