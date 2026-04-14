@@ -96,8 +96,9 @@ End users usually only touch the first three. `deadzone scrape` is for contribut
 
 | Subcommand | What it's for |
 |---|---|
-| `deadzone server` | MCP stdio server — what your AI client talks to |
-| `deadzone consolidate` | Merges per-lib artifacts into a single `deadzone.db` |
+| `deadzone server` | MCP stdio server — what your AI client talks to. Auto-fetches the `deadzone.db` matching this binary's version on first run, and re-fetches only when the binary itself is upgraded (see [Data](#data)). |
+| `deadzone fetch-db` | Explicit cache-warmup / refresh of `deadzone.db` (useful before going offline, or to recover from local corruption with `-force`). |
+| `deadzone consolidate` | Merges per-lib artifacts into a single `deadzone.db` (contributor flow) |
 | `deadzone scrape` | Re-scrapes a library from its configured sources |
 | `deadzone dbrelease` | Operator-driven: uploads `deadzone.db` + `.sha256` to a tagged GitHub Release |
 | `deadzone packs` | Disabled (see [#101](https://github.com/laradji/deadzone/issues/101)); use `dbrelease` |
@@ -129,27 +130,44 @@ The single CGO surface (hugot's ORT backend + `libtokenizers.a`) is the 2026-04-
 
 ### Hello-world pipeline
 
-Tagged releases ship a prebuilt `deadzone.db` covering the libraries listed in [`libraries_sources.yaml`](libraries_sources.yaml). Grab the binary tarball, then the DB, and you're done:
+Tagged releases ship a prebuilt `deadzone.db` covering the libraries listed in [`libraries_sources.yaml`](libraries_sources.yaml). After extracting the binary, just run the server — the DB matching this binary's own version is downloaded on first launch into the platform data dir, sha256-verified, and cached. Steady-state startup is zero-network: the cache sidecar tag is compared against the binary's version at startup, and only a binary version bump triggers a re-fetch.
 
 ```bash
-VERSION=v0.1.0
-
-curl -L -o deadzone.db \
-  "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone.db"
-curl -L -o deadzone.db.sha256 \
-  "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone.db.sha256"
-
-# Linux
-sha256sum -c deadzone.db.sha256
-# macOS
-shasum -a 256 -c deadzone.db.sha256
-
-./deadzone server -db deadzone.db  # MCP stdio server
+./deadzone server  # downloads deadzone.db on first run, then serves
 ```
 
 The per-platform binary tarballs and their aggregated `deadzone_${VERSION}_checksums.txt` are uploaded by CI when the tag is pushed; `deadzone.db` and `deadzone.db.sha256` are uploaded separately by the maintainer via `deadzone dbrelease` (see [Releasing a new `deadzone.db`](#releasing-a-new-deadzonedb) below). The two halves live on the same release object.
 
-With the server running, point any MCP-capable client at it — see [Wire it into an MCP client](#wire-it-into-an-mcp-client) for the exact JSON snippet.
+With the server running, point any MCP-capable client at it — see [Wire it into an MCP client](#wire-it-into-an-mcp-client) for the exact JSON snippet. To pin a different DB, hand-place the file and run with `./deadzone server -db /path/to/deadzone.db` — explicit `-db` bypasses the auto-fetch entirely.
+
+### Data
+
+`deadzone server` (and `deadzone fetch-db`) cache `deadzone.db` under the platform's standard per-user data directory:
+
+| Platform | Default cache path |
+|---|---|
+| macOS | `~/Library/Application Support/deadzone/deadzone.db` |
+| Linux | `$XDG_DATA_HOME/deadzone/deadzone.db` (falls back to `~/.local/share/deadzone/deadzone.db`) |
+| Windows | `%LOCALAPPDATA%\deadzone\deadzone.db` |
+
+A sibling `deadzone.db.release` text file records the release tag the cache was fetched from.
+
+**The cached DB is pinned to the binary's own version.** On every startup the server compares the cache sidecar tag against the binary's compiled-in version (set by `-ldflags -X main.version=...`, see `build-release` in the [`justfile`](justfile)):
+
+- **Tag matches** → zero-network fast path; the cache is served as-is. No GitHub API call.
+- **Tag differs** (the binary was upgraded) → fetch `/releases/tags/<binary-version>`, atomic-swap the cache, serve the new DB.
+- **Binary is a dev build** (literal `dev`, `-dirty` suffix, or `git describe` between-tags form) → fall back to `/releases/latest` with a `server.db_version_dev_fallback` WARN so local iteration stays ergonomic.
+
+The DB does not auto-upgrade independently of the binary: if upstream publishes a newer DB while this binary is still running, the server keeps using the cached DB it was pinned to. `deadzone upgrade` (or a tarball re-extract) is what changes the binary's version and, on next launch, triggers the DB swap.
+
+**Env-var escape hatches** (matching the `DEADZONE_ORT_*` / `DEADZONE_HUGOT_*` pattern):
+
+| Env var | Effect |
+|---|---|
+| `DEADZONE_DB_CACHE` | Override the cache directory. |
+| `DEADZONE_DB_OFFLINE=1` | Never make a network call. Fails loudly on first run if nothing is cached; also fails loudly if the cache exists but its version doesn't match the binary — hand-place a `deadzone.db` that matches, or unset the env var so the auto-fetch can run. |
+
+`deadzone fetch-db` is the explicit refresh path: pre-populate the cache before going offline, or recover from local corruption with `deadzone fetch-db -force` (same binary version, fresh bytes, sha256-verified).
 
 ## Stack
 
@@ -187,7 +205,7 @@ just consolidate       # = mise exec -- go run -tags ORT ./cmd/deadzone consolid
 just serve             # = mise exec -- go run -tags ORT ./cmd/deadzone server -db deadzone.db
 ```
 
-The per-lib artifact folders under `./artifacts/<slug>/` (each containing `artifact.db` + `state.yaml`) and `deadzone.db` are all gitignored — they're local build outputs. The committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) records the most recent `deadzone.db` release (tag, sha256, embedder, counts) as a release-history trace; it's rewritten by `deadzone dbrelease`, not by hand. The server refuses to start if `deadzone.db` is missing and tells you to run `consolidate` first; it never auto-creates an empty file.
+The per-lib artifact folders under `./artifacts/<slug>/` (each containing `artifact.db` + `state.yaml`) and `deadzone.db` are all gitignored — they're local build outputs. The committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) records the most recent `deadzone.db` release (tag, sha256, embedder, counts) as a release-history trace; it's rewritten by `deadzone dbrelease`, not by hand. When `-db` points at a missing file the server errors out and points at both auto-fetch (run without `-db`) and `consolidate` (build from local artifacts); it never auto-creates an empty file.
 
 > **Note.** The per-artifact GitHub Release distribution flow (`deadzone packs {upload,download,list}`) is paused as of [#101](https://github.com/laradji/deadzone/issues/101) — contributors who want a working DB run `just scrape && just consolidate` locally. Releases carry `deadzone.db` as a single consolidated asset; per-artifact distribution will return when CI takes over at scale.
 
@@ -368,11 +386,13 @@ Add to your client's MCP config (Claude Code, Cursor, etc.):
     "deadzone": {
       "type": "stdio",
       "command": "/path/to/deadzone",
-      "args": ["server", "-db", "/path/to/deadzone.db"]
+      "args": ["server"]
     }
   }
 }
 ```
+
+The server resolves `deadzone.db` from the platform data dir on first launch (see [Data](#data) for cache paths and env-var overrides) and auto-upgrades it on subsequent launches. To pin a specific DB file, add `"-db", "/path/to/deadzone.db"` to `args`.
 
 Then call the `search_docs` or `search_libraries` tool from the client.
 
@@ -412,7 +432,7 @@ Every subcommand emits structured JSON logs to **stderr** using `log/slog`. Stdo
 - **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`, and `kind`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error. When any source uses `kind: scrape-via-agent`, expect `scraper.agent_configured` and `scraper.agent_ping_ok` once at startup; per-doc hallucination drops show up as `scraper.agent_verification_failed`, and oversized inputs as `agent.input_truncated`.
 - **Consolidate.** `just consolidate` emits a `consolidate.start` and a `consolidate.done` with the `artifacts` count, `docs_merged`, `libs_merged`, and `duration_ms`. A failure aborts before any write reaches the main DB; the wrapped error names the offending artifact.
 - **DB release.** `just dbrelease v0.1.0` emits `dbrelease.start` (with `db_path`, `tag`, `repo`), then `packs.dbrelease.uploaded` per uploaded asset (`deadzone.db` + `deadzone.db.sha256`), and a final `dbrelease.done` line carrying `sha256`, `size`, `lib_count`, `doc_count`, and the manifest path. The operator then commits the manifest diff to record the release.
-- **Server.** `deadzone server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. If the configured `-db` is missing the server refuses to start and prints a one-liner pointing at `deadzone consolidate`.
+- **Server.** `deadzone server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. When `-db` is unset the server runs `db.Bootstrap` first; expect a `server.db_upgraded` line when the binary version bump triggered a cache swap, a `server.db_version_dev_fallback` WARN when running a dev build (dev builds use `/releases/latest` instead of pinning to a tag), or a `server.db_tag_sidecar_write_failed` WARN if the tag sidecar couldn't be persisted after a successful DB install (non-fatal — next startup will just re-fetch). If an explicit `-db <path>` is missing the server refuses to start and points at both the auto-fetch path (run without `-db`) and `deadzone consolidate`.
 - **Verbose mode.** Every subcommand takes `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
 
 ## Roadmap

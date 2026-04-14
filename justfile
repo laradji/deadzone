@@ -131,6 +131,12 @@ dbrelease tag:
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone dbrelease -db deadzone.db -tag {{tag}}
 
+# Download / refresh the cached deadzone.db from the latest GH Release (#108).
+# Set force=true to re-fetch even when the cached tag matches the latest release.
+fetch-db force="":
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go run -tags ORT ./cmd/deadzone fetch-db {{ if force != "" { "-force" } else { "" } }}
+
 # Remove the built binary, per-lib artifact folders, and the local DB files (preserves artifacts/manifest.yaml)
 clean:
     rm -f deadzone

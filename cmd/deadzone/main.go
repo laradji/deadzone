@@ -5,6 +5,7 @@
 //	deadzone server        run the MCP stdio server against a deadzone.db
 //	deadzone scrape        index libraries_sources.yaml into ./artifacts
 //	deadzone consolidate   merge ./artifacts/<slug>/artifact.db into a single deadzone.db
+//	deadzone fetch-db      download/refresh the cached deadzone.db from the latest GH Release
 //	deadzone dbrelease     upload ./deadzone.db to a tagged GitHub Release
 //	deadzone packs {upload|download|list}
 //	                       DISABLED per #101; returns a clear error. See
@@ -50,6 +51,7 @@ Subcommands:
   server        run the MCP stdio server against a deadzone.db
   scrape        index libraries from libraries_sources.yaml into ./artifacts
   consolidate   merge ./artifacts/<slug>/artifact.db files into a single deadzone.db
+  fetch-db      download/refresh the cached deadzone.db from the latest GH Release
   dbrelease     upload ./deadzone.db to a tagged GitHub Release (operator-driven)
   packs         (disabled; see 'deadzone dbrelease')
 
@@ -94,6 +96,8 @@ func dispatch(args []string) error {
 		return runConsolidate(rest)
 	case "dbrelease":
 		return runDBRelease(rest)
+	case "fetch-db":
+		return runFetchDB(rest)
 	case "packs":
 		return runPacks(rest)
 	default:
