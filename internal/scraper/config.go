@@ -8,17 +8,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// versionPlaceholder is the literal token substituted with each entry in
-// LibrarySource.Versions when expanding a multi-version entry. It is also
-// the token rejected by validation in places where it must not appear
-// (single-version entries, version strings themselves).
-const versionPlaceholder = "{version}"
-
 // refPlaceholder is the literal token substituted with the effective git
 // ref (top-level Source.Ref or per-version VersionEntry.Ref) at expand
-// time. URLs that do not contain the token are left untouched, so a lib
-// can opt into ref pinning incrementally. See #103.
+// time. It is the sole URL placeholder after #120 — the former
+// {version} placeholder was dropped because version identifiers (the
+// `versions:` map keys) are now user-facing labels that no longer need
+// to appear in URLs. URLs that don't contain the token are left
+// untouched, so a lib can opt into ref pinning incrementally. See #103.
 const refPlaceholder = "{ref}"
+
+// deprecatedVersionPlaceholder is the former URL placeholder, now
+// rejected at parse time with a pointer at {ref}. Kept as a named
+// constant so the rejection message is grep-able.
+const deprecatedVersionPlaceholder = "{version}"
 
 // Kind discriminators for LibrarySource.Kind. All branches feed the
 // same downstream pipeline (parse → embed → store); they only differ
@@ -213,21 +215,21 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// validate enforces the v1 schema rules:
+// validate enforces the v1 schema rules (post-#120):
 //   - lib_id non-empty, starts with "/", does not end with "/"
 //   - kind in the known set
-//   - top-level urls: no empty/whitespace entries. Non-empty when versions
-//     is unset; may be empty when versions is set only if every version
+//   - top-level urls: no empty/whitespace entries; no URL may contain the
+//     deprecated "{version}" placeholder. Non-empty when versions is
+//     unset; may be empty when versions is set only if every version
 //     supplies its own urls (see #115)
-//   - ref (when set) has no whitespace and no placeholder tokens
+//   - ref (when set) has no whitespace and no placeholder token
 //   - if versions is set: every version has a non-empty name without
-//     whitespace, "/", or "{version}"; per-version refs (map shape) have
-//     no whitespace; every effective URL (baseline OR per-version
-//     override) contains "{version}"; per-version urls (when set) are a
-//     non-empty list with no whitespace-only entries
-//   - if versions is unset: no URL contains "{version}"
-//   - if any URL contains "{ref}": for the single-version entry the
-//     top-level ref must be set; for a multi-version entry every version
+//     whitespace or "/"; per-version refs have no whitespace; every
+//     effective URL list (baseline OR per-version override) contains
+//     "{ref}"; per-version urls (when set) are a non-empty list with no
+//     whitespace-only entries and no "{version}"
+//   - if any URL contains "{ref}": for a single-version entry the top
+//     level ref must be set; for a multi-version entry every version
 //     must resolve to a non-empty ref (per-version ref or top-level ref).
 func (l LibrarySource) validate() error {
 	if l.LibID == "" {
@@ -249,22 +251,19 @@ func (l LibrarySource) validate() error {
 		if strings.TrimSpace(u) == "" {
 			return fmt.Errorf("urls contains an empty entry")
 		}
+		if err := rejectDeprecatedVersionPlaceholder(u); err != nil {
+			return err
+		}
 	}
 	if err := validateRef(l.Ref); err != nil {
 		return fmt.Errorf("ref: %w", err)
 	}
 
 	if len(l.Versions) == 0 {
-		// No versions: top-level urls must be non-empty, no URL may
-		// contain {version} (unresolved placeholder at runtime), and
-		// any {ref} requires a top-level ref.
+		// No versions: top-level urls must be non-empty and any {ref}
+		// requires a top-level ref.
 		if len(l.URLs) == 0 {
 			return fmt.Errorf("urls must be non-empty")
-		}
-		for _, u := range l.URLs {
-			if strings.Contains(u, versionPlaceholder) {
-				return fmt.Errorf("url %q contains %s but no versions are listed", u, versionPlaceholder)
-			}
 		}
 		for _, u := range l.URLs {
 			if strings.Contains(u, refPlaceholder) && l.Ref == "" {
@@ -274,21 +273,13 @@ func (l LibrarySource) validate() error {
 		return nil
 	}
 
-	// Versions present.
-	//
-	// Baseline urls, when set, are the fallback for any version that
-	// doesn't override — so they must contain {version}. When baseline
-	// is empty, every version must supply its own urls.
+	// Versions present. Baseline urls, when set, are the fallback for
+	// any version that doesn't override. When baseline is empty, every
+	// version must supply its own urls.
 	if len(l.URLs) == 0 {
 		for _, v := range l.Versions {
 			if len(v.URLs) == 0 {
 				return fmt.Errorf("urls must be non-empty (or every version must provide its own urls); versions[%q] has no urls and the top-level urls is empty", v.Name)
-			}
-		}
-	} else {
-		for _, u := range l.URLs {
-			if !strings.Contains(u, versionPlaceholder) {
-				return fmt.Errorf("url %q is missing the %s placeholder (required when versions is set)", u, versionPlaceholder)
 			}
 		}
 	}
@@ -303,9 +294,6 @@ func (l LibrarySource) validate() error {
 		if strings.Contains(v.Name, "/") {
 			return fmt.Errorf("version %q must not contain %q", v.Name, "/")
 		}
-		if strings.Contains(v.Name, versionPlaceholder) {
-			return fmt.Errorf("version %q must not contain literal %q", v.Name, versionPlaceholder)
-		}
 		if err := validateRef(v.Ref); err != nil {
 			return fmt.Errorf("versions[%q].ref: %w", v.Name, err)
 		}
@@ -313,13 +301,14 @@ func (l LibrarySource) validate() error {
 			if strings.TrimSpace(u) == "" {
 				return fmt.Errorf("versions[%q].urls contains an empty entry", v.Name)
 			}
-			if !strings.Contains(u, versionPlaceholder) {
-				return fmt.Errorf("versions[%q] url %q is missing the %s placeholder (required when versions is set)", v.Name, u, versionPlaceholder)
+			if err := rejectDeprecatedVersionPlaceholder(u); err != nil {
+				return fmt.Errorf("versions[%q].urls: %w", v.Name, err)
 			}
 		}
 
-		// {ref} check runs on the effective URL list for this version
-		// (per-version override, else baseline).
+		// Every effective URL list must contain {ref} (baseline or
+		// per-version override) — that is the "differentiates per
+		// version" invariant that used to be spelled via {version}.
 		effective := v.URLs
 		if len(effective) == 0 {
 			effective = l.URLs
@@ -331,17 +320,31 @@ func (l LibrarySource) validate() error {
 				break
 			}
 		}
-		if urlHasRef && v.Ref == "" && l.Ref == "" {
+		if !urlHasRef {
+			return fmt.Errorf("versions[%q]: no effective url contains %s (required when versions is set)", v.Name, refPlaceholder)
+		}
+		if v.Ref == "" && l.Ref == "" {
 			return fmt.Errorf("a url contains %s but neither versions[%q].ref nor the top-level ref is set", refPlaceholder, v.Name)
 		}
 	}
 	return nil
 }
 
+// rejectDeprecatedVersionPlaceholder returns an error when a URL still
+// carries the pre-#120 "{version}" placeholder. The message names {ref}
+// as the replacement so operators porting an old registry get a direct
+// pointer at the new placeholder vocabulary.
+func rejectDeprecatedVersionPlaceholder(u string) error {
+	if strings.Contains(u, deprecatedVersionPlaceholder) {
+		return fmt.Errorf("url %q contains deprecated %s placeholder — use %s instead (see #120)", u, deprecatedVersionPlaceholder, refPlaceholder)
+	}
+	return nil
+}
+
 // validateRef enforces the format rules common to top-level and
 // per-version refs: empty is allowed (caller decides whether that's a
-// problem), but a non-empty ref must not contain whitespace or either
-// of the substitution placeholders.
+// problem), but a non-empty ref must not contain whitespace or the
+// {ref} placeholder token itself.
 func validateRef(ref string) error {
 	if ref == "" {
 		return nil
@@ -351,9 +354,6 @@ func validateRef(ref string) error {
 	}
 	if strings.Contains(ref, refPlaceholder) {
 		return fmt.Errorf("ref %q must not contain literal %q", ref, refPlaceholder)
-	}
-	if strings.Contains(ref, versionPlaceholder) {
-		return fmt.Errorf("ref %q must not contain literal %q", ref, versionPlaceholder)
 	}
 	return nil
 }
@@ -365,13 +365,15 @@ func validateRef(ref string) error {
 // top-level Ref (if present).
 //
 // Multi-version entries produce one ResolvedSource per version with
-// LibID == BaseLibID (the base, e.g. /hashicorp/terraform) and
-// Version set to the version tag. The {version} placeholder is
-// substituted in each URL, and the {ref} placeholder is substituted
-// from the per-version Ref if set, else from the top-level Ref. The
-// "<base>/<version>" concatenation that earlier builds produced here
-// is gone (#113); downstream code treats (LibID, Version) as the
-// canonical slot.
+// LibID == BaseLibID (the base, e.g. /hashicorp/terraform) and Version
+// set to the version identifier from the `versions:` map. The {ref}
+// placeholder is substituted from the per-version Ref if set, else
+// from the top-level Ref. Post-#120 there is no {version} substitution:
+// the version identifier is a user-facing label only, and per-version
+// URL divergence is expressed either through {ref} (10 libs) or
+// per-version `urls:` overrides (terraform). The "<base>/<version>"
+// concatenation that earlier builds produced here is gone (#113);
+// downstream code treats (LibID, Version) as the canonical slot.
 func (l LibrarySource) Expand() []ResolvedSource {
 	if len(l.Versions) == 0 {
 		urls := make([]string, len(l.URLs))
@@ -400,7 +402,6 @@ func (l LibrarySource) Expand() []ResolvedSource {
 		}
 		urls := make([]string, len(src))
 		for i, u := range src {
-			u = strings.ReplaceAll(u, versionPlaceholder, v.Name)
 			urls[i] = substituteRef(u, ref)
 		}
 		out = append(out, ResolvedSource{

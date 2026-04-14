@@ -231,12 +231,12 @@ VERSION=v0.1.0 COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%FT%TZ) just
 
 ### Refreshing a single library
 
-The per-lib folder layout means one library can be re-scraped without touching the others. The flow is the same for both single-version libs and multi-version (`/facebook/react/v18`, `/facebook/react/v19`, …) entries:
+The per-lib folder layout means one library can be re-scraped without touching the others. The flow is the same for both single-version libs and multi-version (`/hashicorp/terraform/1.13`, `/hashicorp/terraform/1.14`, …) entries:
 
 ```bash
 # Re-scrape locally (rebuilds exactly the matching artifacts/<slug>/artifact.db)
-just scrape /facebook/react           # base — every versioned child
-just scrape /facebook/react/v18       # one expanded version
+just scrape /hashicorp/terraform           # base — every versioned child
+just scrape /hashicorp/terraform/1.14      # one expanded version
 
 # Then re-consolidate to pick up the change in the main DB.
 just consolidate
@@ -290,56 +290,63 @@ libraries:
     urls:
       - https://raw.githubusercontent.com/python/cpython/{ref}/Doc/library/os.rst
 
-  # Multi-version lib — `versions` expands `{version}` in each URL,
-  # producing one effective lib_id per version (`/facebook/react/v18`,
-  # `/facebook/react/v19`, …) — matches Context7's `/org/project/version`
-  # convention. Entries with no per-version overrides use the `{}` empty
-  # map; add `ref:` and/or `urls:` inside the map to override per version.
-  - lib_id: /facebook/react
+  # Multi-version lib — `versions` expands per-version entries into one
+  # effective lib_id per version (`/modelcontextprotocol/go-sdk/1.4`,
+  # `/modelcontextprotocol/go-sdk/1.5`, …). The `versions:` key is the
+  # user-facing identifier (major.minor, surfaced in `search_libraries` /
+  # `search_docs`); the git tag lives in each version's `ref:` field and
+  # is substituted into `{ref}` in URLs. See #120.
+  - lib_id: /modelcontextprotocol/go-sdk
     kind: github-md
     versions:
-      v18: {}
-      v19: {}
+      "1.4": { ref: v1.4.1 }
+      "1.5": { ref: v1.5.0 }
     urls:
-      - https://raw.githubusercontent.com/facebook/react/{version}/README.md
-      - https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/getting-started.md
 
-  # Multi-version lib with a per-version git pin (map shorthand) — each
-  # version gets its own `ref:` substituted into URLs alongside `{version}`.
+  # Per-version `urls:` override — when two versions share a git sha but
+  # the URL path has a literal version segment (HashiCorp's unified-docs
+  # monorepo), each version supplies its own `urls:` block with the
+  # literal hardcoded. See #115, #120.
   - lib_id: /hashicorp/terraform
     kind: github-md
+    ref: 9c479db1ab97
     versions:
-      v1.14: { ref: v1.14.6 }
-      v1.13: { ref: v1.13.5 }
-    urls:
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/index.mdx
+      "1.13":
+        urls:
+          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.13.x/docs/intro/index.mdx
+      "1.14":
+        urls:
+          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.14.x/docs/intro/index.mdx
 
-  # Per-version `urls:` override — when two versions of the same lib
-  # diverge structurally (a file added / renamed / removed), the version
-  # that differs replaces the baseline URL list wholesale. Versions that
-  # omit `urls:` keep inheriting the top-level list. See #115.
+  # Per-version `urls:` override for structurally-diverging versions —
+  # one minor ships an extra doc page (or renames one). The version that
+  # differs replaces the baseline URL list wholesale; the version that
+  # omits `urls:` keeps inheriting the top-level list. See #115.
   - lib_id: /modelcontextprotocol/go-sdk
     kind: github-md
     urls:
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/server.md
     versions:
-      v1.4.1: {}                          # inherits baseline (2 URLs)
-      v1.5.0:                             # full override (3 URLs)
+      "1.4": { ref: v1.4.1 }              # inherits baseline (2 URLs)
+      "1.5":                              # full override (3 URLs)
+        ref: v1.5.0
         urls:
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/quick_start.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/server.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/quick_start.md
 ```
 
 | Field | Required | Purpose |
 |---|---|---|
 | `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
 | `kind` | yes | source kind discriminator — `github-md` for raw markdown, `github-rst` for raw reStructuredText (cpython, Django, NumPy, …), `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
-| `urls` | yes | list of doc URLs (with optional `{version}` and/or `{ref}` placeholders) |
-| `versions` | no | map `{v1: {ref: tag1, urls: [...]}, v2: {}, …}` of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version. Each value accepts optional per-version `ref:` and `urls:` overrides — use `{}` when a version has neither. The legacy list form `[v1, v2]` is rejected (see #117). |
+| `urls` | yes | list of doc URLs with an optional `{ref}` placeholder (#120 retired the former `{version}` placeholder). |
+| `versions` | no | map `{"1.4": {ref: v1.4.1, urls: [...]}, "1.5": {ref: v1.5.0}, …}` of user-facing version identifiers to per-version overrides. Keys are the identifiers surfaced to the MCP surface (`search_libraries` / `search_docs`); prefer `major.minor`. Each value accepts optional per-version `ref:` and `urls:` overrides. The legacy list form `[v1, v2]` is rejected (see #117). |
 | `ref` | no | git tag or commit SHA substituted into `{ref}` in `urls` (#103). For multi-version libs, a per-version ref in the `versions:` map overrides this top-level ref. URLs that don't contain `{ref}` are left untouched, so a lib can opt into pinning incrementally. |
-| `versions[v].urls` | no | per-version URL list (#115). When set, replaces the top-level `urls:` for this version wholesale — use it when two versions of the same lib diverge structurally (a file added, renamed, or removed between versions). Omit the field to inherit the baseline; an explicit empty list is rejected. |
+| `versions[v].urls` | no | per-version URL list (#115). When set, replaces the top-level `urls:` for this version wholesale. Use it when two versions of the same lib diverge structurally (a file added, renamed, or removed between versions), or when the URL path contains a literal version segment that can't be shared across versions (the HashiCorp Terraform case, #120). Omit the field to inherit the baseline; an explicit empty list is rejected. |
 
 Adding a new library means adding a YAML entry — no Go editing, no recompile.
 
@@ -353,13 +360,13 @@ mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -config /path/t
 mise exec -- go run ./cmd/deadzone scrape -artifacts /var/cache/deadzone/artifacts
 
 # Scrape every configured version of one base lib
-mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /facebook/react
+mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /hashicorp/terraform
 
-# Scrape only one specific versioned lib
-mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /facebook/react/v18
+# Scrape only one specific versioned lib (pass the major.minor identifier)
+mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /hashicorp/terraform/1.14
 ```
 
-`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<slug>/artifact.db` file (+ `state.yaml` sidecar) — the leading `/` is stripped from the `lib_id` and the remaining `/` characters become `_`, so `/facebook/react/v18` lands at `artifacts/facebook_react_v18/artifact.db`.
+`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<slug>/artifact.db` file (+ `state.yaml` sidecar) — the leading `/` is stripped from the `lib_id` and the remaining `/` characters become `_`, so `/hashicorp/terraform/1.14` lands at `artifacts/hashicorp_terraform_1.14/artifact.db`.
 
 ### Scraping non-trivial doc sources (`scrape-via-agent`)
 

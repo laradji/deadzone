@@ -33,11 +33,11 @@ libraries:
   - lib_id: /facebook/react
     kind: github-md
     versions:
-      v18: {}
-      v19: {}
+      "18": { ref: v18.2.0 }
+      "19": { ref: v19.0.0 }
     urls:
-      - https://raw.githubusercontent.com/facebook/react/{version}/README.md
-      - https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md
+      - https://raw.githubusercontent.com/facebook/react/{ref}/README.md
+      - https://raw.githubusercontent.com/facebook/react/{ref}/docs/getting-started.md
 `)
 
 	cfg, err := scraper.LoadConfig(path)
@@ -61,8 +61,8 @@ libraries:
 	if cfg.Libraries[1].LibID != "/facebook/react" {
 		t.Errorf("libraries[1].LibID = %q", cfg.Libraries[1].LibID)
 	}
-	if got := cfg.Libraries[1].Versions; len(got) != 2 || got[0].Name != "v18" || got[1].Name != "v19" {
-		t.Errorf("libraries[1].Versions = %v, want [{v18} {v19}]", got)
+	if got := cfg.Libraries[1].Versions; len(got) != 2 || got[0].Name != "18" || got[1].Name != "19" {
+		t.Errorf("libraries[1].Versions = %v, want [{18} {19}]", got)
 	}
 }
 
@@ -221,30 +221,18 @@ func TestLoadConfig_VersionsRules(t *testing.T) {
 		want string
 	}{
 		{
-			name: "versions present but URL lacks placeholder",
+			name: "versions present but no URL contains {ref}",
 			yaml: `
 libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      v1: {}
-      v2: {}
+      "1.0": { ref: v1.0.0 }
+      "2.0": { ref: v2.0.0 }
     urls:
-      - https://example.com/{version}/a.md
-      - https://example.com/main/b.md
+      - https://example.com/main/a.md
 `,
-			want: "missing the {version} placeholder",
-		},
-		{
-			name: "URL contains placeholder but no versions",
-			yaml: `
-libraries:
-  - lib_id: /org/project
-    kind: github-md
-    urls:
-      - https://example.com/{version}/a.md
-`,
-			want: "no versions are listed",
+			want: "no effective url contains {ref}",
 		},
 		{
 			name: "version contains slash",
@@ -253,9 +241,9 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      "v1/foo": {}
+      "v1/foo": { ref: v1.0.0 }
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
 `,
 			want: `must not contain "/"`,
 		},
@@ -266,24 +254,11 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      "v 1": {}
+      "v 1": { ref: v1.0.0 }
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
 `,
 			want: "contains whitespace",
-		},
-		{
-			name: "version literally is {version}",
-			yaml: `
-libraries:
-  - lib_id: /org/project
-    kind: github-md
-    versions:
-      "{version}": {}
-    urls:
-      - https://example.com/{version}/a.md
-`,
-			want: `must not contain literal "{version}"`,
 		},
 		{
 			name: "empty version string",
@@ -292,9 +267,9 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      "": {}
+      "": { ref: v1.0.0 }
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
 `,
 			want: "empty entry",
 		},
@@ -313,6 +288,67 @@ libraries:
 	}
 }
 
+// TestLoadConfig_VersionPlaceholderRejected pins #120: URLs containing
+// the retired "{version}" placeholder are rejected at parse time. The
+// error message points at "{ref}" as the replacement so operators
+// porting a pre-#120 registry can fix it mechanically.
+func TestLoadConfig_VersionPlaceholderRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "top-level url still uses {version}",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions:
+      "1.0": { ref: v1.0.0 }
+    urls:
+      - https://example.com/{version}/a.md
+`,
+		},
+		{
+			name: "per-version url still uses {version}",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions:
+      "1.0":
+        ref: v1.0.0
+        urls:
+          - https://example.com/{version}/a.md
+`,
+		},
+		{
+			name: "single-version url still uses {version}",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{version}/a.md
+`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := scraper.LoadConfig(writeConfig(t, tc.yaml))
+			if err == nil {
+				t.Fatal("expected rejection of deprecated {version} placeholder, got nil")
+			}
+			if !strings.Contains(err.Error(), "deprecated {version}") {
+				t.Errorf("error %q should mention deprecated {version}", err.Error())
+			}
+			if !strings.Contains(err.Error(), "use {ref} instead") {
+				t.Errorf("error %q should steer the operator toward {ref}", err.Error())
+			}
+		})
+	}
+}
+
 // TestLoadConfig_VersionsListShapeRejected pins #117: the legacy list
 // form `versions: [v1, v2]` is rejected at parse time with a message
 // that points at the supported map form.
@@ -323,7 +359,7 @@ libraries:
     kind: github-md
     versions: [v1, v2]
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
 `)
 	_, err := scraper.LoadConfig(path)
 	if err == nil {
@@ -367,12 +403,15 @@ func TestExpand_SingleVersionIsIdentity(t *testing.T) {
 
 func TestExpand_MultiVersionExpandsAndSubstitutes(t *testing.T) {
 	src := scraper.LibrarySource{
-		LibID:    "/facebook/react",
-		Kind:     "github-md",
-		Versions: []scraper.VersionEntry{{Name: "v18"}, {Name: "v19"}},
+		LibID: "/facebook/react",
+		Kind:  "github-md",
+		Versions: []scraper.VersionEntry{
+			{Name: "18", Ref: "v18.2.0"},
+			{Name: "19", Ref: "v19.0.0"},
+		},
 		URLs: []string{
-			"https://raw.githubusercontent.com/facebook/react/{version}/README.md",
-			"https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md",
+			"https://raw.githubusercontent.com/facebook/react/{ref}/README.md",
+			"https://raw.githubusercontent.com/facebook/react/{ref}/docs/getting-started.md",
 		},
 	}
 	out := src.Expand()
@@ -381,7 +420,8 @@ func TestExpand_MultiVersionExpandsAndSubstitutes(t *testing.T) {
 	}
 
 	// After #113 LibID stays equal to the base for every expansion;
-	// the version lives in the dedicated Version field.
+	// the version lives in the dedicated Version field. Post-#120 the
+	// per-version differentiator in URLs is {ref}, not {version}.
 	want := []struct {
 		libID   string
 		version string
@@ -389,18 +429,18 @@ func TestExpand_MultiVersionExpandsAndSubstitutes(t *testing.T) {
 	}{
 		{
 			libID:   "/facebook/react",
-			version: "v18",
+			version: "18",
 			urls: []string{
-				"https://raw.githubusercontent.com/facebook/react/v18/README.md",
-				"https://raw.githubusercontent.com/facebook/react/v18/docs/getting-started.md",
+				"https://raw.githubusercontent.com/facebook/react/v18.2.0/README.md",
+				"https://raw.githubusercontent.com/facebook/react/v18.2.0/docs/getting-started.md",
 			},
 		},
 		{
 			libID:   "/facebook/react",
-			version: "v19",
+			version: "19",
 			urls: []string{
-				"https://raw.githubusercontent.com/facebook/react/v19/README.md",
-				"https://raw.githubusercontent.com/facebook/react/v19/docs/getting-started.md",
+				"https://raw.githubusercontent.com/facebook/react/v19.0.0/README.md",
+				"https://raw.githubusercontent.com/facebook/react/v19.0.0/docs/getting-started.md",
 			},
 		},
 	}
@@ -435,10 +475,10 @@ libraries:
   - lib_id: /facebook/react
     kind: github-md
     versions:
-      v18: {}
-      v19: {}
+      "18": { ref: v18.2.0 }
+      "19": { ref: v19.0.0 }
     urls:
-      - https://example.com/react/{version}/README.md
+      - https://example.com/react/{ref}/README.md
 `)
 
 	all := cfg.Resolve("", "")
@@ -463,21 +503,21 @@ libraries:
   - lib_id: /facebook/react
     kind: github-md
     versions:
-      v18: {}
-      v19: {}
+      "18": { ref: v18.2.0 }
+      "19": { ref: v19.0.0 }
     urls:
-      - https://example.com/react/{version}/README.md
+      - https://example.com/react/{ref}/README.md
 `)
 
-	v18 := cfg.Resolve("/facebook/react", "v18")
+	v18 := cfg.Resolve("/facebook/react", "18")
 	if len(v18) != 1 {
-		t.Fatalf("Resolve(/facebook/react, v18) returned %d, want 1", len(v18))
+		t.Fatalf("Resolve(/facebook/react, 18) returned %d, want 1", len(v18))
 	}
 	if v18[0].LibID != "/facebook/react" {
 		t.Errorf("LibID = %q, want /facebook/react (base stays unversioned after #113)", v18[0].LibID)
 	}
-	if v18[0].Version != "v18" {
-		t.Errorf("Version = %q, want v18", v18[0].Version)
+	if v18[0].Version != "18" {
+		t.Errorf("Version = %q, want 18", v18[0].Version)
 	}
 }
 
@@ -523,14 +563,14 @@ libraries:
   - lib_id: /facebook/react
     kind: github-md
     versions:
-      v18: {}
-      v19: {}
+      "18": { ref: v18.2.0 }
+      "19": { ref: v19.0.0 }
     urls:
-      - https://example.com/react/{version}/README.md
+      - https://example.com/react/{ref}/README.md
 `)
 
-	if got := cfg.Resolve("/facebook/react", "v20"); len(got) != 0 {
-		t.Errorf("expected no matches for v20, got %d", len(got))
+	if got := cfg.Resolve("/facebook/react", "20"); len(got) != 0 {
+		t.Errorf("expected no matches for 20, got %d", len(got))
 	}
 }
 
@@ -544,10 +584,10 @@ libraries:
   - lib_id: /hashicorp/terraform
     kind: github-md
     versions:
-      v1.14: {}
-      v1.13: {}
+      "1.14": { ref: v1.14.6 }
+      "1.13": { ref: v1.13.5 }
     urls:
-      - https://example.com/tf/{version}/README.md
+      - https://example.com/tf/{ref}/README.md
 `)
 
 	got := cfg.Resolve("", "")
@@ -562,8 +602,8 @@ libraries:
 			t.Errorf("[%d].BaseLibID = %q, want /hashicorp/terraform", i, r.BaseLibID)
 		}
 	}
-	if got[0].Version != "v1.14" || got[1].Version != "v1.13" {
-		t.Errorf("versions = %q, %q; want v1.14, v1.13", got[0].Version, got[1].Version)
+	if got[0].Version != "1.14" || got[1].Version != "1.13" {
+		t.Errorf("versions = %q, %q; want 1.14, 1.13", got[0].Version, got[1].Version)
 	}
 }
 
@@ -605,10 +645,10 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      v1: {}
-      v2: {}
+      "1.0": {}
+      "2.0": {}
     urls:
-      - https://example.com/{version}/{ref}/a.md
+      - https://example.com/{ref}/a.md
 `,
 			want: "neither versions",
 		},
@@ -631,9 +671,9 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      v1: { ref: "tag with space" }
+      "1.0": { ref: "tag with space" }
     urls:
-      - https://example.com/{version}/{ref}/a.md
+      - https://example.com/{ref}/a.md
 `,
 			want: "whitespace",
 		},
@@ -707,20 +747,21 @@ func TestExpand_SingleVersionSubstitutesRef(t *testing.T) {
 func TestLoadConfig_VersionsMapShape(t *testing.T) {
 	cfg := mustLoadInline(t, `
 libraries:
-  - lib_id: /hashicorp/terraform
+  - lib_id: /modelcontextprotocol/go-sdk
     kind: github-md
     versions:
-      v1.14: { ref: v1.14.6 }
-      v1.13: { ref: v1.13.5 }
+      "1.5": { ref: v1.5.0 }
+      "1.4": { ref: v1.4.1 }
     urls:
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/index.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
 `)
 	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
 	// Declaration order is preserved. LibID stays the base after #113;
-	// the version lives in Version.
+	// the version lives in Version and is a user-facing label that is
+	// not substituted into URLs anymore (#120).
 	want := []struct {
 		libID   string
 		version string
@@ -728,16 +769,16 @@ libraries:
 		url     string
 	}{
 		{
-			libID:   "/hashicorp/terraform",
-			version: "v1.14",
-			ref:     "v1.14.6",
-			url:     "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.14.6/content/terraform/v1.14.x/docs/intro/index.mdx",
+			libID:   "/modelcontextprotocol/go-sdk",
+			version: "1.5",
+			ref:     "v1.5.0",
+			url:     "https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/v1.5.0/README.md",
 		},
 		{
-			libID:   "/hashicorp/terraform",
-			version: "v1.13",
-			ref:     "v1.13.5",
-			url:     "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.13.5/content/terraform/v1.13.x/docs/intro/index.mdx",
+			libID:   "/modelcontextprotocol/go-sdk",
+			version: "1.4",
+			ref:     "v1.4.1",
+			url:     "https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/v1.4.1/README.md",
 		},
 	}
 	for i, w := range want {
@@ -764,39 +805,40 @@ libraries:
   - lib_id: /modelcontextprotocol/go-sdk
     kind: github-md
     urls:
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/server.md
     versions:
-      v1.4.1: {}
-      v1.5.0:
+      "1.4": { ref: v1.4.1 }
+      "1.5":
+        ref: v1.5.0
         urls:
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/quick_start.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/server.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/quick_start.md
 `)
 	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
-	if got[0].Version != "v1.4.1" {
-		t.Fatalf("[0].Version = %q, want v1.4.1", got[0].Version)
+	if got[0].Version != "1.4" {
+		t.Fatalf("[0].Version = %q, want 1.4", got[0].Version)
 	}
 	if len(got[0].URLs) != 2 {
-		t.Errorf("v1.4.1 should inherit baseline (2 URLs), got %d", len(got[0].URLs))
+		t.Errorf("1.4 should inherit baseline (2 URLs), got %d", len(got[0].URLs))
 	}
 	for _, u := range got[0].URLs {
 		if !strings.Contains(u, "/v1.4.1/") {
-			t.Errorf("v1.4.1 URL not substituted: %q", u)
+			t.Errorf("1.4 URL not substituted: %q", u)
 		}
 	}
-	if got[1].Version != "v1.5.0" {
-		t.Fatalf("[1].Version = %q, want v1.5.0", got[1].Version)
+	if got[1].Version != "1.5" {
+		t.Fatalf("[1].Version = %q, want 1.5", got[1].Version)
 	}
 	if len(got[1].URLs) != 3 {
-		t.Errorf("v1.5.0 should use override (3 URLs), got %d", len(got[1].URLs))
+		t.Errorf("1.5 should use override (3 URLs), got %d", len(got[1].URLs))
 	}
 	if !strings.HasSuffix(got[1].URLs[2], "/docs/quick_start.md") {
-		t.Errorf("v1.5.0 URL[2] = %q, want …/docs/quick_start.md", got[1].URLs[2])
+		t.Errorf("1.5 URL[2] = %q, want …/docs/quick_start.md", got[1].URLs[2])
 	}
 }
 
@@ -807,30 +849,76 @@ libraries:
     kind: github-md
     ref: fallback-ref
     versions:
-      v1:
+      "1.0":
         ref: r1
         urls:
-          - https://example.com/{version}/{ref}/a.md
-      v2:
+          - https://example.com/{ref}/a.md
+      "2.0":
         urls:
-          - https://example.com/{version}/{ref}/a.md
-          - https://example.com/{version}/{ref}/b.md
+          - https://example.com/{ref}/a.md
+          - https://example.com/{ref}/b.md
 `)
 	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
-	if got[0].URLs[0] != "https://example.com/v1/r1/a.md" {
-		t.Errorf("v1 URL = %q", got[0].URLs[0])
+	if got[0].URLs[0] != "https://example.com/r1/a.md" {
+		t.Errorf("1.0 URL = %q", got[0].URLs[0])
 	}
 	if len(got[1].URLs) != 2 {
-		t.Fatalf("v2 URLs len = %d, want 2", len(got[1].URLs))
+		t.Fatalf("2.0 URLs len = %d, want 2", len(got[1].URLs))
 	}
-	if got[1].URLs[0] != "https://example.com/v2/fallback-ref/a.md" {
-		t.Errorf("v2 URLs[0] = %q", got[1].URLs[0])
+	if got[1].URLs[0] != "https://example.com/fallback-ref/a.md" {
+		t.Errorf("2.0 URLs[0] = %q", got[1].URLs[0])
 	}
-	if got[1].URLs[1] != "https://example.com/v2/fallback-ref/b.md" {
-		t.Errorf("v2 URLs[1] = %q", got[1].URLs[1])
+	if got[1].URLs[1] != "https://example.com/fallback-ref/b.md" {
+		t.Errorf("2.0 URLs[1] = %q", got[1].URLs[1])
+	}
+}
+
+// TestExpand_PerVersionURLsAbsorbVersionLiteral pins the terraform shape
+// from #120: when two versions of a lib can't share a URL template
+// because the path has a literal version segment, each version supplies
+// its own `urls:` block with the literal hardcoded. The `{ref}`
+// placeholder still substitutes from the shared top-level ref.
+func TestExpand_PerVersionURLsAbsorbVersionLiteral(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /hashicorp/terraform
+    kind: github-md
+    ref: 9c479db1ab97
+    versions:
+      "1.13":
+        urls:
+          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.13.x/docs/intro/index.mdx
+          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.13.x/docs/intro/core-workflow.mdx
+      "1.14":
+        urls:
+          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.14.x/docs/intro/index.mdx
+          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.14.x/docs/intro/core-workflow.mdx
+`)
+	got := cfg.Resolve("", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	if got[0].Version != "1.13" {
+		t.Errorf("[0].Version = %q, want 1.13", got[0].Version)
+	}
+	if got[0].URLs[0] != "https://raw.githubusercontent.com/hashicorp/web-unified-docs/9c479db1ab97/content/terraform/v1.13.x/docs/intro/index.mdx" {
+		t.Errorf("1.13 URL[0] = %q", got[0].URLs[0])
+	}
+	if got[1].Version != "1.14" {
+		t.Errorf("[1].Version = %q, want 1.14", got[1].Version)
+	}
+	if got[1].URLs[0] != "https://raw.githubusercontent.com/hashicorp/web-unified-docs/9c479db1ab97/content/terraform/v1.14.x/docs/intro/index.mdx" {
+		t.Errorf("1.14 URL[0] = %q", got[1].URLs[0])
+	}
+	// Both versions must resolve to the shared top-level ref since
+	// neither defines a per-version ref:.
+	for i, r := range got {
+		if r.Ref != "9c479db1ab97" {
+			t.Errorf("[%d].Ref = %q, want 9c479db1ab97 (top-level fallback)", i, r.Ref)
+		}
 	}
 }
 
@@ -847,26 +935,27 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
     versions:
-      v1: { urls: [] }
+      "1.0": { ref: v1.0.0, urls: [] }
 `,
 			want: "empty list",
 		},
 		{
-			name: "per-version url missing {version} placeholder",
+			name: "per-version override leaves no url with {ref}",
 			yaml: `
 libraries:
   - lib_id: /org/project
     kind: github-md
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
     versions:
-      v1:
+      "1.0":
+        ref: v1.0.0
         urls:
           - https://example.com/fixed/a.md
 `,
-			want: "missing the {version} placeholder",
+			want: "no effective url contains {ref}",
 		},
 		{
 			name: "inheriting version with empty baseline",
@@ -875,12 +964,13 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     versions:
-      v1:
+      "1.0":
+        ref: v1.0.0
         urls:
-          - https://example.com/{version}/a.md
-      v2: {}
+          - https://example.com/{ref}/a.md
+      "2.0": { ref: v2.0.0 }
 `,
-			want: `versions["v2"] has no urls and the top-level urls is empty`,
+			want: `versions["2.0"] has no urls and the top-level urls is empty`,
 		},
 		{
 			name: "per-version urls not a list",
@@ -889,10 +979,11 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
     versions:
-      v1:
-        urls: "https://example.com/{version}/a.md"
+      "1.0":
+        ref: v1.0.0
+        urls: "https://example.com/{ref}/a.md"
 `,
 			want: "must be a list",
 		},
@@ -903,9 +994,10 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
     versions:
-      v1:
+      "1.0":
+        ref: v1.0.0
         urls:
           - "   "
 `,
@@ -932,26 +1024,27 @@ libraries:
   - lib_id: /org/project
     kind: github-md
     urls:
-      - https://example.com/{version}/a.md
+      - https://example.com/{ref}/a.md
     versions:
-      v1: {}
-      v2:
+      "1.0": { ref: v1.0.0 }
+      "2.0":
+        ref: v2.0.0
         urls:
-          - https://example.com/{version}/a.md
-          - https://example.com/{version}/b.md
+          - https://example.com/{ref}/a.md
+          - https://example.com/{ref}/b.md
 `)
 	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
-	if len(got[0].URLs) != 1 || got[0].URLs[0] != "https://example.com/v1/a.md" {
-		t.Errorf("v1 URLs = %v, want [https://example.com/v1/a.md]", got[0].URLs)
+	if len(got[0].URLs) != 1 || got[0].URLs[0] != "https://example.com/v1.0.0/a.md" {
+		t.Errorf("1.0 URLs = %v, want [https://example.com/v1.0.0/a.md]", got[0].URLs)
 	}
 	if len(got[1].URLs) != 2 {
-		t.Fatalf("v2 URLs len = %d, want 2", len(got[1].URLs))
+		t.Fatalf("2.0 URLs len = %d, want 2", len(got[1].URLs))
 	}
-	if got[1].URLs[1] != "https://example.com/v2/b.md" {
-		t.Errorf("v2 URLs[1] = %q", got[1].URLs[1])
+	if got[1].URLs[1] != "https://example.com/v2.0.0/b.md" {
+		t.Errorf("2.0 URLs[1] = %q", got[1].URLs[1])
 	}
 }
 
@@ -962,25 +1055,25 @@ libraries:
     kind: github-md
     ref: fallback-ref
     versions:
-      v1: { ref: per-version-ref }
-      v2: {}
+      "1.0": { ref: per-version-ref }
+      "2.0": {}
     urls:
-      - https://example.com/{version}/{ref}/a.md
+      - https://example.com/{ref}/a.md
 `)
 	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
 	if got[0].Ref != "per-version-ref" {
-		t.Errorf("v1 Ref = %q, want per-version-ref", got[0].Ref)
+		t.Errorf("1.0 Ref = %q, want per-version-ref", got[0].Ref)
 	}
 	if got[1].Ref != "fallback-ref" {
-		t.Errorf("v2 Ref = %q, want fallback-ref (top-level fallback)", got[1].Ref)
+		t.Errorf("2.0 Ref = %q, want fallback-ref (top-level fallback)", got[1].Ref)
 	}
-	if got[0].URLs[0] != "https://example.com/v1/per-version-ref/a.md" {
-		t.Errorf("v1 URL = %q", got[0].URLs[0])
+	if got[0].URLs[0] != "https://example.com/per-version-ref/a.md" {
+		t.Errorf("1.0 URL = %q", got[0].URLs[0])
 	}
-	if got[1].URLs[0] != "https://example.com/v2/fallback-ref/a.md" {
-		t.Errorf("v2 URL = %q", got[1].URLs[0])
+	if got[1].URLs[0] != "https://example.com/fallback-ref/a.md" {
+		t.Errorf("2.0 URL = %q", got[1].URLs[0])
 	}
 }

@@ -232,10 +232,19 @@ No metadata. No lifecycle. No sharing model. **Just enough to lift Deadzone out 
 
 The schema gained a fifth optional field, `ref:`, in #103: a git tag or commit SHA that gets substituted into the literal `{ref}` placeholder in URLs at config-resolve time. Without it, every URL points at an unpinned `main`/`master` branch and the resulting `deadzone.db` drifts silently between rebuilds even when the registry and code haven't changed. With it, two operators on the same registry pin produce byte-identical artifacts. Per-version refs (map shorthand for `versions:`) keep multi-version libs reproducible too. The field is opt-in per lib so the schema stays minimal — URLs without `{ref}` are passed through unchanged. The resolved ref is recorded in each artifact's `state.yaml` sidecar so an operator can see what was actually scraped.
 
+### User-facing identifier vs git-layer detail (#120)
+
+Pre-#120 the `versions:` map did double duty: each key was both the user-facing `version` surfaced to the LLM (via `search_libraries` / `search_docs`) and the git tag the scraper fetched. That coupling leaked three different tag formats across the corpus (`v1.9.0`, `0.135.3`, `v3.14.4`) and forced the LLM to guess which shape to pass — *"how do I do X in terraform 1.14"* had to be translated into `v1.14.6` or `v1.14` or `1.14` depending on the lib.
+
+#120 split the two concerns: `versions:` keys became opaque user-facing labels (`major.minor` is the house convention), and the git tag moved into each version's `ref:` field. URLs reference `{ref}` as the sole placeholder — the pre-#120 `{version}` placeholder was retired because it was never doing anything the `ref:` field doesn't do better. The one edge case where URLs need to differ per version beyond a shared `ref:` substitution (HashiCorp's unified-docs monorepo, which bakes `v1.13.x` / `v1.14.x` into the path) is handled by the per-version `urls:` override from #115: each version supplies its own `urls:` block with the literal hardcoded. One placeholder (`{ref}`), one concept, zero ambiguity about what the LLM is supposed to pass.
+
+The separation matters for cache economics too: a patch-level bump (`v1.14.5` → `v1.14.6`) is now a `ref:` edit that doesn't touch the user-facing identifier or the consolidated DB shape, so cached artifacts across minor versions stay stable through routine upstream refreshes.
+
 ### Trace
 
 - Designed in #51, merged in #54
 - Reproducibility pin added in #103
+- Version-identifier / git-tag split in #120
 - The long-term registry research lives in #52 (open, post-mvp)
 
 ### Holds at scale
