@@ -1,26 +1,12 @@
-# Deadzone release manifest — see issue #101.
-#
-# Records the most recent `deadzone.db` release uploaded by
-# `deadzone dbrelease` (operator-driven for now; CI will take over
-# distribution later — see #101 Out of scope). The file is committed as
-# a release-history trace; edits MUST come from `deadzone dbrelease`,
-# never hand-edited.
-#
-# Schema (single `release:` block):
-#   tag         release tag (e.g. v0.1.0)
-#   asset       name of the DB asset on the release (always deadzone.db)
-#   sha256      sha256 of deadzone.db (64-char hex)
-#   size        size in bytes
-#   indexed_at  RFC3339 timestamp at release-upload time
-#   embedder    {kind, model, dim} snapshot at release time
-#   lib_count   count of rows in libs at release time
-#   doc_count   count of rows in docs at release time
-#
-# When per-artifact distribution returns (see #101), a sibling `packs:`
-# block is expected to come back. Until then the file carries only the
-# single release record. The `release.tag: ""` placeholder below is
-# the pre-v0.1.0 shape; the first `deadzone dbrelease v0.1.0` rewrites
-# everything.
-
 release:
-  tag: ""
+    tag: v0.1.0
+    asset: deadzone.db
+    sha256: b17a9e73c1abee39d8cd91cedd638b21a18228f5a7cd6c28244643c503dd5318
+    size: 8499200
+    indexed_at: 2026-04-13T17:41:00.140587Z
+    embedder:
+        kind: hugot
+        model: nomic-ai/nomic-embed-text-v1.5
+        dim: 768
+    lib_count: 12
+    doc_count: 1461

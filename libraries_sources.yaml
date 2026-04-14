@@ -1,4 +1,4 @@
-# Deadzone library registry — see #51 and the Quick start in README.md.
+# Deadzone library registry — see #51, #103, #113, and the Quick start in README.md.
 #
 # Each entry is one library to scrape. Required fields:
 #
@@ -17,6 +17,11 @@
 #
 # Optional:
 #
+#   ref       git tag or commit SHA to pin all URLs of this lib to. URLs
+#             that contain the literal "{ref}" placeholder get it
+#             substituted at resolve time (#103). When used at top level,
+#             applies to every expanded version unless overridden.
+#
 #   versions  mapping of version tags to per-version overrides. When
 #             present, every URL must contain the literal "{version}"
 #             placeholder; one effective entry is produced per version
@@ -28,8 +33,8 @@
 #                 v3: { urls: [...] }          # per-version url list
 #
 #             Per-version overrides:
-#               - `ref:`  pins this version's {ref} substitution (see
-#                         #103)
+#               - `ref:`  pins this version's {ref} substitution,
+#                         overrides the top-level `ref:` (#103).
 #               - `urls:` replaces the top-level `urls:` for this version
 #                         wholesale (#115). Omit the field to inherit
 #                         the baseline; an explicit `urls: []` is
@@ -40,161 +45,149 @@
 #             The legacy list shape `versions: [v1, v2]` is rejected at
 #             parse time — use `{v1: {}, v2: {}}` instead (see #117).
 #
-# Override this path with `deadzone-scraper -config <path>`. Restrict a run
-# to one library with `-lib /org/project` (matches all versions of that
-# base) or `-lib /org/project/v18` (matches one expanded version).
+# Version-pinning conventions in this file:
+#   - libs where the version IS the git ref use `versions: {<tag>: {}}`
+#     and reference `{version}` in URLs (the tag serves as both).
+#   - libs where the version is a PATH PREFIX and the git ref is a
+#     separate sha (e.g. hashicorp/terraform via web-unified-docs) use
+#     top-level `ref:` + `versions: {<ver>: {}}` and reference both
+#     `{ref}` and `{version}` in URLs.
+#   - We ship the last 2 minor releases of each lib's latest major
+#     (#113 "2 dernières versions"); single-version when the upstream
+#     has no stable tags or the URL set is trivially thin.
+#
+# Override this path with `deadzone scrape -config <path>`. Restrict a
+# run to one library with `-lib /org/project` (matches all versions) or
+# pin to one version with `-lib /org/project -version <tag>` (#113).
 
 libraries:
   - lib_id: /modelcontextprotocol/go-sdk
     kind: github-md
+    versions:
+      v1.4.1: {}
+      v1.5.0: {}
     urls:
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/server.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/client.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/protocol.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/mcpgodebug.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/troubleshooting.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/rough_edges.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/client.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/protocol.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/mcpgodebug.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/troubleshooting.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/rough_edges.md
 
   # FastAPI — repo transferred from tiangolo/fastapi to fastapi/fastapi
   # (new fastapi org). Docs site at fastapi.tiangolo.com is rendered
   # from docs/en/docs/*.md in the repo, so we pull the raw markdown
   # directly: no LLM extraction, no truncation, no verifier skips.
+  # Tags ship without a "v" prefix.
   - lib_id: /fastapi/fastapi
     kind: github-md
+    versions:
+      0.134.0: {}
+      0.135.3: {}
     urls:
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/additional-responses.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/additional-status-codes.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/advanced-dependencies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/advanced-python-types.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/async-tests.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/behind-a-proxy.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/custom-response.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/dataclasses.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/events.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/generate-clients.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/json-base64-bytes.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/middleware.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/openapi-callbacks.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/openapi-webhooks.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/path-operation-advanced-configuration.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/response-change-status-code.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/response-cookies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/response-directly.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/response-headers.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/security/http-basic-auth.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/security/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/security/oauth2-scopes.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/settings.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/stream-data.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/strict-content-type.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/sub-applications.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/templates.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/testing-dependencies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/testing-events.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/testing-websockets.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/using-request-directly.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/vibe.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/websockets.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/advanced/wsgi.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/async.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/benchmarks.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/contributing.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/environment-variables.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/fastapi-cli.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/features.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/authentication-error-status-code.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/conditional-openapi.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/configure-swagger-ui.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/custom-docs-ui-assets.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/custom-request-and-route.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/extending-openapi.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/general.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/graphql.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/migrate-from-pydantic-v1-to-pydantic-v2.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/separate-openapi-schemas.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/how-to/testing-database.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/python-types.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/apirouter.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/background.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/dependencies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/encoders.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/exceptions.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/fastapi.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/httpconnection.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/middleware.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/openapi/docs.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/openapi/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/openapi/models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/parameters.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/request.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/response.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/responses.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/security/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/staticfiles.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/status.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/templating.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/testclient.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/uploadfile.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/reference/websockets.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/background-tasks.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/bigger-applications.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/body-fields.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/body-multiple-params.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/body-nested-models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/body-updates.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/body.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/cookie-param-models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/cookie-params.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/cors.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/debugging.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/classes-as-dependencies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/dependencies-in-path-operation-decorators.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/dependencies-with-yield.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/global-dependencies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/dependencies/sub-dependencies.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/encoder.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/extra-data-types.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/extra-models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/first-steps.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/handling-errors.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/header-param-models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/header-params.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/metadata.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/middleware.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/path-operation-configuration.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/path-params-numeric-validations.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/path-params.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/query-param-models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/query-params-str-validations.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/query-params.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/request-files.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/request-form-models.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/request-forms-and-files.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/request-forms.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/response-model.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/response-status-code.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/schema-extra-example.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/security/first-steps.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/security/get-current-user.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/security/index.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/security/oauth2-jwt.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/security/simple-oauth2.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/server-sent-events.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/sql-databases.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/static-files.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/stream-json-lines.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/tutorial/testing.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/virtual-environments.md
-
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/additional-responses.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/additional-status-codes.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/advanced-dependencies.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/advanced-python-types.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/async-tests.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/behind-a-proxy.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/custom-response.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/dataclasses.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/events.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/generate-clients.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/json-base64-bytes.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/middleware.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/openapi-callbacks.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/openapi-webhooks.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/path-operation-advanced-configuration.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/response-change-status-code.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/response-cookies.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/response-directly.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/response-headers.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/security/http-basic-auth.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/security/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/security/oauth2-scopes.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/settings.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/stream-data.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/strict-content-type.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/sub-applications.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/templates.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/testing-dependencies.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/testing-events.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/testing-websockets.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/using-request-directly.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/websockets.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/advanced/wsgi.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/async.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/background-tasks.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/benchmarks.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/contributing.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/cloud.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/concepts.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/docker.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/https.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/manually.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/server-workers.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/deployment/versions.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/features.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/help-fastapi.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/learn/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/project-generation.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/python-types.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/resources/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/background-tasks.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/bigger-applications.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/body-fields.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/body-multiple-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/body-nested-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/body-updates.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/body.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/cookie-param-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/cookie-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/cors.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/debugging.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/dependencies/classes-as-dependencies.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/dependencies/dependencies-in-path-operation-decorators.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/dependencies/dependencies-with-yield.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/dependencies/global-dependencies.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/dependencies/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/dependencies/sub-dependencies.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/encoder.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/extra-data-types.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/extra-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/first-steps.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/handling-errors.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/header-param-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/header-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/middleware.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/path-operation-configuration.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/path-params-numeric-validations.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/path-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/query-param-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/query-params-str-validations.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/query-params.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/request-files.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/request-form-models.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/request-forms-and-files.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/request-forms.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/response-model.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/response-status-code.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/schema-extra-example.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/security/first-steps.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/security/get-current-user.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/security/index.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/security/oauth2-jwt.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/security/simple-oauth2.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/sql-databases.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/static-files.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/tutorial/testing.md
+      - https://raw.githubusercontent.com/fastapi/fastapi/{version}/docs/en/docs/virtual-environments.md
 
   # OpenJDK intentionally omitted from 0.1: docs.oracle.com javadoc is
   # pre-rendered HTML only (no markdown/rst source upstream), so pulling it
@@ -203,176 +196,208 @@ libraries:
 
   # Python stdlib — docs ship as reStructuredText in cpython/Doc/library/,
   # so we pull the raw .rst directly. No HTML scrape, no LLM. The 20
-  # modules below are the "core 20" decided in #95: highest-traffic stdlib
-  # entries that cover ~80% of typical Python questions.
+  # modules below are the "core 20" decided in #95.
   - lib_id: /python/cpython
     kind: github-rst
+    versions:
+      v3.13.9: {}
+      v3.14.4: {}
     urls:
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/os.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/sys.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/pathlib.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/json.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/collections.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/itertools.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/functools.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/subprocess.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/asyncio.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/argparse.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/re.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/datetime.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/typing.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/dataclasses.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/enum.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/logging.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/urllib.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/http.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/socket.rst
-      - https://raw.githubusercontent.com/python/cpython/main/Doc/library/threading.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/os.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/sys.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/pathlib.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/json.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/collections.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/itertools.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/functools.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/subprocess.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/asyncio.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/argparse.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/re.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/datetime.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/typing.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/dataclasses.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/enum.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/logging.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/urllib.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/http.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/socket.rst
+      - https://raw.githubusercontent.com/python/cpython/{version}/Doc/library/threading.rst
 
   # HashiCorp Terraform — docs live as MDX in hashicorp/web-unified-docs
-  # under content/terraform/v1.14.x/docs/. MDX is markdown + JSX; goldmark
-  # parses the prose and lets unknown tags through as raw HTML. v1.14.x is
-  # the latest stable at pin time; bump the version prefix in all URLs when
-  # upgrading (no versions: shorthand — the prefix path differs, not a
-  # placeholder).
+  # under content/terraform/<version>.x/docs/. The git ref is a sha from
+  # web-unified-docs' main (the repo holds every supported terraform
+  # version side-by-side under different path prefixes, so the same sha
+  # serves both v1.13.x and v1.14.x). Bump the sha to refresh the
+  # snapshot.
   - lib_id: /hashicorp/terraform
     kind: github-md
+    ref: 9c479db1ab97
+    versions:
+      v1.13: {}
+      v1.14: {}
     urls:
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/intro/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/intro/core-workflow.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/intro/use-cases.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/style.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/resources/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/resources/configure.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/resources/destroy.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/modules/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/modules/configuration.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/modules/sources.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/variables.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/outputs.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/values/locals.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/purpose.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/backends.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/remote.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/locking.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/workspaces.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/state/import.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/index.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/references.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/conditionals.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/for.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/function-calls.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/types.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/type-constraints.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/operators.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/strings.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/language/expressions/dynamic-blocks.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/init.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/plan.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/apply.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/destroy.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/import.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/validate.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/fmt.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/list.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/mv.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/rm.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/state/show.mdx
-      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/main/content/terraform/v1.14.x/docs/cli/commands/workspace/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/core-workflow.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/use-cases.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/style.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/resources/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/resources/configure.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/resources/destroy.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/modules/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/modules/configuration.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/modules/sources.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/values/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/values/variables.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/values/outputs.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/values/locals.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/purpose.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/backends.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/remote.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/locking.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/workspaces.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/state/import.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/index.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/references.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/conditionals.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/for.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/function-calls.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/types.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/type-constraints.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/operators.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/strings.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/language/expressions/dynamic-blocks.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/init.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/plan.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/apply.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/destroy.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/import.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/validate.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/fmt.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/state/list.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/state/mv.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/state/rm.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/state/show.mdx
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/cli/commands/workspace/index.mdx
 
   # OpenTofu — docs are MDX directly in the opentofu repo at
   # website/docs/. Terraform fork, so the tree shape mirrors hashicorp's.
   - lib_id: /opentofu/opentofu
     kind: github-md
+    versions:
+      v1.10.9: {}
+      v1.11.6: {}
     urls:
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/core-workflow.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/use-cases.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/upgrading.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/intro/whats-new.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/resources/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/resources/syntax.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/resources/behavior.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/modules/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/modules/syntax.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/modules/sources.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/variables.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/outputs.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/values/locals.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/purpose.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/backends.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/remote.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/locking.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/workspaces.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/import.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/encryption.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/state/sensitive-data.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/index.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/references.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/conditionals.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/for.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/function-calls.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/types.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/type-constraints.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/operators.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/strings.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/language/expressions/dynamic-blocks.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/init.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/plan.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/apply.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/destroy.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/validate.mdx
-      - https://raw.githubusercontent.com/opentofu/opentofu/main/website/docs/cli/commands/fmt.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/intro/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/intro/core-workflow.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/intro/use-cases.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/intro/upgrading.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/intro/whats-new.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/resources/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/resources/syntax.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/resources/behavior.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/modules/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/modules/syntax.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/modules/sources.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/values/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/values/variables.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/values/outputs.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/values/locals.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/purpose.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/backends.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/remote.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/locking.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/workspaces.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/import.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/encryption.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/state/sensitive-data.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/index.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/references.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/conditionals.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/for.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/function-calls.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/types.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/type-constraints.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/operators.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/strings.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/language/expressions/dynamic-blocks.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/cli/commands/init.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/cli/commands/plan.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/cli/commands/apply.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/cli/commands/destroy.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/cli/commands/validate.mdx
+      - https://raw.githubusercontent.com/opentofu/opentofu/{version}/website/docs/cli/commands/fmt.mdx
 
   # OVHcloud Go SDK — README is the canonical reference.
   - lib_id: /ovh/go-ovh
     kind: github-md
+    versions:
+      v1.8.0: {}
+      v1.9.0: {}
     urls:
-      - https://raw.githubusercontent.com/ovh/go-ovh/master/README.md
+      - https://raw.githubusercontent.com/ovh/go-ovh/{version}/README.md
 
   # OVHcloud CLI (v2). Canonical repo name is `ovhcloud-cli`, not `ovh-cli`.
   - lib_id: /ovh/ovhcloud-cli
     kind: github-md
+    versions:
+      v0.10.0: {}
+      v0.11.0: {}
     urls:
-      - https://raw.githubusercontent.com/ovh/ovhcloud-cli/main/README.md
+      - https://raw.githubusercontent.com/ovh/ovhcloud-cli/{version}/README.md
 
   # OVHcloud Terraform provider — README + top-level provider doc.
   - lib_id: /ovh/terraform-provider-ovh
     kind: github-md
+    versions:
+      v2.12.0: {}
+      v2.13.0: {}
     urls:
-      - https://raw.githubusercontent.com/ovh/terraform-provider-ovh/master/README.md
-      - https://raw.githubusercontent.com/ovh/terraform-provider-ovh/master/docs/index.md
+      - https://raw.githubusercontent.com/ovh/terraform-provider-ovh/{version}/README.md
+      - https://raw.githubusercontent.com/ovh/terraform-provider-ovh/{version}/docs/index.md
 
-  # Scaleway Go SDK — canonical Scaleway SDK.
+  # Scaleway Go SDK — still shipped as v1.0.0-beta.N (no stable); the
+  # two most recent betas are the "last two minors" analogue here.
   - lib_id: /scaleway/scaleway-sdk-go
     kind: github-md
+    versions:
+      v1.0.0-beta.35: {}
+      v1.0.0-beta.36: {}
     urls:
-      - https://raw.githubusercontent.com/scaleway/scaleway-sdk-go/main/README.md
+      - https://raw.githubusercontent.com/scaleway/scaleway-sdk-go/{version}/README.md
 
   # Scaleway CLI — README + cookbook + v2 migration guide.
   - lib_id: /scaleway/scaleway-cli
     kind: github-md
+    versions:
+      v2.53.0: {}
+      v2.54.0: {}
     urls:
-      - https://raw.githubusercontent.com/scaleway/scaleway-cli/main/README.md
-      - https://raw.githubusercontent.com/scaleway/scaleway-cli/main/docs/cookbook.md
-      - https://raw.githubusercontent.com/scaleway/scaleway-cli/main/docs/migration_guide_v2.md
+      - https://raw.githubusercontent.com/scaleway/scaleway-cli/{version}/README.md
+      - https://raw.githubusercontent.com/scaleway/scaleway-cli/{version}/docs/cookbook.md
+      - https://raw.githubusercontent.com/scaleway/scaleway-cli/{version}/docs/migration_guide_v2.md
 
   # Scaleway Terraform provider — README + top-level provider doc.
   - lib_id: /scaleway/terraform-provider-scaleway
     kind: github-md
+    versions:
+      v2.71.0: {}
+      v2.72.0: {}
     urls:
-      - https://raw.githubusercontent.com/scaleway/terraform-provider-scaleway/main/README.md
-      - https://raw.githubusercontent.com/scaleway/terraform-provider-scaleway/main/docs/index.md
+      - https://raw.githubusercontent.com/scaleway/terraform-provider-scaleway/{version}/README.md
+      - https://raw.githubusercontent.com/scaleway/terraform-provider-scaleway/{version}/docs/index.md
 
-  # opencode (AI coding CLI, formerly sst/opencode, transferred to anomalyco).
-  # Default branch is `dev`, not `main`.
+  # opencode (AI coding CLI, formerly sst/opencode, transferred to
+  # anomalyco). The project only tags a separate `vscode-*` extension
+  # and ships the CLI from its `dev` branch without release tags, so
+  # we pin to a commit SHA from `dev` and single-version this entry.
+  # Bump the sha to refresh.
   - lib_id: /anomalyco/opencode
     kind: github-md
+    ref: d312c677c588
     urls:
-      - https://raw.githubusercontent.com/anomalyco/opencode/dev/README.md
+      - https://raw.githubusercontent.com/anomalyco/opencode/{ref}/README.md
