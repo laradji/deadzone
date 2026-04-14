@@ -57,15 +57,14 @@ type Config struct {
 
 // VersionEntry is one element of LibrarySource.Versions after parsing.
 //
-// The list shorthand `versions: [v1, v2]` produces entries with Ref
-// empty (the lib's top-level Ref applies, if any). The map shorthand
-// `versions: {v1: {ref: tag1}, v2: {ref: tag2}}` produces entries with
-// per-version Ref set, which overrides the top-level Ref for that
-// version. Declaration order is preserved so scrapes are deterministic.
+// Entries come from the map shape `versions: {v1: {ref: tag1}, v2: {ref:
+// tag2}}`. Ref, when set, overrides the top-level Ref for this version;
+// when empty the top-level Ref applies (if any). Declaration order is
+// preserved so scrapes are deterministic.
 //
-// URLs (map shape only, see #115) is a per-version override of the
-// parent LibrarySource.URLs. When non-nil, Expand uses it verbatim for
-// this version; when nil, the version inherits the top-level URLs. An
+// URLs (see #115) is a per-version override of the parent
+// LibrarySource.URLs. When non-nil, Expand uses it verbatim for this
+// version; when nil, the version inherits the top-level URLs. An
 // explicit empty list is rejected at parse time — inheritance is
 // expressed by omitting the field.
 type VersionEntry struct {
@@ -116,14 +115,17 @@ type ResolvedSource struct {
 	URLs      []string
 }
 
-// UnmarshalYAML accepts both shapes for `versions:`:
+// UnmarshalYAML parses `versions:` as a mapping:
 //
-//	versions: [v1, v2]                                 # list shorthand
-//	versions: {v1: {ref: tag1}, v2: {ref: tag2}}       # map shorthand (per-version ref)
+//	versions: {v1: {ref: tag1}, v2: {ref: tag2}}
 //
-// All other fields parse via the standard reflection path. Declaration
-// order is preserved for the map shape so the scrape loop hits versions
-// in a deterministic order.
+// Each value is an object with optional `ref:` and `urls:` per-version
+// overrides. The legacy list form (`versions: [v1, v2]`) is rejected —
+// it carried no per-version metadata and was strictly a subset of the
+// map shape, so keeping it meant two parse paths for the same semantics
+// (see #117). All other fields parse via the standard reflection path.
+// Declaration order is preserved so the scrape loop hits versions in a
+// deterministic order.
 func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 	var raw struct {
 		LibID    string    `yaml:"lib_id"`
@@ -146,13 +148,7 @@ func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 	}
 	switch raw.Versions.Kind {
 	case yaml.SequenceNode:
-		for _, item := range raw.Versions.Content {
-			var name string
-			if err := item.Decode(&name); err != nil {
-				return fmt.Errorf("versions list entry: %w", err)
-			}
-			l.Versions = append(l.Versions, VersionEntry{Name: name})
-		}
+		return fmt.Errorf("versions must be a mapping {v1: {ref: tag1}, v2: {ref: tag2}}; list form is no longer supported")
 	case yaml.MappingNode:
 		// Content alternates key, value, key, value, ... — iterate by
 		// declaration order.
@@ -189,7 +185,7 @@ func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 			l.Versions = append(l.Versions, v)
 		}
 	default:
-		return fmt.Errorf("versions must be a list or a mapping, got yaml kind %d", raw.Versions.Kind)
+		return fmt.Errorf("versions must be a mapping, got yaml kind %d", raw.Versions.Kind)
 	}
 	return nil
 }

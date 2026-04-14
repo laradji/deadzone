@@ -17,12 +17,17 @@
 #
 # Optional:
 #
-#   versions  list of version tags. When present, every URL must contain
-#             the literal "{version}" placeholder; one effective entry is
-#             produced per version with lib_id "<lib_id>/<version>".
+#   versions  mapping of version tags to per-version overrides. When
+#             present, every URL must contain the literal "{version}"
+#             placeholder; one effective entry is produced per version
+#             with lib_id "<lib_id>/<version>". Shape:
 #
-#             Map shape (`versions: {v1: {...}, v2: {...}}`) accepts
-#             per-version overrides:
+#               versions:
+#                 v1: {}                       # no overrides
+#                 v2: { ref: v2.0.1 }          # per-version git pin
+#                 v3: { urls: [...] }          # per-version url list
+#
+#             Per-version overrides:
 #               - `ref:`  pins this version's {ref} substitution (see
 #                         #103)
 #               - `urls:` replaces the top-level `urls:` for this version
@@ -31,6 +36,9 @@
 #                         rejected. Use this when two versions of the
 #                         same lib diverge structurally (a file added,
 #                         renamed, or removed between versions).
+#
+#             The legacy list shape `versions: [v1, v2]` is rejected at
+#             parse time — use `{v1: {}, v2: {}}` instead (see #117).
 #
 # Override this path with `deadzone-scraper -config <path>`. Restrict a run
 # to one library with `-lib /org/project` (matches all versions of that
