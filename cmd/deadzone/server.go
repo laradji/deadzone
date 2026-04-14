@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -249,7 +250,12 @@ func runServer(args []string) error {
 	//           Error if missing — the operator opted into a specific
 	//           file and we respect that.
 	if *dbPath == "" {
-		resolved, upgraded, err := db.Bootstrap(context.Background())
+		// SIGINT-aware context so a Ctrl-C during a 200 MB first-fetch
+		// tears down cleanly instead of letting the HTTP client run
+		// to its 15-minute timeout.
+		bootstrapCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		resolved, upgraded, err := db.Bootstrap(bootstrapCtx, version)
+		stop()
 		if err != nil {
 			return fmt.Errorf("bootstrap deadzone.db: %w", err)
 		}

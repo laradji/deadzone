@@ -5,11 +5,15 @@ package main
 // explicit cache-warmup / refresh entry point. Useful for:
 //
 //   - Pre-populating the cache before going offline.
-//   - Force-refreshing without restarting the server (combined with
-//     a separate restart afterwards — the running server holds the DB
-//     file open, so picking up a new release requires a restart).
+//   - Recovering from local corruption via -force (same tag, fresh
+//     bytes, verified sha256).
 //   - CI / scripted setups that want a deterministic "fetch now" step
 //     instead of relying on the implicit on-startup path.
+//
+// Revised contract from PR #110 review: the fetched DB is pinned to
+// the binary's own version (same as `deadzone server`); fetch-db does
+// NOT pull "the newest DB on GitHub" unless the binary itself is a
+// dev build.
 
 import (
 	"context"
@@ -17,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/logs"
@@ -24,17 +29,23 @@ import (
 
 func runFetchDB(args []string) error {
 	fs := flag.NewFlagSet("fetch-db", flag.ExitOnError)
-	force := fs.Bool("force", false, "re-fetch even when the cached DB tag matches the latest release")
-	repo := fs.String("repo", "", "GitHub owner/name (default: "+db.BootstrapDefaultRepo+")")
+	force := fs.Bool("force", false, "re-fetch even when the cached DB tag matches the binary's version (use to recover from local corruption)")
+	repo := fs.String("repo", "", "GitHub owner/name override — primarily for testing against a fork (default: "+db.BootstrapDefaultRepo+")")
 	verbose := fs.Bool("verbose", false, "enable Debug-level slog output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	slog.SetDefault(logs.New(os.Stderr, *verbose))
 
-	path, upgraded, err := db.BootstrapWithOptions(context.Background(), db.BootstrapOptions{
-		Repo:  *repo,
-		Force: *force,
+	// SIGINT-aware context so Ctrl-C during the fetch tears down
+	// cleanly instead of letting the HTTP client run to its timeout.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	path, upgraded, err := db.BootstrapWithOptions(ctx, db.BootstrapOptions{
+		Repo:       *repo,
+		AppVersion: version,
+		Force:      *force,
 	})
 	if err != nil {
 		return fmt.Errorf("fetch-db: %w", err)

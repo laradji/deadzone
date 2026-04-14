@@ -1,25 +1,32 @@
-// bootstrap.go owns the consumer-side fetch + auto-upgrade flow for
-// deadzone.db, mirroring internal/ort/ort.go's symmetric flow for the
-// onnxruntime shared library. See issue #108 for the full design and
-// behavior matrix.
+// bootstrap.go owns the consumer-side fetch flow for deadzone.db,
+// mirroring internal/ort/ort.go's symmetric flow for the onnxruntime
+// shared library. See issue #108 for the full design.
 //
-// Three trigger paths share this implementation:
+// Contract (revised per PR #110 review): the cached deadzone.db is
+// pinned to the binary's own version. The DB does NOT auto-upgrade
+// across binary versions — that would risk pulling a schema/embedder
+// newer than the binary can read. Trigger paths:
 //
-//  1. First run, no cached DB → fetch latest release's deadzone.db into
-//     cache, serve.
-//  2. Subsequent run, cached DB tag matches latest → use cache, skip
-//     the asset download (still hits the API to compare tags; "no
-//     network" in the issue means "no asset transfer").
-//  3. Subsequent run, cached DB tag != latest → fetch new, atomic swap,
-//     serve new version.
+//  1. First run, no cached DB → fetch /releases/tags/<AppVersion>,
+//     install, serve.
+//  2. Subsequent run, cached tag matches AppVersion → use cache. Zero
+//     API calls. Instant start.
+//  3. Subsequent run, cached tag != AppVersion (i.e. the binary was
+//     upgraded) → fetch /releases/tags/<AppVersion>, atomic swap.
+//  4. AppVersion is a local/dev build (literal "dev", dirty working
+//     tree, or git-describe between-tags) → fall back to
+//     /releases/latest with a WARN so local dev is still ergonomic.
 //
 // Env-var escape hatches (matching DEADZONE_ORT_CACHE / DEADZONE_HUGOT_CACHE):
 //
-//   DEADZONE_DB_CACHE             — override the cache directory
-//   DEADZONE_DB_OFFLINE=1         — never make a network call; fail loud
-//                                   on first run if nothing cached
-//   DEADZONE_DB_NO_AUTO_UPGRADE=1 — skip the staleness check; first-run
-//                                   fetch still happens
+//   DEADZONE_DB_CACHE     — override the cache directory
+//   DEADZONE_DB_OFFLINE=1 — never make a network call; fail loud on
+//                           first run or when the cached DB's version
+//                           doesn't match the binary
+//
+// DEADZONE_DB_NO_AUTO_UPGRADE was removed in PR #110 review: the
+// per-startup API call it protected against no longer happens now that
+// the tag-match path is zero-network.
 
 package db
 
@@ -35,6 +42,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -43,56 +51,82 @@ import (
 // Cache / asset constants. The asset names match what `deadzone
 // dbrelease` uploads; changing either side requires changing both.
 const (
-	EnvCacheDir      = "DEADZONE_DB_CACHE"
-	EnvOffline       = "DEADZONE_DB_OFFLINE"
-	EnvNoAutoUpgrade = "DEADZONE_DB_NO_AUTO_UPGRADE"
+	EnvCacheDir = "DEADZONE_DB_CACHE"
+	EnvOffline  = "DEADZONE_DB_OFFLINE"
 
 	BootstrapDefaultRepo = "laradji/deadzone"
+
+	// DevVersion is the sentinel AppVersion for local / unreleased
+	// builds. Bootstrap falls back to /releases/latest on it.
+	DevVersion = "dev"
 
 	dbAssetName     = "deadzone.db"
 	sha256AssetName = "deadzone.db.sha256"
 	tagSidecarName  = "deadzone.db.release"
 )
 
-// httpClient bounds the worst-case download. The 50–200 MB DB on a
-// slow residential link can take a while; 15 minutes is the same upper
-// bound the ORT bootstrap uses (rounded up because the DB is larger).
-var httpClient = &http.Client{Timeout: 15 * time.Minute}
+// Two HTTP clients with different timeouts (PR #110 review item 2):
+// metadata responses are tiny JSON, so a hung API call shouldn't make
+// a user wait 15 minutes before failing. The asset download is the
+// bandwidth-heavy one and keeps the long ceiling.
+var (
+	metadataHTTPClient = &http.Client{Timeout: 30 * time.Second}
+	assetHTTPClient    = &http.Client{Timeout: 15 * time.Minute}
+)
 
 // releasesAPIBase is the GitHub API root. Split out so tests can point
 // Bootstrap at a local httptest server.
 var releasesAPIBase = "https://api.github.com"
 
-// BootstrapOptions lets callers (mainly the fetch-db subcommand and
-// tests) override what Bootstrap pulls from env / defaults. Zero value
-// matches Bootstrap's behavior exactly.
+// gitDescribeBetweenTagsRe recognises `git describe --tags --always`
+// output for commits that aren't themselves a tagged release:
+// "v0.1.0-2-g1234567" (with optional "-dirty"). Such builds aren't
+// published releases, so Bootstrap treats them as dev and falls back
+// to /releases/latest.
+var gitDescribeBetweenTagsRe = regexp.MustCompile(`-\d+-g[0-9a-f]{7,}(-dirty)?$`)
+
+// ErrNoReleaseForVersion is returned when the requested AppVersion has
+// no corresponding release on GitHub. Callers (main, tests) check via
+// errors.Is so the user-facing error message can be precise. Wraps
+// nothing — it IS the error.
+var ErrNoReleaseForVersion = errors.New("no deadzone.db published for this binary version")
+
+// BootstrapOptions lets callers (runServer, runFetchDB, tests)
+// override what Bootstrap pulls from env / defaults.
 type BootstrapOptions struct {
 	// CacheDir overrides DEADZONE_DB_CACHE / the platform default.
 	CacheDir string
 	// Repo overrides BootstrapDefaultRepo (owner/name).
 	Repo string
-	// Force re-fetches even when the cached tag matches the latest
-	// release. fetch-db --force uses this; the server path leaves it
-	// false so a no-op startup stays a no-op.
+	// AppVersion is the binary's own version string (e.g. "v0.1.0"
+	// from the justfile's -ldflags). Required in practice; an empty
+	// string is treated as DevVersion and triggers the /latest
+	// fallback.
+	AppVersion string
+	// Force re-fetches even when the cached tag matches AppVersion.
+	// fetch-db --force uses this; the server path leaves it false so
+	// a no-op startup stays zero-network.
 	Force bool
 }
 
 // Bootstrap ensures a deadzone.db is present at the default cache
-// location and returns its path. Handles first-fetch, the staleness
-// check, and the auto-upgrade swap, bounded by DEADZONE_DB_OFFLINE and
-// DEADZONE_DB_NO_AUTO_UPGRADE.
+// location, pinned to appVersion, and returns its path. See the file
+// banner for the full contract.
 //
-// Returns (path, upgraded, error) where upgraded is true when this call
-// just replaced a stale cache. First-fetch returns upgraded=false (no
-// previous file existed to "upgrade" from).
-func Bootstrap(ctx context.Context) (string, bool, error) {
-	return BootstrapWithOptions(ctx, BootstrapOptions{})
+// Returns (path, upgraded, error) where upgraded is true when this
+// call just replaced an existing cache file (version bump or -force).
+// First-fetch returns upgraded=false (no previous file existed).
+func Bootstrap(ctx context.Context, appVersion string) (string, bool, error) {
+	return BootstrapWithOptions(ctx, BootstrapOptions{AppVersion: appVersion})
 }
 
-// BootstrapWithOptions is the explicit-options form of Bootstrap. The
-// fetch-db subcommand uses it for -force; tests use it to inject a
-// CacheDir + Repo without touching env vars.
+// BootstrapWithOptions is the explicit-options form of Bootstrap.
+// fetch-db uses it for -force and -repo; tests use it to inject a
+// CacheDir without touching env vars.
 func BootstrapWithOptions(ctx context.Context, opts BootstrapOptions) (string, bool, error) {
+	if opts.AppVersion == "" {
+		opts.AppVersion = DevVersion
+	}
 	cacheDir := opts.CacheDir
 	if cacheDir == "" {
 		cacheDir = DefaultCacheDir()
@@ -111,44 +145,61 @@ func BootstrapWithOptions(ctx context.Context, opts BootstrapOptions) (string, b
 
 	cached := fileExists(dbPath)
 	offline := os.Getenv(EnvOffline) == "1"
-	noUpgrade := os.Getenv(EnvNoAutoUpgrade) == "1"
 
-	// Cached + (noUpgrade or offline) and not -force → short-circuit.
-	// This is the "no network" row of the matrix.
-	if cached && !opts.Force && (noUpgrade || offline) {
-		return dbPath, false, nil
+	cachedTag := ""
+	if b, err := os.ReadFile(tagPath); err == nil {
+		cachedTag = strings.TrimSpace(string(b))
 	}
-	// Not cached + offline → fail loud. We can't satisfy the request
-	// without a network call and the operator opted out of one.
-	if !cached && offline {
+
+	isDev := isDevVersion(opts.AppVersion)
+
+	// Fast path (zero API calls): cache exists, its tag matches the
+	// binary's AppVersion, caller did not force. For dev builds we
+	// accept any cached DB — "whatever you last fetched is fine,
+	// don't nag" is the ergonomic choice for local iteration.
+	if cached && !opts.Force {
+		if isDev || cachedTag == opts.AppVersion {
+			return dbPath, false, nil
+		}
+	}
+
+	// Offline: we can't fetch, so either serve cache (only if dev or
+	// matching tag, already handled above) or fail.
+	if offline {
+		if cached {
+			return "", false, fmt.Errorf("db: cached DB is version %q but binary is %q and %s=1 prevents fetch; unset the env var or hand-place a matching DB at %s", cachedTag, opts.AppVersion, EnvOffline, dbPath)
+		}
 		return "", false, fmt.Errorf("db: no cached %s and %s=1; hand-place a DB at %s or unset the env var", dbAssetName, EnvOffline, dbPath)
 	}
 
-	latest, err := fetchLatestRelease(ctx, repo)
+	// Resolve the release metadata. Dev builds fall back to /latest
+	// with a WARN; tagged builds fetch their own tag's release.
+	var meta releaseMeta
+	var err error
+	if isDev {
+		slog.Warn("server.db_version_dev_fallback", "app_version", opts.AppVersion)
+		meta, err = fetchLatestRelease(ctx, repo)
+	} else {
+		meta, err = fetchReleaseByTag(ctx, repo, opts.AppVersion)
+	}
 	if err != nil {
-		// Cached file present → degrade to "serve stale". Only the
-		// first-run no-cache path can promote a metadata error to a
-		// startup error.
+		// Version mismatch (or first fetch) + network/404 error:
+		// fail loud. Serving a stale cache at a different version
+		// than the binary expects risks schema/embedder drift, so the
+		// first-fetch error generalises to the mismatch case.
 		if cached {
-			slog.Warn("server.db_upgrade_failed", "err", err.Error())
-			return dbPath, false, nil
+			return "", false, fmt.Errorf("db: cached DB is version %q but binary is %q; could not fetch matching release: %w. Hints: check network reachability, pass -db <path> to pin a known-good file, or set %s=1 with a hand-placed file", cachedTag, opts.AppVersion, err, EnvOffline)
 		}
-		return "", false, fmt.Errorf("db: fetch latest release: %w", err)
+		return "", false, fmt.Errorf("db: fetch release for %q: %w", opts.AppVersion, err)
 	}
 
-	// Tag-match short circuit (skips the heavy asset download).
-	if cached && !opts.Force {
-		cachedTag, _ := os.ReadFile(tagPath)
-		if strings.TrimSpace(string(cachedTag)) == latest.Tag {
-			return dbPath, false, nil
-		}
+	// Dev fallback can still hit the zero-download short-circuit if
+	// the latest release's tag happens to match the cached sidecar.
+	if cached && !opts.Force && isDev && cachedTag == meta.Tag {
+		return dbPath, false, nil
 	}
 
-	if err := fetchAndInstall(ctx, latest, dbPath, tagPath); err != nil {
-		if cached {
-			slog.Warn("server.db_upgrade_failed", "err", err.Error())
-			return dbPath, false, nil
-		}
+	if err := fetchAndInstall(ctx, meta, dbPath, tagPath); err != nil {
 		return "", false, fmt.Errorf("db: install %s: %w", dbAssetName, err)
 	}
 	return dbPath, cached, nil
@@ -164,16 +215,15 @@ func BootstrapWithOptions(ctx context.Context, opts BootstrapOptions) (string, b
 //  3. ./.deadzone-cache/db as a last-resort fallback so Bootstrap can
 //     still proceed when the home dir lookup fails.
 //
-// Per-platform data dirs (matching the issue spec):
+// Per-platform data dirs:
 //
 //   - macOS:   ~/Library/Application Support/deadzone
 //   - Linux:   $XDG_DATA_HOME/deadzone (falls back to ~/.local/share/deadzone)
 //   - Windows: %LOCALAPPDATA%\deadzone (falls back to ~/AppData/Local/deadzone)
 //
 // We don't reuse os.UserCacheDir because the issue intentionally sites
-// the DB under the persistent data dir (Application Support / data),
-// not the volatile cache dir (Caches). The DB is the user's
-// installation, not a regenerable cache.
+// the DB under the persistent data dir, not the volatile cache dir.
+// The DB is the user's installation, not a regenerable cache.
 func DefaultCacheDir() string {
 	if dir := os.Getenv(EnvCacheDir); dir != "" {
 		return dir
@@ -203,6 +253,28 @@ func DefaultCacheDir() string {
 	return filepath.Join(base, "deadzone")
 }
 
+// isDevVersion recognises build strings that don't correspond to a
+// published release tag:
+//
+//   - "" / "dev" — default when no -ldflags -X main.version is set
+//   - anything ending in "-dirty" — justfile's build-release emits
+//     this for a dirty working tree
+//   - git-describe between-tags form ("v0.1.0-2-g1234567") — emitted
+//     when the HEAD commit isn't itself tagged
+//
+// All three trigger the /releases/latest fallback so local dev stays
+// ergonomic and CI's smoke build (which may not be at a tagged commit)
+// keeps working.
+func isDevVersion(v string) bool {
+	if v == "" || v == DevVersion {
+		return true
+	}
+	if strings.HasSuffix(v, "-dirty") {
+		return true
+	}
+	return gitDescribeBetweenTagsRe.MatchString(v)
+}
+
 // releaseMeta is the trimmed view Bootstrap needs from the GitHub
 // releases API: just the tag and the two asset URLs.
 type releaseMeta struct {
@@ -211,23 +283,41 @@ type releaseMeta struct {
 	SHA256URL string
 }
 
-// fetchLatestRelease hits /repos/{owner}/{repo}/releases/latest and
-// pulls out the tag plus the two asset download URLs. Both assets must
-// be present on the release; a release missing either is a packaging
-// bug on the publishing side and is surfaced as an error here so the
-// user sees it immediately, not after a partial install.
+// fetchLatestRelease hits /repos/{owner}/{repo}/releases/latest.
+// Only used by the dev-version fallback.
 func fetchLatestRelease(ctx context.Context, repo string) (releaseMeta, error) {
 	url := fmt.Sprintf("%s/repos/%s/releases/latest", releasesAPIBase, repo)
+	return decodeRelease(ctx, url, "")
+}
+
+// fetchReleaseByTag hits /repos/{owner}/{repo}/releases/tags/{tag}.
+// A 404 surfaces as ErrNoReleaseForVersion so the caller can wrap
+// with the actionable "downgrade the binary / hand-place a DB" hint.
+func fetchReleaseByTag(ctx context.Context, repo, tag string) (releaseMeta, error) {
+	url := fmt.Sprintf("%s/repos/%s/releases/tags/%s", releasesAPIBase, repo, tag)
+	return decodeRelease(ctx, url, tag)
+}
+
+// decodeRelease is the shared HTTP+JSON parser for both release
+// endpoints. Passing the expected tag lets the 404 error message name
+// the version the user was asking for.
+func decodeRelease(ctx context.Context, url, expectedTag string) (releaseMeta, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return releaseMeta{}, fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := httpClient.Do(req)
+	resp, err := metadataHTTPClient.Do(req)
 	if err != nil {
 		return releaseMeta{}, fmt.Errorf("get %s: %w", url, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		if expectedTag != "" {
+			return releaseMeta{}, fmt.Errorf("%w %q (hint: hand-place a DB with -db <path>, or downgrade the binary to a version with a published DB)", ErrNoReleaseForVersion, expectedTag)
+		}
+		return releaseMeta{}, fmt.Errorf("%w (no latest release on %s)", ErrNoReleaseForVersion, url)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return releaseMeta{}, fmt.Errorf("get %s: status %d", url, resp.StatusCode)
 	}
@@ -262,14 +352,20 @@ func fetchLatestRelease(ctx context.Context, repo string) (releaseMeta, error) {
 	return meta, nil
 }
 
-// fetchAndInstall does the heavy lifting: pull the sha256 sidecar, then
-// stream the DB into a temp file under the cache dir while hashing it,
-// verify, atomic rename into place, write the tag sidecar.
+// fetchAndInstall does the heavy lifting: pull the sha256 sidecar,
+// stream the DB into a temp file under the cache dir while hashing
+// it, verify, atomic rename into place, best-effort tag sidecar.
 //
 // The temp file lives in the same directory as the destination so
 // os.Rename is a true atomic-on-success move. On any failure between
 // CreateTemp and Rename, the destination file remains untouched and
 // the temp is cleaned up.
+//
+// Tag sidecar failure after a successful rename is logged as a WARN
+// but not returned as an error (PR #110 review item 4): the DB is in
+// place and serving. A missing/stale sidecar only means the next
+// startup will re-fetch thinking the cache is stale, which is
+// wasteful but correct.
 func fetchAndInstall(ctx context.Context, meta releaseMeta, dbPath, tagPath string) error {
 	wantHash, err := fetchSHA256(ctx, meta.SHA256URL)
 	if err != nil {
@@ -294,7 +390,7 @@ func fetchAndInstall(ctx context.Context, meta releaseMeta, dbPath, tagPath stri
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := assetHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("get %s: %w", meta.DBURL, err)
 	}
@@ -322,10 +418,7 @@ func fetchAndInstall(ctx context.Context, meta releaseMeta, dbPath, tagPath stri
 	cleanup = false
 
 	if err := os.WriteFile(tagPath, []byte(meta.Tag+"\n"), 0o644); err != nil {
-		// The DB itself is in place; surface the sidecar failure but
-		// don't unwind the install. Worst case: next startup re-fetches
-		// thinking the cache is stale, which is wasteful but correct.
-		return fmt.Errorf("write tag sidecar %s: %w", tagPath, err)
+		slog.Warn("server.db_tag_sidecar_write_failed", "err", err.Error(), "path", tagPath)
 	}
 	return nil
 }
@@ -339,7 +432,7 @@ func fetchSHA256(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("new request: %w", err)
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := assetHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("get %s: %w", url, err)
 	}
