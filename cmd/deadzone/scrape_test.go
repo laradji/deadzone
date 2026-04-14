@@ -370,6 +370,85 @@ func TestScraper_NoStateOnFailure(t *testing.T) {
 	}
 }
 
+// TestScraper_LibCountReflectsDocsOnMidLoopAbort covers #65: when the
+// URL loop aborts mid-way (hard error on an intermediate URL), the
+// `libs.doc_count` column must still reflect the docs that actually
+// landed in the `docs` table — not stay at the 0 that UpsertLibIfNew
+// seeded. Before the defer fix, the `UpdateLibCount` call at the end
+// of scrapeLibToArtifact was skipped by any early `return` on a fatal
+// error, leaving the catalog row stale.
+func TestScraper_LibCountReflectsDocsOnMidLoopAbort(t *testing.T) {
+	// Not t.Parallel(): see TestScraper_WritesState_FirstScrape for the
+	// purego+race+checkptr trade-off.
+
+	// One-H2 markdown so each OK URL produces exactly one doc; that
+	// makes the expected doc_count trivially equal to the number of
+	// OK URLs processed before the abort.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/fail") {
+			// 404 is classified as a fatal (non-soft) error by
+			// classifyFetchErr, so it aborts the lib immediately
+			// rather than tripping the skipped_ceiling.
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown")
+		fmt.Fprint(w, "# Title\n\n## Section\n\nBody text.\n")
+	}))
+	defer srv.Close()
+
+	artifacts := t.TempDir()
+	e, meta := newStubMeta()
+	libID := "/test/midabort"
+	sources := []scraper.ResolvedSource{{
+		LibID: libID, BaseLibID: libID, Kind: scraper.KindGithubMD,
+		URLs: []string{
+			srv.URL + "/ok-0.md",
+			srv.URL + "/ok-1.md",
+			srv.URL + "/fail.md",
+			srv.URL + "/ok-2.md",
+		},
+	}}
+
+	results := scrapeSources(context.Background(), http.DefaultClient, nil, e, meta, artifacts, sources,
+		map[string]int{scraper.KindGithubMD: 1})
+	if results[0].err == nil {
+		t.Fatal("expected scrape to fail on /fail.md, got nil err")
+	}
+	wantDocs := results[0].docs
+	if wantDocs == 0 {
+		t.Fatalf("expected >=1 doc inserted before abort, got 0 (test fixture regressed)")
+	}
+
+	// Reopen the artifact and read libs.doc_count directly. Without the
+	// #65 fix this row stays at 0 even though `wantDocs` snippets are
+	// sitting in the docs table.
+	artifactPath := packs.ArtifactDBPath(artifacts, libID, "")
+	d, err := db.OpenArtifact(artifactPath, meta, libID, "")
+	if err != nil {
+		t.Fatalf("reopen artifact %s: %v", artifactPath, err)
+	}
+	defer d.Close()
+
+	var docCount int
+	if err := d.QueryRow(`SELECT doc_count FROM libs WHERE lib_id = ? AND version = ?`, libID, "").Scan(&docCount); err != nil {
+		t.Fatalf("read libs.doc_count: %v", err)
+	}
+	if docCount != wantDocs {
+		t.Errorf("libs.doc_count = %d after mid-loop abort, want %d (docs actually inserted)", docCount, wantDocs)
+	}
+
+	// Sanity: the docs table agrees with the libs catalog. If these
+	// diverge in the future, the scraper has a different bug to chase.
+	var docsRows int
+	if err := d.QueryRow(`SELECT count(*) FROM docs WHERE lib_id = ?`, libID).Scan(&docsRows); err != nil {
+		t.Fatalf("read docs count: %v", err)
+	}
+	if docsRows != wantDocs {
+		t.Errorf("docs table row count = %d, want %d (matches scrape result)", docsRows, wantDocs)
+	}
+}
+
 // TestEnvIntOr covers the three branches the flag defaults depend on:
 // unset, bad, and good values. Silent fallback on a bad value is by
 // design (see envIntOr's comment).
