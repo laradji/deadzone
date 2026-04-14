@@ -227,7 +227,7 @@ func libAttrs(input SearchLibrariesInput, name string, limit int, verbose bool, 
 // colliding with the sibling subcommands' flag definitions.
 func runServer(args []string) error {
 	fs := flag.NewFlagSet("server", flag.ExitOnError)
-	dbPath := fs.String("db", "deadzone.db", "path to turso database file")
+	dbPath := fs.String("db", "", "path to turso database file (default: auto-resolve from cache + auto-fetch/auto-upgrade)")
 	embedderKind := fs.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	verbose := fs.Bool("verbose", false, "include the raw query text in per-call logs")
 	if err := fs.Parse(args); err != nil {
@@ -239,13 +239,26 @@ func runServer(args []string) error {
 	// JSON-RPC channel.
 	slog.SetDefault(logs.New(os.Stderr, *verbose))
 
-	// The server is a read-only consumer of the consolidated DB; it
-	// must NOT auto-create a fresh empty file (that would silently
-	// hide a missed `consolidate` step and serve zero results to
-	// every query). Stat first; if missing, point the operator at
-	// the consolidate subcommand before any other work happens.
-	if _, err := os.Stat(*dbPath); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s not found. Run `deadzone consolidate -db %s -artifacts ./artifacts` first to merge per-lib artifacts into the main database", *dbPath, *dbPath)
+	// Two -db modes (#108):
+	//   unset → auto-fetch from the latest GH Release into the
+	//           per-platform data dir, auto-upgrade on subsequent runs
+	//           when a newer release exists. The whole flow is bounded
+	//           by the DEADZONE_DB_OFFLINE / DEADZONE_DB_NO_AUTO_UPGRADE
+	//           env-var escape hatches.
+	//   set   → use the path verbatim. No fetch, no version check.
+	//           Error if missing — the operator opted into a specific
+	//           file and we respect that.
+	if *dbPath == "" {
+		resolved, upgraded, err := db.Bootstrap(context.Background())
+		if err != nil {
+			return fmt.Errorf("bootstrap deadzone.db: %w", err)
+		}
+		*dbPath = resolved
+		if upgraded {
+			slog.Info("server.db_upgraded", "db_path", *dbPath)
+		}
+	} else if _, err := os.Stat(*dbPath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s not found. Either run without -db to auto-fetch the latest published DB, or run `deadzone consolidate -db %s -artifacts ./artifacts` to build it from local artifacts", *dbPath, *dbPath)
 	} else if err != nil {
 		return fmt.Errorf("stat db %s: %w", *dbPath, err)
 	}
