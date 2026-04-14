@@ -56,7 +56,7 @@ var ErrArtifactLibIDMismatch = errors.New("artifact lib_id mismatch")
 // compatible way (e.g. a new required table like libs). Stored in the
 // meta table at first Open and cross-checked on every subsequent open
 // against this constant; a mismatch surfaces as ErrSchemaMismatch.
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 // Meta describes the embedder a database was created with. It is written
 // to the meta table the first time a fresh DB is opened and cross-checked
@@ -76,19 +76,29 @@ type Meta struct {
 // re-reading the meta table on every call. *sql.DB is embedded so callers
 // can still use QueryRow, Exec, Close, etc. directly on a *DB.
 //
-// ArtifactLibID is populated only when the database was opened via
-// OpenArtifact. It is the canonical lib_id this artifact carries (read
-// from the meta table at open time). The main consolidated database
-// always leaves it empty — the libs table is the source of truth there.
+// ArtifactLibID / ArtifactVersion are populated only when the database
+// was opened via OpenArtifact. Together they form the canonical
+// (lib_id, version) slot this artifact carries (read from the meta
+// table at open time). ArtifactVersion is "" for single-version libs,
+// matching the on-wire canonical form. The main consolidated database
+// always leaves both empty — the libs table is the source of truth
+// there.
 type DB struct {
 	*sql.DB
-	Meta          Meta
-	ArtifactLibID string
+	Meta            Meta
+	ArtifactLibID   string
+	ArtifactVersion string
 }
 
 // Doc represents a documentation snippet stored in the docs table.
+//
+// Version is the canonical form for single-version libs: empty string,
+// not NULL. Multi-version libs pass the version tag as recorded in the
+// registry (e.g. "v1.14"). LibID always carries the base lib_id — the
+// "/base/version" concat that earlier builds emitted is gone.
 type Doc struct {
 	LibID   string
+	Version string
 	Title   string
 	Content string
 }
@@ -166,6 +176,7 @@ func Open(path string, meta Meta) (*DB, error) {
 	docsSchema := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS docs (
 		id INTEGER PRIMARY KEY,
 		lib_id TEXT NOT NULL,
+		version TEXT NOT NULL DEFAULT '',
 		title TEXT NOT NULL,
 		content TEXT NOT NULL,
 		embedding F32_BLOB(%d) NOT NULL
@@ -185,9 +196,11 @@ func Open(path string, meta Meta) (*DB, error) {
 	// docs table for the same reason — both columns have to be openable
 	// by the same Embedder, which the meta cross-check above guarantees.
 	libsSchema := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS libs (
-		lib_id    TEXT PRIMARY KEY,
+		lib_id    TEXT NOT NULL,
+		version   TEXT NOT NULL DEFAULT '',
 		doc_count INTEGER NOT NULL DEFAULT 0,
-		embedding F32_BLOB(%d) NOT NULL
+		embedding F32_BLOB(%d) NOT NULL,
+		PRIMARY KEY (lib_id, version)
 	)`, meta.EmbeddingDim)
 	if _, err := raw.Exec(libsSchema); err != nil {
 		raw.Close()
@@ -201,28 +214,33 @@ func Open(path string, meta Meta) (*DB, error) {
 	return &DB{DB: raw, Meta: meta}, nil
 }
 
-// OpenArtifact opens (or creates) a per-lib artifact database. An
-// artifact carries a single lib_id recorded in its meta table; the
-// recorded value is the source of truth for which library the
-// artifact's docs and libs rows belong to.
+// OpenArtifact opens (or creates) a per-(lib_id, version) artifact
+// database. An artifact carries a single (lib_id, version) pair
+// recorded in its meta table; the recorded values are the source of
+// truth for which library slot the artifact's docs and libs rows
+// belong to.
 //
-// libID semantics:
+// (libID, version) semantics:
 //
-//   - libID != "" — the caller knows which lib this artifact represents
-//     (e.g. the scraper). On a fresh file the lib_id is written. On an
-//     existing file the stored lib_id must match libID, otherwise
-//     ErrArtifactLibIDMismatch is returned.
+//   - libID != "" — the caller knows which (lib_id, version) slot this
+//     artifact represents (e.g. the scraper). On a fresh file the pair
+//     is written. On an existing file both values must match the
+//     stored ones, otherwise ErrArtifactLibIDMismatch is returned.
+//     Version may be "" for single-version libs — that is the
+//     canonical form.
 //
 //   - libID == "" — the caller is reading an existing artifact and
-//     wants to discover its lib_id (e.g. consolidate). The file must
-//     already exist; if it doesn't, an os.ErrNotExist-wrapped error
-//     is returned without creating a stub. If the file exists but has
-//     no lib_id stored, ErrArtifactLibIDMissing is returned.
+//     wants to discover its (lib_id, version) (e.g. consolidate).
+//     Version must also be "" in this mode; it is populated from the
+//     stored meta. The file must already exist; if it doesn't, an
+//     os.ErrNotExist-wrapped error is returned without creating a
+//     stub. If the file exists but has no lib_id stored,
+//     ErrArtifactLibIDMissing is returned.
 //
 // Embedder meta and schema version validation are inherited from Open
 // — an artifact built with a different embedder than the caller's
 // surfaces as ErrEmbedderMismatch, exactly like the main DB.
-func OpenArtifact(path string, meta Meta, libID string) (*DB, error) {
+func OpenArtifact(path string, meta Meta, libID, version string) (*DB, error) {
 	// Refuse to fabricate a stub file when the caller is in
 	// "read existing artifact" mode. Lets the consolidate path
 	// distinguish "no such file" from "file exists but is malformed"
@@ -243,26 +261,42 @@ func OpenArtifact(path string, meta Meta, libID string) (*DB, error) {
 		d.Close()
 		return nil, fmt.Errorf("open artifact %s: read lib_id: %w", path, err)
 	}
+	storedVersion, _, err := readArtifactVersion(d.DB)
+	if err != nil {
+		d.Close()
+		return nil, fmt.Errorf("open artifact %s: read version: %w", path, err)
+	}
 
 	switch {
 	case libID != "" && hasStored:
 		if stored != libID {
 			d.Close()
-			return nil, fmt.Errorf("%w: stored=%q requested=%q (file=%s)",
+			return nil, fmt.Errorf("%w: stored lib_id=%q requested=%q (file=%s)",
 				ErrArtifactLibIDMismatch, stored, libID, path)
+		}
+		if storedVersion != version {
+			d.Close()
+			return nil, fmt.Errorf("%w: stored version=%q requested=%q (file=%s, lib_id=%s)",
+				ErrArtifactLibIDMismatch, storedVersion, version, path, libID)
 		}
 	case libID != "" && !hasStored:
 		if err := writeArtifactLibID(d.DB, libID); err != nil {
 			d.Close()
 			return nil, fmt.Errorf("open artifact %s: write lib_id: %w", path, err)
 		}
+		if err := writeArtifactVersion(d.DB, version); err != nil {
+			d.Close()
+			return nil, fmt.Errorf("open artifact %s: write version: %w", path, err)
+		}
 		stored = libID
+		storedVersion = version
 	case libID == "" && !hasStored:
 		d.Close()
 		return nil, fmt.Errorf("%w: %s", ErrArtifactLibIDMissing, path)
 	}
 
 	d.ArtifactLibID = stored
+	d.ArtifactVersion = storedVersion
 	return d, nil
 }
 
@@ -292,6 +326,32 @@ func writeArtifactLibID(raw *sql.DB, libID string) error {
 	return err
 }
 
+// readArtifactVersion returns the version meta value if present. A
+// missing row returns ("", false, nil) — older artifacts that
+// predate #113 never wrote this key and we want them to surface as
+// ErrSchemaMismatch at Open, not here.
+func readArtifactVersion(raw *sql.DB) (string, bool, error) {
+	var v string
+	err := raw.QueryRow(`SELECT value FROM meta WHERE key = ?`, metaKeyVersion).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return v, true, nil
+}
+
+// writeArtifactVersion inserts the version meta row. Like
+// writeArtifactLibID, the caller guarantees the row does not already
+// exist. Empty string is the canonical single-version form and is
+// written verbatim so round-tripping the value preserves the
+// distinction between "single-version lib" and "never wrote version".
+func writeArtifactVersion(raw *sql.DB, version string) error {
+	_, err := raw.Exec(`INSERT INTO meta(key, value) VALUES (?, ?)`, metaKeyVersion, version)
+	return err
+}
+
 // Insert stores a Doc along with its precomputed embedding. The embedding
 // must have exactly db.Meta.EmbeddingDim components — the dimension travels
 // with the *DB rather than being a package-level constant so a single
@@ -301,8 +361,8 @@ func Insert(db *DB, doc Doc, embedding []float32) error {
 		return fmt.Errorf("insert doc: embedding length %d, want %d", len(embedding), db.Meta.EmbeddingDim)
 	}
 	_, err := db.Exec(
-		`INSERT INTO docs(lib_id, title, content, embedding) VALUES (?, ?, ?, vector(?))`,
-		doc.LibID, doc.Title, doc.Content, formatVector(embedding),
+		`INSERT INTO docs(lib_id, version, title, content, embedding) VALUES (?, ?, ?, ?, vector(?))`,
+		doc.LibID, doc.Version, doc.Title, doc.Content, formatVector(embedding),
 	)
 	if err != nil {
 		return fmt.Errorf("insert doc: %w", err)
@@ -311,10 +371,21 @@ func Insert(db *DB, doc Doc, embedding []float32) error {
 }
 
 // SearchByEmbedding returns the top-k Docs ranked by cosine distance to
-// queryVec (lower = more similar). If libID is non-empty, results are
-// filtered to that library. k defaults to 10 if <= 0. The query vector
-// must have db.Meta.EmbeddingDim components.
-func SearchByEmbedding(db *DB, queryVec []float32, libID string, k int) ([]Doc, error) {
+// queryVec (lower = more similar). k defaults to 10 if <= 0. The query
+// vector must have db.Meta.EmbeddingDim components.
+//
+// The (libID, version) filter is three-valued:
+//
+//   - libID == ""                        — no filter (version is ignored).
+//   - libID != "" and version == ""      — match every indexed version of
+//     the lib (WHERE lib_id = ?). The single-version case is the same query
+//     since those rows carry version = "".
+//   - libID != "" and version != ""      — pin to a specific version
+//     (WHERE lib_id = ? AND version = ?).
+//
+// Passing version without libID is a usage error at the MCP tool layer;
+// this function does not enforce it so unit tests stay small.
+func SearchByEmbedding(db *DB, queryVec []float32, libID, version string, k int) ([]Doc, error) {
 	if len(queryVec) != db.Meta.EmbeddingDim {
 		return nil, fmt.Errorf("search: query vector length %d, want %d", len(queryVec), db.Meta.EmbeddingDim)
 	}
@@ -328,22 +399,32 @@ func SearchByEmbedding(db *DB, queryVec []float32, libID string, k int) ([]Doc, 
 		rows *sql.Rows
 		err  error
 	)
-	if libID != "" {
+	switch {
+	case libID == "":
 		rows, err = db.Query(
-			`SELECT lib_id, title, content
+			`SELECT lib_id, version, title, content
+			 FROM docs
+			 ORDER BY vector_distance_cos(embedding, vector(?)) ASC
+			 LIMIT ?`,
+			q, k,
+		)
+	case version == "":
+		rows, err = db.Query(
+			`SELECT lib_id, version, title, content
 			 FROM docs
 			 WHERE lib_id = ?
 			 ORDER BY vector_distance_cos(embedding, vector(?)) ASC
 			 LIMIT ?`,
 			libID, q, k,
 		)
-	} else {
+	default:
 		rows, err = db.Query(
-			`SELECT lib_id, title, content
+			`SELECT lib_id, version, title, content
 			 FROM docs
+			 WHERE lib_id = ? AND version = ?
 			 ORDER BY vector_distance_cos(embedding, vector(?)) ASC
 			 LIMIT ?`,
-			q, k,
+			libID, version, q, k,
 		)
 	}
 	if err != nil {
@@ -354,7 +435,7 @@ func SearchByEmbedding(db *DB, queryVec []float32, libID string, k int) ([]Doc, 
 	var results []Doc
 	for rows.Next() {
 		var d Doc
-		if err := rows.Scan(&d.LibID, &d.Title, &d.Content); err != nil {
+		if err := rows.Scan(&d.LibID, &d.Version, &d.Title, &d.Content); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		results = append(results, d)
@@ -386,63 +467,74 @@ type LibEmbedder interface {
 // fills it in from vector_distance_cos.
 type LibInfo struct {
 	LibID    string
+	Version  string
 	DocCount int
 	Distance float32
 }
 
-// UpsertLibIfNew inserts a row into the libs table for libID iff one
-// doesn't already exist. The embedding is computed from the lib_id text
-// itself with "/" and "-" turned into spaces so the encoder sees something
-// resembling natural language ("/hashicorp/terraform-provider-aws" →
-// "hashicorp terraform provider aws"). The lib_id is the primary key
-// and the embedding is immutable for the lifetime of the database, so
-// re-running this function for an existing lib is a fast no-op that
-// does NOT call EmbedDocument — the issue's "at most one Embed call per
-// lib per database" guarantee is enforced here, and verified by tests
-// that count the call against a wrapping LibEmbedder.
-func UpsertLibIfNew(d *DB, libID string, e LibEmbedder) error {
+// UpsertLibIfNew inserts a row into the libs table for (libID, version)
+// iff one doesn't already exist. The embedding is computed from the
+// lib_id text alone with "/" and "-" turned into spaces so the encoder
+// sees something resembling natural language
+// ("/hashicorp/terraform-provider-aws" → "hashicorp terraform provider
+// aws"). Version is intentionally NOT mixed into the embed text:
+// multiple versions of the same lib should rank identically against a
+// free-text library-name query, so the embedding stays keyed on the
+// base identity while the row's (lib_id, version) primary key keeps
+// the versions distinct on disk.
+//
+// Re-running this function for an existing (lib_id, version) pair is a
+// fast no-op that does NOT call EmbedDocument — the issue's "at most
+// one Embed call per (lib, version) per database" guarantee is
+// enforced here and verified by tests that count the call against a
+// wrapping LibEmbedder.
+//
+// Version is the canonical empty string for single-version libs; the
+// primary key is on (lib_id, version) so the same base lib with two
+// versions cleanly produces two rows.
+func UpsertLibIfNew(d *DB, libID, version string, e LibEmbedder) error {
 	if libID == "" {
 		return errors.New("upsert lib: libID must not be empty")
 	}
 	var existing int
-	if err := d.QueryRow(`SELECT count(*) FROM libs WHERE lib_id = ?`, libID).Scan(&existing); err != nil {
-		return fmt.Errorf("upsert lib %q: check exists: %w", libID, err)
+	if err := d.QueryRow(`SELECT count(*) FROM libs WHERE lib_id = ? AND version = ?`, libID, version).Scan(&existing); err != nil {
+		return fmt.Errorf("upsert lib %q version %q: check exists: %w", libID, version, err)
 	}
 	if existing > 0 {
 		return nil
 	}
 	vec, err := e.EmbedDocument(normalizeLibIDText(libID))
 	if err != nil {
-		return fmt.Errorf("upsert lib %q: embed: %w", libID, err)
+		return fmt.Errorf("upsert lib %q version %q: embed: %w", libID, version, err)
 	}
 	if len(vec) != d.Meta.EmbeddingDim {
-		return fmt.Errorf("upsert lib %q: embedding length %d, want %d", libID, len(vec), d.Meta.EmbeddingDim)
+		return fmt.Errorf("upsert lib %q version %q: embedding length %d, want %d", libID, version, len(vec), d.Meta.EmbeddingDim)
 	}
 	if _, err := d.Exec(
-		`INSERT INTO libs (lib_id, doc_count, embedding) VALUES (?, 0, vector(?))`,
-		libID, formatVector(vec),
+		`INSERT INTO libs (lib_id, version, doc_count, embedding) VALUES (?, ?, 0, vector(?))`,
+		libID, version, formatVector(vec),
 	); err != nil {
-		return fmt.Errorf("upsert lib %q: insert: %w", libID, err)
+		return fmt.Errorf("upsert lib %q version %q: insert: %w", libID, version, err)
 	}
 	return nil
 }
 
-// UpdateLibCount sets the doc_count for an existing libs row. The
-// scraper calls this once per lib at the end of a run with the actual
-// number of docs that were inserted, so search_libraries can surface
-// "how well-indexed is this lib" without recounting on every query.
-// Updating a row that does not exist is silently a no-op (zero rows
-// affected) — the scraper is responsible for calling UpsertLibIfNew
-// first.
-func UpdateLibCount(d *DB, libID string, count int) error {
+// UpdateLibCount sets the doc_count for an existing libs row keyed on
+// (libID, version). The scraper calls this once per lib at the end of
+// a run with the actual number of docs that were inserted, so
+// search_libraries can surface "how well-indexed is this lib" without
+// recounting on every query. Updating a row that does not exist is
+// silently a no-op (zero rows affected) — the scraper is responsible
+// for calling UpsertLibIfNew first.
+func UpdateLibCount(d *DB, libID, version string, count int) error {
 	if libID == "" {
 		return errors.New("update lib count: libID must not be empty")
 	}
 	if count < 0 {
 		return fmt.Errorf("update lib count: count must be >= 0, got %d", count)
 	}
-	if _, err := d.Exec(`UPDATE libs SET doc_count = ? WHERE lib_id = ?`, count, libID); err != nil {
-		return fmt.Errorf("update lib count %q: %w", libID, err)
+	if _, err := d.Exec(`UPDATE libs SET doc_count = ? WHERE lib_id = ? AND version = ?`, count, libID, version); err != nil {
+		return fmt.Errorf("update lib count %q version %q: %w", libID, version, err)
 	}
 	return nil
 }
@@ -461,10 +553,13 @@ func SearchLibsByEmbedding(d *DB, queryVec []float32, limit int) ([]LibInfo, err
 	if limit <= 0 {
 		limit = 10
 	}
+	// Tie-break on lib_id then version so the same base lib's versions
+	// return in a deterministic order when they score identically
+	// (which they always do — the embedding doesn't include version).
 	rows, err := d.Query(
-		`SELECT lib_id, doc_count, vector_distance_cos(embedding, vector(?)) AS dist
+		`SELECT lib_id, version, doc_count, vector_distance_cos(embedding, vector(?)) AS dist
 		 FROM libs
-		 ORDER BY dist ASC, doc_count DESC
+		 ORDER BY dist ASC, doc_count DESC, lib_id ASC, version ASC
 		 LIMIT ?`,
 		formatVector(queryVec), limit,
 	)
@@ -482,7 +577,7 @@ func SearchLibsByEmbedding(d *DB, queryVec []float32, limit int) ([]LibInfo, err
 			// (database/sql's Scan doesn't bind directly to *float32).
 			dist float64
 		)
-		if err := rows.Scan(&info.LibID, &info.DocCount, &dist); err != nil {
+		if err := rows.Scan(&info.LibID, &info.Version, &info.DocCount, &dist); err != nil {
 			return nil, fmt.Errorf("search libs: scan: %w", err)
 		}
 		info.Distance = float32(dist)
@@ -502,7 +597,10 @@ func TopLibsByDocCount(d *DB, limit int) ([]LibInfo, error) {
 		limit = 10
 	}
 	rows, err := d.Query(
-		`SELECT lib_id, doc_count FROM libs ORDER BY doc_count DESC LIMIT ?`,
+		`SELECT lib_id, version, doc_count
+		 FROM libs
+		 ORDER BY doc_count DESC, lib_id ASC, version ASC
+		 LIMIT ?`,
 		limit,
 	)
 	if err != nil {
@@ -513,7 +611,7 @@ func TopLibsByDocCount(d *DB, limit int) ([]LibInfo, error) {
 	results := make([]LibInfo, 0, limit)
 	for rows.Next() {
 		var info LibInfo
-		if err := rows.Scan(&info.LibID, &info.DocCount); err != nil {
+		if err := rows.Scan(&info.LibID, &info.Version, &info.DocCount); err != nil {
 			return nil, fmt.Errorf("top libs: scan: %w", err)
 		}
 		results = append(results, info)
@@ -546,6 +644,11 @@ const (
 	// ignores any meta keys it does not recognize, so adding this key
 	// is backwards-compatible with the existing schema version.
 	metaKeyLibID = "lib_id"
+	// metaKeyVersion is the per-artifact version tag. Same lifecycle
+	// as metaKeyLibID: written once at OpenArtifact time, absent from
+	// the main consolidated DB. Empty string is the canonical
+	// single-version form and is persisted as such.
+	metaKeyVersion = "version"
 )
 
 func validateMeta(m Meta) error {

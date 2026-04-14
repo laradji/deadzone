@@ -17,15 +17,22 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Library IDs follow the format /org/project (e.g. /hashicorp/terraform)
+// Library IDs follow the format /org/project (e.g.
+// /hashicorp/terraform). Version is the per-release tag as recorded
+// in the registry (e.g. "v1.14"); empty version means "every version
+// of this lib". Multi-version support is first-class after #113: a
+// single /hashicorp/terraform entry can hold v1.13 and v1.14 side by
+// side, and the LLM picks between them via the Version field.
 type SearchDocsInput struct {
-	Query  string `json:"query" jsonschema:"the search query"`
-	LibID  string `json:"lib_id,omitempty" jsonschema:"library ID in /org/project format (optional)"`
-	Tokens int    `json:"tokens,omitempty" jsonschema:"max tokens to return, min 1000, default 5000 (optional)"`
+	Query   string `json:"query" jsonschema:"the search query"`
+	LibID   string `json:"lib_id,omitempty" jsonschema:"base library ID in /org/project format (optional)"`
+	Version string `json:"version,omitempty" jsonschema:"version tag to filter by (optional; requires lib_id)"`
+	Tokens  int    `json:"tokens,omitempty" jsonschema:"max tokens to return, min 1000, default 5000 (optional)"`
 }
 
 type Snippet struct {
 	LibID   string `json:"lib_id"`
+	Version string `json:"version,omitempty"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
 }
@@ -45,12 +52,19 @@ func makeSearchHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Co
 	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchDocsInput) (*mcp.CallToolResult, SearchDocsOutput, error) {
 		start := time.Now()
 
+		// version without lib_id is ambiguous (two libs can each have
+		// a v1.0) so reject before any work.
+		if input.Version != "" && input.LibID == "" {
+			slog.Error("search_docs failed", searchAttrs(input, verbose, "stage", "validate", "err", "version requires lib_id")...)
+			return nil, SearchDocsOutput{}, fmt.Errorf("version requires lib_id")
+		}
+
 		queryVec, err := e.EmbedQuery(input.Query)
 		if err != nil {
 			slog.Error("search_docs failed", searchAttrs(input, verbose, "stage", "embed", "err", err.Error())...)
 			return nil, SearchDocsOutput{}, fmt.Errorf("embed query: %w", err)
 		}
-		docs, err := db.SearchByEmbedding(d, queryVec, input.LibID, searchK)
+		docs, err := db.SearchByEmbedding(d, queryVec, input.LibID, input.Version, searchK)
 		if err != nil {
 			slog.Error("search_docs failed", searchAttrs(input, verbose, "stage", "search", "err", err.Error())...)
 			return nil, SearchDocsOutput{}, err
@@ -74,6 +88,7 @@ func makeSearchHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Co
 			}
 			snippets = append(snippets, Snippet{
 				LibID:   doc.LibID,
+				Version: doc.Version,
 				Title:   doc.Title,
 				Content: content,
 			})
@@ -99,8 +114,8 @@ func makeSearchHandler(d *db.DB, e embed.Embedder, verbose bool) func(context.Co
 // query text — gated because queries may contain user data routed
 // through the LLM and we don't want it in default logs.
 func searchAttrs(input SearchDocsInput, verbose bool, extra ...any) []any {
-	attrs := make([]any, 0, 4+len(extra))
-	attrs = append(attrs, "lib_id", input.LibID)
+	attrs := make([]any, 0, 6+len(extra))
+	attrs = append(attrs, "lib_id", input.LibID, "version", input.Version)
 	attrs = append(attrs, extra...)
 	if verbose {
 		attrs = append(attrs, "query", input.Query)
@@ -120,12 +135,15 @@ type SearchLibrariesInput struct {
 }
 
 // LibraryHit is one ranked candidate returned by search_libraries.
-// MatchScore is 1 - cosine_distance(query, lib_embedding) so higher is
-// closer; the empty-name path returns 1.0 for every row (no query was
-// embedded). LLM clients can use the score to decide whether to commit
-// to a single result or surface multiple candidates to the user.
+// MatchScore is 1 - cosine_distance(query, lib_embedding) so higher
+// is closer; the empty-name path returns 1.0 for every row (no query
+// was embedded). After #113 each hit is one (lib_id, version) pair —
+// two versions of the same lib come back as two separate hits with
+// the same lib_id and different version values. Clients that want an
+// aggregate "versions of terraform" view group on lib_id themselves.
 type LibraryHit struct {
 	LibID      string  `json:"lib_id"`
+	Version    string  `json:"version,omitempty"`
 	DocCount   int     `json:"doc_count"`
 	MatchScore float32 `json:"match_score"`
 }
@@ -192,6 +210,7 @@ func makeSearchLibrariesHandler(d *db.DB, e embed.Embedder, verbose bool) func(c
 		for _, lib := range libs {
 			hits = append(hits, LibraryHit{
 				LibID:      lib.LibID,
+				Version:    lib.Version,
 				DocCount:   lib.DocCount,
 				MatchScore: 1.0 - lib.Distance,
 			})
@@ -314,11 +333,11 @@ func runServer(args []string) error {
 	s := mcp.NewServer(&mcp.Implementation{Name: "deadzone", Version: version}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_docs",
-		Description: "Search documentation snippets for a library. Use lib_id in /org/project format to filter by library.",
+		Description: "Search documentation snippets for a library. Filter by library via lib_id (base form like /hashicorp/terraform). Pass version alongside lib_id to pin to a specific version (e.g. v1.14); omit version to search across all indexed versions of the lib. version without lib_id is rejected.",
 	}, makeSearchHandler(d, e, *verbose))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_libraries",
-		Description: "Resolve a free-text library name into a ranked list of canonical lib_id candidates that can be passed to search_docs. Pass an empty name to list the most-indexed libraries by doc_count.",
+		Description: "Resolve a free-text library name into a ranked list of (lib_id, version) candidates that can be passed to search_docs. Returns one entry per indexed (lib_id, version) pair — group by lib_id on the client to see the versions of the same library. Pass an empty name to list the most-indexed libraries by doc_count.",
 	}, makeSearchLibrariesHandler(d, e, *verbose))
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {

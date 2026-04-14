@@ -3,6 +3,7 @@ package packs_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,7 +23,8 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	updated := time.Date(2026, 4, 13, 14, 32, 0, 0, time.UTC)
 	want := &packs.StateFile{
 		LibID:         "/x/y",
-		SchemaVersion: 3,
+		Version:       "v1.14",
+		SchemaVersion: 4,
 		Embedder: packs.EmbedderState{
 			Kind:  "hugot",
 			Model: "nomic-ai/nomic-embed-text-v1.5",
@@ -45,6 +47,9 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	if got.LibID != want.LibID {
 		t.Errorf("LibID = %q, want %q", got.LibID, want.LibID)
 	}
+	if got.Version != want.Version {
+		t.Errorf("Version = %q, want %q", got.Version, want.Version)
+	}
 	if got.SchemaVersion != want.SchemaVersion {
 		t.Errorf("SchemaVersion = %d, want %d", got.SchemaVersion, want.SchemaVersion)
 	}
@@ -65,6 +70,40 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	}
 	if got.Ref != want.Ref {
 		t.Errorf("Ref = %q, want %q", got.Ref, want.Ref)
+	}
+}
+
+// TestStateFile_EmptyVersionOmittedOnDisk pins the on-disk shape
+// canonical single-version sidecars keep: Version is serialized with
+// omitempty so pre-#113 single-version sidecars don't grow a blank
+// `version: ""` line just because the field now exists.
+func TestStateFile_EmptyVersionOmittedOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "x_y")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(libDir, "state.yaml")
+
+	s := &packs.StateFile{
+		LibID:         "/x/y",
+		SchemaVersion: 4,
+		Embedder:      packs.EmbedderState{Kind: "hugot", Model: "m", Dim: 8},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	// Guard specifically against the top-level `version:` key — naive
+	// strings.Contains("version:") would false-positive on
+	// `schema_version:`.
+	if strings.Contains("\n"+string(data), "\nversion:") {
+		t.Errorf("expected no top-level version: line for single-version sidecar, got:\n%s", string(data))
 	}
 }
 

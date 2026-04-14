@@ -25,37 +25,46 @@ import (
 	"strings"
 )
 
-// Slug derives the on-disk subdirectory name for a lib_id. The leading
-// "/" is stripped and the remaining slashes become underscores:
+// Slug derives the on-disk subdirectory name for a (lib_id, version)
+// slot. The leading "/" is stripped from lib_id, the remaining slashes
+// become underscores, and the version (when non-empty) is appended
+// after another "_":
 //
-//	/modelcontextprotocol/go-sdk → modelcontextprotocol_go-sdk
-//	/facebook/react/v18          → facebook_react_v18
+//	(/modelcontextprotocol/go-sdk, "")    → modelcontextprotocol_go-sdk
+//	(/facebook/react,              v18)   → facebook_react_v18
+//	(/hashicorp/terraform,         v1.14) → hashicorp_terraform_v1.14
 //
-// The mapping is deterministic and 1:1 with the lib_id, so an operator
-// listing artifacts/ can recover every lib by inspection. Hyphens and
-// dots are preserved.
-func Slug(libID string) string {
+// The mapping is deterministic and 1:1 with (lib_id, version), so an
+// operator listing artifacts/ can recover every slot by inspection.
+// Hyphens and dots are preserved; empty version produces the
+// single-version legacy form (no trailing underscore). See #113.
+func Slug(libID, version string) string {
 	trimmed := strings.TrimPrefix(libID, "/")
-	return strings.ReplaceAll(trimmed, "/", "_")
+	slug := strings.ReplaceAll(trimmed, "/", "_")
+	if version == "" {
+		return slug
+	}
+	return slug + "_" + version
 }
 
-// ArtifactDir returns <artifactsDir>/<slug>/ — the per-lib folder that
-// holds artifact.db (+ WAL/SHM during runs) and state.yaml.
-func ArtifactDir(artifactsDir, libID string) string {
-	return filepath.Join(artifactsDir, Slug(libID))
+// ArtifactDir returns <artifactsDir>/<slug>/ — the per-(lib, version)
+// folder that holds artifact.db (+ WAL/SHM during runs) and
+// state.yaml.
+func ArtifactDir(artifactsDir, libID, version string) string {
+	return filepath.Join(artifactsDir, Slug(libID, version))
 }
 
 // ArtifactDBPath returns <artifactsDir>/<slug>/artifact.db — the
-// canonical per-lib database path the scraper writes and the
-// consolidator reads.
-func ArtifactDBPath(artifactsDir, libID string) string {
-	return filepath.Join(ArtifactDir(artifactsDir, libID), "artifact.db")
+// canonical per-(lib, version) database path the scraper writes and
+// the consolidator reads.
+func ArtifactDBPath(artifactsDir, libID, version string) string {
+	return filepath.Join(ArtifactDir(artifactsDir, libID, version), "artifact.db")
 }
 
-// StatePath returns <artifactsDir>/<slug>/state.yaml — the per-lib
-// sidecar carrying content metadata (embedder identity, schema
-// version, scrape dates, counts). See state.go for the StateFile
-// shape and lifecycle.
-func StatePath(artifactsDir, libID string) string {
-	return filepath.Join(ArtifactDir(artifactsDir, libID), "state.yaml")
+// StatePath returns <artifactsDir>/<slug>/state.yaml — the
+// per-(lib, version) sidecar carrying content metadata (embedder
+// identity, schema version, scrape dates, counts). See state.go for
+// the StateFile shape and lifecycle.
+func StatePath(artifactsDir, libID, version string) string {
+	return filepath.Join(ArtifactDir(artifactsDir, libID, version), "state.yaml")
 }

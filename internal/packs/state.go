@@ -40,7 +40,13 @@ import (
 // declaration order, so diffs in operator-visible `.state` files land
 // in a predictable shape.
 type StateFile struct {
-	LibID         string        `yaml:"lib_id"`
+	LibID string `yaml:"lib_id"`
+	// Version is the per-artifact version tag introduced by #113.
+	// Empty string is the canonical single-version form; multi-version
+	// libs carry the version as written in the registry (e.g.
+	// "v1.14"). Serialized with omitempty so single-version sidecars
+	// keep their pre-#113 shape on disk.
+	Version       string        `yaml:"version,omitempty"`
 	SchemaVersion int           `yaml:"schema_version"`
 	Embedder      EmbedderState `yaml:"embedder"`
 	// Ref is the resolved upstream git tag or commit SHA the URLs were

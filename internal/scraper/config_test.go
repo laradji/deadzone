@@ -203,7 +203,7 @@ libraries:
 	}
 
 	// Verify the kind round-trips through Resolve as well.
-	resolved := cfg.Resolve("")
+	resolved := cfg.Resolve("", "")
 	if len(resolved) != 1 {
 		t.Fatalf("Resolve returned %d, want 1", len(resolved))
 	}
@@ -351,13 +351,15 @@ func TestExpand_MultiVersionExpandsAndSubstitutes(t *testing.T) {
 		t.Fatalf("expected 2 resolved sources, got %d", len(out))
 	}
 
+	// After #113 LibID stays equal to the base for every expansion;
+	// the version lives in the dedicated Version field.
 	want := []struct {
 		libID   string
 		version string
 		urls    []string
 	}{
 		{
-			libID:   "/facebook/react/v18",
+			libID:   "/facebook/react",
 			version: "v18",
 			urls: []string{
 				"https://raw.githubusercontent.com/facebook/react/v18/README.md",
@@ -365,7 +367,7 @@ func TestExpand_MultiVersionExpandsAndSubstitutes(t *testing.T) {
 			},
 		},
 		{
-			libID:   "/facebook/react/v19",
+			libID:   "/facebook/react",
 			version: "v19",
 			urls: []string{
 				"https://raw.githubusercontent.com/facebook/react/v19/README.md",
@@ -408,14 +410,14 @@ libraries:
       - https://example.com/react/{version}/README.md
 `)
 
-	all := cfg.Resolve("")
+	all := cfg.Resolve("", "")
 	if len(all) != 3 {
-		t.Fatalf("Resolve(\"\") returned %d, want 3", len(all))
+		t.Fatalf("Resolve(\"\", \"\") returned %d, want 3", len(all))
 	}
 
-	react := cfg.Resolve("/facebook/react")
+	react := cfg.Resolve("/facebook/react", "")
 	if len(react) != 2 {
-		t.Fatalf("Resolve(/facebook/react) returned %d, want 2", len(react))
+		t.Fatalf("Resolve(/facebook/react, \"\") returned %d, want 2", len(react))
 	}
 	for _, r := range react {
 		if r.BaseLibID != "/facebook/react" {
@@ -424,7 +426,7 @@ libraries:
 	}
 }
 
-func TestResolve_FilterByVersionedLibID(t *testing.T) {
+func TestResolve_FilterByLibAndVersion(t *testing.T) {
 	cfg := mustLoadInline(t, `
 libraries:
   - lib_id: /facebook/react
@@ -434,12 +436,12 @@ libraries:
       - https://example.com/react/{version}/README.md
 `)
 
-	v18 := cfg.Resolve("/facebook/react/v18")
+	v18 := cfg.Resolve("/facebook/react", "v18")
 	if len(v18) != 1 {
-		t.Fatalf("Resolve(/facebook/react/v18) returned %d, want 1", len(v18))
+		t.Fatalf("Resolve(/facebook/react, v18) returned %d, want 1", len(v18))
 	}
-	if v18[0].LibID != "/facebook/react/v18" {
-		t.Errorf("LibID = %q, want /facebook/react/v18", v18[0].LibID)
+	if v18[0].LibID != "/facebook/react" {
+		t.Errorf("LibID = %q, want /facebook/react (base stays unversioned after #113)", v18[0].LibID)
 	}
 	if v18[0].Version != "v18" {
 		t.Errorf("Version = %q, want v18", v18[0].Version)
@@ -455,7 +457,7 @@ libraries:
       - https://example.com/go-sdk/README.md
 `)
 
-	got := cfg.Resolve("/modelcontextprotocol/go-sdk")
+	got := cfg.Resolve("/modelcontextprotocol/go-sdk", "")
 	if len(got) != 1 {
 		t.Fatalf("Resolve returned %d, want 1", len(got))
 	}
@@ -473,8 +475,58 @@ libraries:
       - https://example.com/go-sdk/README.md
 `)
 
-	if got := cfg.Resolve("/missing/lib"); len(got) != 0 {
+	if got := cfg.Resolve("/missing/lib", ""); len(got) != 0 {
 		t.Errorf("expected no matches, got %d", len(got))
+	}
+}
+
+// TestResolve_VersionFilterWithoutMatchingVersion exercises the
+// (-lib, -version) pair when the version tag doesn't exist for the
+// filtered lib: the slice comes back empty, exactly as the scrape
+// command's startup error relies on.
+func TestResolve_VersionFilterWithoutMatchingVersion(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /facebook/react
+    kind: github-md
+    versions: [v18, v19]
+    urls:
+      - https://example.com/react/{version}/README.md
+`)
+
+	if got := cfg.Resolve("/facebook/react", "v20"); len(got) != 0 {
+		t.Errorf("expected no matches for v20, got %d", len(got))
+	}
+}
+
+// TestResolve_MultiVersionLibIDStaysBase is the regression test for
+// the un-concatenation: every expansion of a multi-version lib must
+// carry the base as LibID with the version in the Version field,
+// never the old /<base>/<version> concat.
+func TestResolve_MultiVersionLibIDStaysBase(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /hashicorp/terraform
+    kind: github-md
+    versions: [v1.14, v1.13]
+    urls:
+      - https://example.com/tf/{version}/README.md
+`)
+
+	got := cfg.Resolve("", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	for i, r := range got {
+		if r.LibID != "/hashicorp/terraform" {
+			t.Errorf("[%d].LibID = %q, want /hashicorp/terraform", i, r.LibID)
+		}
+		if r.BaseLibID != "/hashicorp/terraform" {
+			t.Errorf("[%d].BaseLibID = %q, want /hashicorp/terraform", i, r.BaseLibID)
+		}
+	}
+	if got[0].Version != "v1.14" || got[1].Version != "v1.13" {
+		t.Errorf("versions = %q, %q; want v1.14, v1.13", got[0].Version, got[1].Version)
 	}
 }
 
@@ -572,7 +624,7 @@ libraries:
     urls:
       - https://example.com/main/a.md
 `)
-	got := cfg.Resolve("")
+	got := cfg.Resolve("", "")
 	if len(got) != 1 {
 		t.Fatalf("Resolve returned %d, want 1", len(got))
 	}
@@ -624,30 +676,37 @@ libraries:
     urls:
       - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/index.mdx
 `)
-	got := cfg.Resolve("")
+	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
-	// Declaration order is preserved.
+	// Declaration order is preserved. LibID stays the base after #113;
+	// the version lives in Version.
 	want := []struct {
-		libID string
-		ref   string
-		url   string
+		libID   string
+		version string
+		ref     string
+		url     string
 	}{
 		{
-			libID: "/hashicorp/terraform/v1.14",
-			ref:   "v1.14.6",
-			url:   "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.14.6/content/terraform/v1.14.x/docs/intro/index.mdx",
+			libID:   "/hashicorp/terraform",
+			version: "v1.14",
+			ref:     "v1.14.6",
+			url:     "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.14.6/content/terraform/v1.14.x/docs/intro/index.mdx",
 		},
 		{
-			libID: "/hashicorp/terraform/v1.13",
-			ref:   "v1.13.5",
-			url:   "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.13.5/content/terraform/v1.13.x/docs/intro/index.mdx",
+			libID:   "/hashicorp/terraform",
+			version: "v1.13",
+			ref:     "v1.13.5",
+			url:     "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.13.5/content/terraform/v1.13.x/docs/intro/index.mdx",
 		},
 	}
 	for i, w := range want {
 		if got[i].LibID != w.libID {
 			t.Errorf("[%d].LibID = %q, want %q", i, got[i].LibID, w.libID)
+		}
+		if got[i].Version != w.version {
+			t.Errorf("[%d].Version = %q, want %q", i, got[i].Version, w.version)
 		}
 		if got[i].Ref != w.ref {
 			t.Errorf("[%d].Ref = %q, want %q", i, got[i].Ref, w.ref)
@@ -670,7 +729,7 @@ libraries:
     urls:
       - https://example.com/{version}/{ref}/a.md
 `)
-	got := cfg.Resolve("")
+	got := cfg.Resolve("", "")
 	if len(got) != 2 {
 		t.Fatalf("Resolve returned %d, want 2", len(got))
 	}
