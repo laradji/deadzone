@@ -553,16 +553,16 @@ func scrapeLibToArtifact(
 		docsTotal += docsInserted
 	}
 
-	// The libs catalog row is updated by the deferred UpdateLibCount
-	// installed earlier in this function (see #65) — it runs on every
-	// exit path so a mid-loop abort still persists the partial count.
-
-	// Write the `.state` sidecar AFTER the `.db` is committed and the
-	// libs catalog row is updated, so a failure mid-scrape leaves any
-	// pre-existing sidecar intact (operators can re-run the scrape to
-	// regenerate both). `created_at` is preserved from the sidecar we
-	// read before the wipe; absent or zero on the first scrape, in
-	// which case it is seeded from `now` below.
+	// Write the `.state` sidecar once the docs table is fully populated;
+	// the libs catalog row is updated by the deferred UpdateLibCount
+	// installed earlier in this function (see #65), which runs just
+	// before `d.Close()` on every exit path. Reaching this point means
+	// the URL loop completed without a fatal error, so writing the
+	// sidecar here reflects a fully successful scrape — a mid-scrape
+	// abort returns above and leaves any pre-existing sidecar intact.
+	// `created_at` is preserved from the sidecar we read before the
+	// wipe; absent or zero on the first scrape, in which case it is
+	// seeded from `now` below.
 	now := time.Now().UTC()
 	state := &packs.StateFile{
 		LibID:         src.LibID,
