@@ -62,9 +62,16 @@ type Config struct {
 // `versions: {v1: {ref: tag1}, v2: {ref: tag2}}` produces entries with
 // per-version Ref set, which overrides the top-level Ref for that
 // version. Declaration order is preserved so scrapes are deterministic.
+//
+// URLs (map shape only, see #115) is a per-version override of the
+// parent LibrarySource.URLs. When non-nil, Expand uses it verbatim for
+// this version; when nil, the version inherits the top-level URLs. An
+// explicit empty list is rejected at parse time — inheritance is
+// expressed by omitting the field.
 type VersionEntry struct {
 	Name string
 	Ref  string
+	URLs []string
 }
 
 // LibrarySource is a single entry in libraries_sources.yaml.
@@ -157,12 +164,29 @@ func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 				return fmt.Errorf("versions map key: %w", err)
 			}
 			var entry struct {
-				Ref string `yaml:"ref"`
+				Ref  string    `yaml:"ref"`
+				URLs yaml.Node `yaml:"urls"`
 			}
 			if err := valNode.Decode(&entry); err != nil {
 				return fmt.Errorf("versions[%q]: %w", name, err)
 			}
-			l.Versions = append(l.Versions, VersionEntry{Name: name, Ref: entry.Ref})
+			v := VersionEntry{Name: name, Ref: entry.Ref}
+			// Distinguish omitted urls (inherit baseline) from explicit
+			// `urls: []` (rejected as ambiguous — see #115).
+			if entry.URLs.Kind != 0 {
+				if entry.URLs.Kind != yaml.SequenceNode {
+					return fmt.Errorf("versions[%q].urls must be a list", name)
+				}
+				if len(entry.URLs.Content) == 0 {
+					return fmt.Errorf("versions[%q].urls is an empty list (omit the field to inherit the top-level urls)", name)
+				}
+				var urls []string
+				if err := entry.URLs.Decode(&urls); err != nil {
+					return fmt.Errorf("versions[%q].urls: %w", name, err)
+				}
+				v.URLs = urls
+			}
+			l.Versions = append(l.Versions, v)
 		}
 	default:
 		return fmt.Errorf("versions must be a list or a mapping, got yaml kind %d", raw.Versions.Kind)
@@ -196,11 +220,15 @@ func LoadConfig(path string) (*Config, error) {
 // validate enforces the v1 schema rules:
 //   - lib_id non-empty, starts with "/", does not end with "/"
 //   - kind in the known set
-//   - urls non-empty, no empty/whitespace entries
+//   - top-level urls: no empty/whitespace entries. Non-empty when versions
+//     is unset; may be empty when versions is set only if every version
+//     supplies its own urls (see #115)
 //   - ref (when set) has no whitespace and no placeholder tokens
 //   - if versions is set: every version has a non-empty name without
 //     whitespace, "/", or "{version}"; per-version refs (map shape) have
-//     no whitespace; every URL contains "{version}"
+//     no whitespace; every effective URL (baseline OR per-version
+//     override) contains "{version}"; per-version urls (when set) are a
+//     non-empty list with no whitespace-only entries
 //   - if versions is unset: no URL contains "{version}"
 //   - if any URL contains "{ref}": for the single-version entry the
 //     top-level ref must be set; for a multi-version entry every version
@@ -221,9 +249,6 @@ func (l LibrarySource) validate() error {
 	if !validKinds[l.Kind] {
 		return fmt.Errorf("unknown kind %q (valid: %s, %s, %s)", l.Kind, KindGithubMD, KindGithubRST, KindScrapeViaAgent)
 	}
-	if len(l.URLs) == 0 {
-		return fmt.Errorf("urls must be non-empty")
-	}
 	for _, u := range l.URLs {
 		if strings.TrimSpace(u) == "" {
 			return fmt.Errorf("urls contains an empty entry")
@@ -233,31 +258,45 @@ func (l LibrarySource) validate() error {
 		return fmt.Errorf("ref: %w", err)
 	}
 
-	urlHasRef := false
-	for _, u := range l.URLs {
-		if strings.Contains(u, refPlaceholder) {
-			urlHasRef = true
-			break
-		}
-	}
-
 	if len(l.Versions) == 0 {
-		// No versions: no URL may contain {version} — it would be an
-		// unresolved placeholder at runtime.
+		// No versions: top-level urls must be non-empty, no URL may
+		// contain {version} (unresolved placeholder at runtime), and
+		// any {ref} requires a top-level ref.
+		if len(l.URLs) == 0 {
+			return fmt.Errorf("urls must be non-empty")
+		}
 		for _, u := range l.URLs {
 			if strings.Contains(u, versionPlaceholder) {
 				return fmt.Errorf("url %q contains %s but no versions are listed", u, versionPlaceholder)
 			}
 		}
-		if urlHasRef && l.Ref == "" {
-			return fmt.Errorf("a url contains %s but ref is not set", refPlaceholder)
+		for _, u := range l.URLs {
+			if strings.Contains(u, refPlaceholder) && l.Ref == "" {
+				return fmt.Errorf("a url contains %s but ref is not set", refPlaceholder)
+			}
 		}
 		return nil
 	}
 
-	// Versions present: every version string must be a clean tag, and
-	// every URL must reference {version} (otherwise the expansion would
-	// produce N identical rows).
+	// Versions present.
+	//
+	// Baseline urls, when set, are the fallback for any version that
+	// doesn't override — so they must contain {version}. When baseline
+	// is empty, every version must supply its own urls.
+	if len(l.URLs) == 0 {
+		for _, v := range l.Versions {
+			if len(v.URLs) == 0 {
+				return fmt.Errorf("urls must be non-empty (or every version must provide its own urls); versions[%q] has no urls and the top-level urls is empty", v.Name)
+			}
+		}
+	} else {
+		for _, u := range l.URLs {
+			if !strings.Contains(u, versionPlaceholder) {
+				return fmt.Errorf("url %q is missing the %s placeholder (required when versions is set)", u, versionPlaceholder)
+			}
+		}
+	}
+
 	for _, v := range l.Versions {
 		if v.Name == "" {
 			return fmt.Errorf("versions contains an empty entry")
@@ -274,13 +313,30 @@ func (l LibrarySource) validate() error {
 		if err := validateRef(v.Ref); err != nil {
 			return fmt.Errorf("versions[%q].ref: %w", v.Name, err)
 		}
+		for _, u := range v.URLs {
+			if strings.TrimSpace(u) == "" {
+				return fmt.Errorf("versions[%q].urls contains an empty entry", v.Name)
+			}
+			if !strings.Contains(u, versionPlaceholder) {
+				return fmt.Errorf("versions[%q] url %q is missing the %s placeholder (required when versions is set)", v.Name, u, versionPlaceholder)
+			}
+		}
+
+		// {ref} check runs on the effective URL list for this version
+		// (per-version override, else baseline).
+		effective := v.URLs
+		if len(effective) == 0 {
+			effective = l.URLs
+		}
+		urlHasRef := false
+		for _, u := range effective {
+			if strings.Contains(u, refPlaceholder) {
+				urlHasRef = true
+				break
+			}
+		}
 		if urlHasRef && v.Ref == "" && l.Ref == "" {
 			return fmt.Errorf("a url contains %s but neither versions[%q].ref nor the top-level ref is set", refPlaceholder, v.Name)
-		}
-	}
-	for _, u := range l.URLs {
-		if !strings.Contains(u, versionPlaceholder) {
-			return fmt.Errorf("url %q is missing the %s placeholder (required when versions is set)", u, versionPlaceholder)
 		}
 	}
 	return nil
@@ -340,8 +396,14 @@ func (l LibrarySource) Expand() []ResolvedSource {
 		if ref == "" {
 			ref = l.Ref
 		}
-		urls := make([]string, len(l.URLs))
-		for i, u := range l.URLs {
+		// Per-version URLs replace the baseline wholesale when set;
+		// nil/empty means inherit the top-level urls (#115).
+		src := v.URLs
+		if len(src) == 0 {
+			src = l.URLs
+		}
+		urls := make([]string, len(src))
+		for i, u := range src {
 			u = strings.ReplaceAll(u, versionPlaceholder, v.Name)
 			urls[i] = substituteRef(u, ref)
 		}

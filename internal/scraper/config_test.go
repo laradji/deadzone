@@ -717,6 +717,205 @@ libraries:
 	}
 }
 
+// --- per-version URL overrides (#115) ---
+
+func TestExpand_PerVersionURLsOverrideBaseline(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /modelcontextprotocol/go-sdk
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
+    versions:
+      v1.4.1: {}
+      v1.5.0:
+        urls:
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/README.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/server.md
+          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{version}/docs/quick_start.md
+`)
+	got := cfg.Resolve("", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	if got[0].Version != "v1.4.1" {
+		t.Fatalf("[0].Version = %q, want v1.4.1", got[0].Version)
+	}
+	if len(got[0].URLs) != 2 {
+		t.Errorf("v1.4.1 should inherit baseline (2 URLs), got %d", len(got[0].URLs))
+	}
+	for _, u := range got[0].URLs {
+		if !strings.Contains(u, "/v1.4.1/") {
+			t.Errorf("v1.4.1 URL not substituted: %q", u)
+		}
+	}
+	if got[1].Version != "v1.5.0" {
+		t.Fatalf("[1].Version = %q, want v1.5.0", got[1].Version)
+	}
+	if len(got[1].URLs) != 3 {
+		t.Errorf("v1.5.0 should use override (3 URLs), got %d", len(got[1].URLs))
+	}
+	if !strings.HasSuffix(got[1].URLs[2], "/docs/quick_start.md") {
+		t.Errorf("v1.5.0 URL[2] = %q, want …/docs/quick_start.md", got[1].URLs[2])
+	}
+}
+
+func TestExpand_NoBaselineAllVersionsOverride(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    ref: fallback-ref
+    versions:
+      v1:
+        ref: r1
+        urls:
+          - https://example.com/{version}/{ref}/a.md
+      v2:
+        urls:
+          - https://example.com/{version}/{ref}/a.md
+          - https://example.com/{version}/{ref}/b.md
+`)
+	got := cfg.Resolve("", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	if got[0].URLs[0] != "https://example.com/v1/r1/a.md" {
+		t.Errorf("v1 URL = %q", got[0].URLs[0])
+	}
+	if len(got[1].URLs) != 2 {
+		t.Fatalf("v2 URLs len = %d, want 2", len(got[1].URLs))
+	}
+	if got[1].URLs[0] != "https://example.com/v2/fallback-ref/a.md" {
+		t.Errorf("v2 URLs[0] = %q", got[1].URLs[0])
+	}
+	if got[1].URLs[1] != "https://example.com/v2/fallback-ref/b.md" {
+		t.Errorf("v2 URLs[1] = %q", got[1].URLs[1])
+	}
+}
+
+func TestLoadConfig_PerVersionURLsRules(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "per-version urls is an explicit empty list",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{version}/a.md
+    versions:
+      v1: { urls: [] }
+`,
+			want: "empty list",
+		},
+		{
+			name: "per-version url missing {version} placeholder",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{version}/a.md
+    versions:
+      v1:
+        urls:
+          - https://example.com/fixed/a.md
+`,
+			want: "missing the {version} placeholder",
+		},
+		{
+			name: "inheriting version with empty baseline",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions:
+      v1:
+        urls:
+          - https://example.com/{version}/a.md
+      v2: {}
+`,
+			want: `versions["v2"] has no urls and the top-level urls is empty`,
+		},
+		{
+			name: "per-version urls not a list",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{version}/a.md
+    versions:
+      v1:
+        urls: "https://example.com/{version}/a.md"
+`,
+			want: "must be a list",
+		},
+		{
+			name: "per-version url with whitespace entry",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{version}/a.md
+    versions:
+      v1:
+        urls:
+          - "   "
+`,
+			want: "contains an empty entry",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, tc.yaml)
+			_, err := scraper.LoadConfig(path)
+			if err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_PerVersionURLsAcceptMixedInheritAndOverride(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{version}/a.md
+    versions:
+      v1: {}
+      v2:
+        urls:
+          - https://example.com/{version}/a.md
+          - https://example.com/{version}/b.md
+`)
+	got := cfg.Resolve("", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	if len(got[0].URLs) != 1 || got[0].URLs[0] != "https://example.com/v1/a.md" {
+		t.Errorf("v1 URLs = %v, want [https://example.com/v1/a.md]", got[0].URLs)
+	}
+	if len(got[1].URLs) != 2 {
+		t.Fatalf("v2 URLs len = %d, want 2", len(got[1].URLs))
+	}
+	if got[1].URLs[1] != "https://example.com/v2/b.md" {
+		t.Errorf("v2 URLs[1] = %q", got[1].URLs[1])
+	}
+}
+
 func TestLoadConfig_VersionsMapShape_PerVersionRefOverridesTopLevel(t *testing.T) {
 	cfg := mustLoadInline(t, `
 libraries:
