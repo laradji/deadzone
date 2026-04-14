@@ -501,9 +501,21 @@ When #44 (the `libs` vector table) was being designed, it became clear that addi
 
 ### Decision
 
-**`db.CurrentSchemaVersion` constant** (currently `3` — bumped to 2 in #55 for the `libs` table, then to 3 in #72 for the embedder swap) recorded in the `meta` table at create time and cross-checked on every open. `db.Open` and `db.OpenArtifact` both reject DBs whose schema version doesn't match, surfacing `ErrSchemaMismatch` with a clear message.
+**`db.CurrentSchemaVersion` constant** (currently `4` — bumped to 2 in #55 for the `libs` table, to 3 in #72 for the embedder swap, to 4 in #114 for the `version` column) recorded in the `meta` table at create time and cross-checked on every open. `db.Open` and `db.OpenArtifact` both reject DBs whose schema version doesn't match, surfacing `ErrSchemaMismatch` with a clear message.
 
-When adding a table or making a breaking schema change, bump the constant in the same commit and document the migration step in the PR body.
+When adding a table or making a breaking schema change, bump the constant in the same commit.
+
+### Migration policy (locked pre-0.2): no back-compat on `deadzone.db`
+
+Explicit position for future schema changes — the repo has **zero external users of `deadzone.db`** today and the release pipeline rebuilds the DB from scratch on every tag:
+
+- **No in-place migration framework.** Not `golang-migrate`, not hand-rolled `ALTER TABLE` scripts, not versioned migration files. A schema bump is a one-line constant change + whatever code changes the new shape needs.
+- **No compat shims, no dual-read paths, no "read old schema, write new schema" code.** Pre-bump DBs surface `ErrSchemaMismatch` at `Open`. The fix is to delete them and re-fetch.
+- **The "migration" is the release pipeline.** Bump `CurrentSchemaVersion` → `just scrape` → `just consolidate` → tag → `just dbrelease <tag>`. The new `deadzone.db` ships with the new binary on the same release.
+- **End users of `deadzone server` never see a stale schema** because `internal/db/Bootstrap` (#108) pins the cached DB to the running binary's version. A binary upgrade triggers an automatic DB re-fetch for that binary's tag; the old cached DB is atomically replaced. No manual step, no migration path, no client-side compat concerns.
+- **Contributors re-scraping locally** delete `./artifacts/` + `./deadzone.db` and rerun the pipeline. The `clean` recipe in the justfile already does this.
+
+This policy holds until someone uses `deadzone.db` as a long-lived asset (embedded in a distributed app, shipped inside another product, etc.). Revisit then — the current target is "operator-maintained index, refreshed on every release," and the migration story for that target is "don't have one, ship new."
 
 ### Rationale
 
