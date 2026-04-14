@@ -72,7 +72,9 @@ type VersionEntry struct {
 // A LibrarySource with no Versions describes one library directly. A
 // LibrarySource with Versions is a YAML-level shorthand: at Expand() time
 // it produces one ResolvedSource per version, each with its URLs templated
-// and an effective lib_id of "<LibID>/<version>".
+// and the version surfaced in the dedicated Version field. The base LibID
+// is never mutated — two versions of the same lib share one LibID and
+// differ only in Version. See #113.
 //
 // Ref pins URLs to a single upstream git tag or commit SHA when URLs
 // contain the literal "{ref}" token. See #103.
@@ -86,11 +88,18 @@ type LibrarySource struct {
 
 // ResolvedSource is one library, post-version-expansion, ready to scrape.
 //
-// For single-version entries, LibID == BaseLibID and Version is empty.
-// For multi-version entries, LibID is "<BaseLibID>/<Version>" and the URLs
-// have the {version} placeholder substituted. Ref is the effective git
-// ref applied to the URLs (per-version Ref if set, else the top-level
+// LibID always equals BaseLibID — it is the base lib_id (e.g.
+// /hashicorp/terraform). Version is empty for single-version entries
+// and carries the version tag (e.g. "v1.14") for multi-version
+// entries. The "<base>/<version>" concat that earlier builds produced
+// here is gone (#113); callers that need a (lib_id, version) slot
+// pass them as two fields. Ref is the effective git ref applied to
+// the URLs (per-version Ref if set, else the top-level
 // LibrarySource.Ref).
+//
+// BaseLibID is retained as a separate field for readability at call
+// sites — it is always == LibID after #113, but the name documents
+// intent ("the unversioned identity of this lib").
 type ResolvedSource struct {
 	LibID     string
 	BaseLibID string
@@ -303,11 +312,14 @@ func validateRef(ref string) error {
 // Version is empty, URLs are copied with {ref} substituted from the
 // top-level Ref (if present).
 //
-// Multi-version entries produce one ResolvedSource per version, with the
-// effective lib_id formed as "<base>/<version>", the {version}
-// placeholder substituted in each URL, and the {ref} placeholder
-// substituted from the per-version Ref if set, else from the top-level
-// Ref.
+// Multi-version entries produce one ResolvedSource per version with
+// LibID == BaseLibID (the base, e.g. /hashicorp/terraform) and
+// Version set to the version tag. The {version} placeholder is
+// substituted in each URL, and the {ref} placeholder is substituted
+// from the per-version Ref if set, else from the top-level Ref. The
+// "<base>/<version>" concatenation that earlier builds produced here
+// is gone (#113); downstream code treats (LibID, Version) as the
+// canonical slot.
 func (l LibrarySource) Expand() []ResolvedSource {
 	if len(l.Versions) == 0 {
 		urls := make([]string, len(l.URLs))
@@ -334,7 +346,7 @@ func (l LibrarySource) Expand() []ResolvedSource {
 			urls[i] = substituteRef(u, ref)
 		}
 		out = append(out, ResolvedSource{
-			LibID:     l.LibID + "/" + v.Name,
+			LibID:     l.LibID,
 			BaseLibID: l.LibID,
 			Version:   v.Name,
 			Kind:      l.Kind,
@@ -355,20 +367,34 @@ func substituteRef(url, ref string) string {
 	return strings.ReplaceAll(url, refPlaceholder, ref)
 }
 
-// Resolve flattens every entry in the config into ResolvedSources, applying
-// the two-level lib_id filter described in #51:
+// Resolve flattens every entry in the config into ResolvedSources,
+// applying the (libFilter, versionFilter) filter pair introduced in
+// #113:
 //
-//   - filter == "" matches every resolved entry
-//   - filter == "/org/project" matches every expanded version of that base
-//     (and the base itself for single-version entries)
-//   - filter == "/org/project/version" matches exactly one expanded entry
-func (c *Config) Resolve(filter string) []ResolvedSource {
+//   - libFilter == "" matches every resolved entry (versionFilter is
+//     ignored in this case; the caller is expected to reject that
+//     combination as a usage error before calling in).
+//   - libFilter != "", versionFilter == "" matches every expanded
+//     version of that base (and the base itself for single-version
+//     entries). This is the "scrape every version of terraform" knob.
+//   - libFilter != "", versionFilter != "" matches the exactly-one
+//     expanded entry whose (BaseLibID, Version) pair equals the
+//     filter. This is the "scrape only terraform v1.14" knob.
+func (c *Config) Resolve(libFilter, versionFilter string) []ResolvedSource {
 	var out []ResolvedSource
 	for _, lib := range c.Libraries {
 		for _, r := range lib.Expand() {
-			if filter == "" || r.LibID == filter || r.BaseLibID == filter {
+			if libFilter == "" {
 				out = append(out, r)
+				continue
 			}
+			if r.BaseLibID != libFilter {
+				continue
+			}
+			if versionFilter != "" && r.Version != versionFilter {
+				continue
+			}
+			out = append(out, r)
 		}
 	}
 	return out

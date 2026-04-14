@@ -27,10 +27,12 @@ type ConsolidateResult struct {
 // Consolidate merges every per-lib artifact in artifactsDir into main.
 // Each lib lives in its own subdirectory (artifacts/<slug>/artifact.db
 // + state.yaml, see #101), so consolidation globs the nested shape
-// rather than the old flat *.db layout. It is the inverse of the
-// per-lib scrape: each artifact replaces (not appends to) the rows in
-// main that share its lib_id, in both the docs and libs tables,
-// atomically.
+// rather than the old flat *.db layout. Artifacts are keyed on
+// (lib_id, version) after #113 — two versions of the same base lib
+// live in two sibling folders and merge as two independent (lib_id,
+// version) slots without clobbering each other. Each artifact replaces
+// (not appends to) the rows in main for its (lib_id, version) slot,
+// in both the docs and libs tables, atomically.
 //
 // The operation runs in two passes:
 //
@@ -64,21 +66,22 @@ func Consolidate(main *DB, artifactsDir string) (ConsolidateResult, error) {
 	sort.Strings(matches)
 
 	type entry struct {
-		path  string
-		libID string
+		path    string
+		libID   string
+		version string
 	}
 	entries := make([]entry, 0, len(matches))
 
 	// Pass 1 — validation. Opening each artifact with libID="" both
 	// re-runs Open's meta/schema cross-check against main.Meta and
-	// reads the artifact's recorded lib_id. We close immediately so
-	// the conn pool is free for pass 2.
+	// reads the artifact's recorded (lib_id, version). We close
+	// immediately so the conn pool is free for pass 2.
 	for _, path := range matches {
-		a, err := OpenArtifact(path, main.Meta, "")
+		a, err := OpenArtifact(path, main.Meta, "", "")
 		if err != nil {
 			return result, fmt.Errorf("validate artifact %s: %w", filepath.Base(path), err)
 		}
-		entries = append(entries, entry{path: path, libID: a.ArtifactLibID})
+		entries = append(entries, entry{path: path, libID: a.ArtifactLibID, version: a.ArtifactVersion})
 		_ = a.Close()
 	}
 
@@ -103,7 +106,7 @@ func Consolidate(main *DB, artifactsDir string) (ConsolidateResult, error) {
 	}()
 
 	for _, e := range entries {
-		merged, libRow, err := mergeArtifactInto(tx, e.path, e.libID, main.Meta)
+		merged, libRow, err := mergeArtifactInto(tx, e.path, e.libID, e.version, main.Meta)
 		if err != nil {
 			return result, fmt.Errorf("merge artifact %s: %w", filepath.Base(e.path), err)
 		}
@@ -122,43 +125,50 @@ func Consolidate(main *DB, artifactsDir string) (ConsolidateResult, error) {
 }
 
 // mergeArtifactInto reopens one artifact, deletes any existing rows in
-// main for its lib_id (across both docs and libs), and streams the
-// artifact's rows in via the supplied transaction. Returns the number
-// of docs inserted and whether a libs row was inserted.
+// main for its (lib_id, version) slot (across both docs and libs), and
+// streams the artifact's rows in via the supplied transaction. Returns
+// the number of docs inserted and whether a libs row was inserted.
 //
-// The artifact is opened with libID set to the value captured during
-// pass 1; any drift between the validation pass and the merge pass
-// (e.g. an artifact file rewritten between the two) surfaces here as
+// The DELETE is keyed on (lib_id, version), not lib_id alone: a merge
+// of /foo v1.14 must not wipe out /foo v1.13's rows in main. Each
+// artifact owns exactly one (lib_id, version) slot by construction
+// (OpenArtifact enforces it via meta) so two versions of the same
+// base lib are two independent artifacts that merge cleanly as two
+// (lib_id, version) rows.
+//
+// The artifact is opened with the (lib_id, version) pair captured
+// during pass 1; any drift between validation and merge (e.g. an
+// artifact file rewritten between the two) surfaces here as
 // ErrArtifactLibIDMismatch and rolls back the whole consolidation.
-func mergeArtifactInto(tx *sql.Tx, path, libID string, meta Meta) (int, bool, error) {
-	a, err := OpenArtifact(path, meta, libID)
+func mergeArtifactInto(tx *sql.Tx, path, libID, version string, meta Meta) (int, bool, error) {
+	a, err := OpenArtifact(path, meta, libID, version)
 	if err != nil {
 		return 0, false, err
 	}
 	defer a.Close()
 
-	// docs: drop the old per-lib slice in main, then stream the
-	// artifact's rows back in. vector_extract / vector() round-trips
-	// the F32_BLOB through the same JSON-array form formatVector
-	// uses on the insert path, so we don't need to teach this
-	// function about the on-disk encoding.
-	if _, err := tx.Exec(`DELETE FROM docs WHERE lib_id = ?`, libID); err != nil {
-		return 0, false, fmt.Errorf("delete docs for %q: %w", libID, err)
+	// docs: drop the old per-(lib, version) slice in main, then
+	// stream the artifact's rows back in. vector_extract / vector()
+	// round-trips the F32_BLOB through the same JSON-array form
+	// formatVector uses on the insert path, so we don't need to
+	// teach this function about the on-disk encoding.
+	if _, err := tx.Exec(`DELETE FROM docs WHERE lib_id = ? AND version = ?`, libID, version); err != nil {
+		return 0, false, fmt.Errorf("delete docs for %q version %q: %w", libID, version, err)
 	}
-	docRows, err := a.Query(`SELECT lib_id, title, content, vector_extract(embedding) FROM docs`)
+	docRows, err := a.Query(`SELECT lib_id, version, title, content, vector_extract(embedding) FROM docs`)
 	if err != nil {
 		return 0, false, fmt.Errorf("select artifact docs: %w", err)
 	}
 	docsInserted := 0
 	for docRows.Next() {
-		var rowLibID, title, content, vecJSON string
-		if err := docRows.Scan(&rowLibID, &title, &content, &vecJSON); err != nil {
+		var rowLibID, rowVersion, title, content, vecJSON string
+		if err := docRows.Scan(&rowLibID, &rowVersion, &title, &content, &vecJSON); err != nil {
 			docRows.Close()
 			return 0, false, fmt.Errorf("scan artifact doc: %w", err)
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO docs(lib_id, title, content, embedding) VALUES (?, ?, ?, vector(?))`,
-			rowLibID, title, content, vecJSON,
+			`INSERT INTO docs(lib_id, version, title, content, embedding) VALUES (?, ?, ?, ?, vector(?))`,
+			rowLibID, rowVersion, title, content, vecJSON,
 		); err != nil {
 			docRows.Close()
 			return 0, false, fmt.Errorf("insert doc into main: %w", err)
@@ -171,27 +181,28 @@ func mergeArtifactInto(tx *sql.Tx, path, libID string, meta Meta) (int, bool, er
 	}
 	docRows.Close()
 
-	// libs: same dance. Most artifacts hold exactly one libs row
-	// (the lib_id they advertise via meta), but the loop is generic
-	// in case a future scraper writes additional bookkeeping rows.
-	if _, err := tx.Exec(`DELETE FROM libs WHERE lib_id = ?`, libID); err != nil {
-		return 0, false, fmt.Errorf("delete libs for %q: %w", libID, err)
+	// libs: same dance, keyed on (lib_id, version). Most artifacts
+	// hold exactly one libs row (the pair they advertise via meta),
+	// but the loop is generic in case a future scraper writes
+	// additional bookkeeping rows.
+	if _, err := tx.Exec(`DELETE FROM libs WHERE lib_id = ? AND version = ?`, libID, version); err != nil {
+		return 0, false, fmt.Errorf("delete libs for %q version %q: %w", libID, version, err)
 	}
-	libRows, err := a.Query(`SELECT lib_id, doc_count, vector_extract(embedding) FROM libs`)
+	libRows, err := a.Query(`SELECT lib_id, version, doc_count, vector_extract(embedding) FROM libs`)
 	if err != nil {
 		return 0, false, fmt.Errorf("select artifact libs: %w", err)
 	}
 	libRowInserted := false
 	for libRows.Next() {
-		var rowLibID, vecJSON string
+		var rowLibID, rowVersion, vecJSON string
 		var docCount int
-		if err := libRows.Scan(&rowLibID, &docCount, &vecJSON); err != nil {
+		if err := libRows.Scan(&rowLibID, &rowVersion, &docCount, &vecJSON); err != nil {
 			libRows.Close()
 			return 0, false, fmt.Errorf("scan artifact lib: %w", err)
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO libs(lib_id, doc_count, embedding) VALUES (?, ?, vector(?))`,
-			rowLibID, docCount, vecJSON,
+			`INSERT INTO libs(lib_id, version, doc_count, embedding) VALUES (?, ?, ?, vector(?))`,
+			rowLibID, rowVersion, docCount, vecJSON,
 		); err != nil {
 			libRows.Close()
 			return 0, false, fmt.Errorf("insert lib into main: %w", err)

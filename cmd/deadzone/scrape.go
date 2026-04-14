@@ -79,7 +79,8 @@ func runScrape(args []string) error {
 	embedderKind := fs.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
 	verbose := fs.Bool("verbose", false, "emit per-doc Debug log lines in addition to per-URL summaries")
 	configPath := fs.String("config", "libraries_sources.yaml", "path to libraries_sources.yaml registry")
-	libFilter := fs.String("lib", "", "scrape only this lib_id (matches base or /base/version); empty = scrape all")
+	libFilter := fs.String("lib", "", "scrape only this base lib_id (e.g. /hashicorp/terraform); empty = scrape all libs in the registry")
+	versionFilter := fs.String("version", "", "scrape only this version (requires -lib); empty = all versions of the filtered lib(s)")
 	parallelGithubMD := fs.Int("parallel-github-md",
 		envIntOr(EnvParallelGithubMD, defaultParallelGithubMD),
 		"max concurrent github-* libs (github-md, github-rst — env: "+EnvParallelGithubMD+"; flag wins over env)")
@@ -96,6 +97,14 @@ func runScrape(args []string) error {
 	if *parallelScrapeViaAgent < 1 {
 		return fmt.Errorf("-parallel-scrape-via-agent must be >= 1, got %d", *parallelScrapeViaAgent)
 	}
+	// -version without -lib is ambiguous — multi-version libs share
+	// tags (two libs can both have a v1.0) so the filter has to be
+	// anchored on a base lib_id before the version tag narrows it
+	// down. Reject at parse time so the operator sees the mistake
+	// before any I/O.
+	if *versionFilter != "" && *libFilter == "" {
+		return errors.New("-version requires -lib")
+	}
 
 	// stderr-only JSON logging keeps scrape consistent with the server
 	// subcommand (which has a hard stdout-is-JSON-RPC constraint).
@@ -106,14 +115,19 @@ func runScrape(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// Resolve flattens version shorthands and applies the -lib filter so
-	// the scrape loop doesn't need to know about either feature.
-	sources := cfg.Resolve(*libFilter)
+	// Resolve flattens version shorthands and applies the
+	// (-lib, -version) filter pair so the scrape loop doesn't need to
+	// know about either feature.
+	sources := cfg.Resolve(*libFilter, *versionFilter)
 	if len(sources) == 0 {
-		if *libFilter != "" {
+		switch {
+		case *libFilter != "" && *versionFilter != "":
+			return fmt.Errorf("no libraries match -lib %q -version %q in %s", *libFilter, *versionFilter, *configPath)
+		case *libFilter != "":
 			return fmt.Errorf("no libraries match -lib %q in %s", *libFilter, *configPath)
+		default:
+			return fmt.Errorf("no libraries to scrape in %s", *configPath)
 		}
-		return fmt.Errorf("no libraries to scrape in %s", *configPath)
 	}
 
 	// One artifacts/ dir per scrape run; created on demand so the first
@@ -157,6 +171,7 @@ func runScrape(args []string) error {
 	slog.Info("scraper.start",
 		"config_path", *configPath,
 		"lib_filter", *libFilter,
+		"version_filter", *versionFilter,
 		"lib_count", len(sources),
 		"artifacts_dir", *artifactsDir,
 		"embedder_kind", e.Kind(),
@@ -178,12 +193,17 @@ func runScrape(args []string) error {
 	var okCount, failedCount, docsTotal int
 	var failedIDs []string
 	for _, r := range results {
+		slot := r.libID
+		if r.version != "" {
+			slot = r.libID + "@" + r.version
+		}
 		if r.err != nil {
-			joined = errors.Join(joined, fmt.Errorf("%s: %w", r.libID, r.err))
+			joined = errors.Join(joined, fmt.Errorf("%s: %w", slot, r.err))
 			failedCount++
-			failedIDs = append(failedIDs, r.libID)
+			failedIDs = append(failedIDs, slot)
 			slog.Error("scraper.lib_failed",
 				"lib_id", r.libID,
+				"version", r.version,
 				"skipped_count", r.skipped,
 				"err", r.err.Error(),
 			)
@@ -205,13 +225,14 @@ func runScrape(args []string) error {
 	return joined
 }
 
-// libResult is the per-lib outcome produced by scrapeSources. docs is
-// the count of successfully indexed snippets (0 on failure); err is the
-// lib-fatal error or nil. skipped carries the per-URL soft-fail count
-// so the scraper.lib_failed log line can surface whether the lib died
-// on a ceiling trip vs a hard error.
+// libResult is the per-(lib, version) outcome produced by
+// scrapeSources. docs is the count of successfully indexed snippets
+// (0 on failure); err is the lib-fatal error or nil. skipped carries
+// the per-URL soft-fail count so the scraper.lib_failed log line can
+// surface whether the slot died on a ceiling trip vs a hard error.
 type libResult struct {
 	libID   string
+	version string
 	docs    int
 	skipped int
 	err     error
@@ -253,19 +274,19 @@ func scrapeSources(
 		group.Go(func() error {
 			sem, ok := sems[src.Kind]
 			if !ok {
-				results[i] = libResult{libID: src.LibID, err: fmt.Errorf("unknown kind %q", src.Kind)}
+				results[i] = libResult{libID: src.LibID, version: src.Version, err: fmt.Errorf("unknown kind %q", src.Kind)}
 				return nil
 			}
 			select {
 			case sem <- struct{}{}:
 			case <-gctx.Done():
-				results[i] = libResult{libID: src.LibID, err: gctx.Err()}
+				results[i] = libResult{libID: src.LibID, version: src.Version, err: gctx.Err()}
 				return nil
 			}
 			defer func() { <-sem }()
 
 			docs, skipped, err := scrapeLibToArtifact(gctx, client, agent, e, meta, artifactsDir, src)
-			results[i] = libResult{libID: src.LibID, docs: docs, skipped: skipped, err: err}
+			results[i] = libResult{libID: src.LibID, version: src.Version, docs: docs, skipped: skipped, err: err}
 			// Never propagate — aggregation happens in the caller so
 			// sibling libs are not cancelled by errgroup.
 			return nil
@@ -298,12 +319,12 @@ func scrapeLibToArtifact(
 	artifactsDir string,
 	src scraper.ResolvedSource,
 ) (int, int, error) {
-	artifactDir := packs.ArtifactDir(artifactsDir, src.LibID)
+	artifactDir := packs.ArtifactDir(artifactsDir, src.LibID, src.Version)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return 0, 0, fmt.Errorf("create artifact dir %s: %w", artifactDir, err)
 	}
-	artifactPath := packs.ArtifactDBPath(artifactsDir, src.LibID)
-	statePath := packs.StatePath(artifactsDir, src.LibID)
+	artifactPath := packs.ArtifactDBPath(artifactsDir, src.LibID, src.Version)
+	statePath := packs.StatePath(artifactsDir, src.LibID, src.Version)
 
 	// Read any pre-existing sidecar BEFORE the wipe loop so
 	// `created_at` survives a re-scrape. A missing file is the first-
@@ -317,6 +338,7 @@ func scrapeLibToArtifact(
 	} else if !os.IsNotExist(err) {
 		slog.Warn("scraper.state_load_failed",
 			"lib_id", src.LibID,
+			"version", src.Version,
 			"state_path", statePath,
 			"err", err.Error(),
 		)
@@ -338,7 +360,7 @@ func scrapeLibToArtifact(
 		}
 	}
 
-	d, err := db.OpenArtifact(artifactPath, meta, src.LibID)
+	d, err := db.OpenArtifact(artifactPath, meta, src.LibID, src.Version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("open artifact %s: %w", artifactPath, err)
 	}
@@ -346,7 +368,6 @@ func scrapeLibToArtifact(
 
 	slog.Info("scraper.lib_start",
 		"lib_id", src.LibID,
-		"base_lib_id", src.BaseLibID,
 		"version", src.Version,
 		"kind", src.Kind,
 		"ref", src.Ref,
@@ -355,15 +376,14 @@ func scrapeLibToArtifact(
 	)
 
 	// Make sure the libs catalog row exists before we start indexing
-	// docs. UpsertLibIfNew is idempotent and skips the embed call when
-	// the row is already present, so the cost on a re-run is just one
-	// count(*); the actual doc_count is filled in at the end of this
-	// function once we know the real number. Each ResolvedSource has
-	// its own canonical lib_id (versioned libs already get distinct
-	// /org/project/version values from cfg.Resolve), so a single
-	// upsert per source is the correct grain.
-	if err := db.UpsertLibIfNew(d, src.LibID, e); err != nil {
-		return 0, 0, fmt.Errorf("upsert lib %q: %w", src.LibID, err)
+	// docs. UpsertLibIfNew is idempotent per (lib_id, version) and
+	// skips the embed call when the row is already present, so the
+	// cost on a re-run is just one count(*); the actual doc_count is
+	// filled in at the end of this function once we know the real
+	// number. Each ResolvedSource covers exactly one (lib_id, version)
+	// slot so a single upsert per source is the correct grain.
+	if err := db.UpsertLibIfNew(d, src.LibID, src.Version, e); err != nil {
+		return 0, 0, fmt.Errorf("upsert lib %q version %q: %w", src.LibID, src.Version, err)
 	}
 
 	libStart := time.Now()
@@ -408,6 +428,7 @@ func scrapeLibToArtifact(
 				skippedThisLib++
 				slog.Error("scraper.url_skipped",
 					"lib_id", src.LibID,
+					"version", src.Version,
 					"url", u,
 					"kind", fetcher,
 					"reason", reason,
@@ -425,6 +446,7 @@ func scrapeLibToArtifact(
 			}
 			slog.Error("scraper.fetch_failed",
 				"lib_id", src.LibID,
+				"version", src.Version,
 				"url", u,
 				"kind", fetcher,
 				"reason", reason,
@@ -435,6 +457,7 @@ func scrapeLibToArtifact(
 		}
 		slog.Info("scraper.fetch",
 			"lib_id", src.LibID,
+			"version", src.Version,
 			"url", u,
 			"kind", fetcher,
 			"bytes", res.Bytes,
@@ -453,6 +476,11 @@ func scrapeLibToArtifact(
 		var embedTotal, insertTotal time.Duration
 		var docsInserted, docsSkipped int
 		for _, doc := range res.Docs {
+			// The fetchers populate doc.LibID from the ResolvedSource's
+			// base lib_id but do not know about version — stamp it in
+			// here so the DB row carries the (lib_id, version) slot.
+			doc.Version = src.Version
+
 			embedStart := time.Now()
 			vec, err := e.EmbedDocument(doc.Title + "\n" + doc.Content)
 			embedTotal += time.Since(embedStart)
@@ -460,6 +488,7 @@ func scrapeLibToArtifact(
 				docsSkipped++
 				slog.Warn("scraper.embed_failed",
 					"lib_id", doc.LibID,
+					"version", doc.Version,
 					"title", doc.Title,
 					"url", u,
 					"err", err.Error(),
@@ -471,6 +500,7 @@ func scrapeLibToArtifact(
 			if err := db.Insert(d, doc, vec); err != nil {
 				slog.Error("scraper.insert_failed",
 					"lib_id", doc.LibID,
+					"version", doc.Version,
 					"title", doc.Title,
 					"url", u,
 					"err", err.Error(),
@@ -482,6 +512,7 @@ func scrapeLibToArtifact(
 
 			slog.Debug("scraper.doc_indexed",
 				"lib_id", doc.LibID,
+				"version", doc.Version,
 				"title", doc.Title,
 				"url", u,
 				"content_bytes", len(doc.Content),
@@ -490,6 +521,7 @@ func scrapeLibToArtifact(
 
 		slog.Info("scraper.indexed",
 			"lib_id", src.LibID,
+			"version", src.Version,
 			"url", u,
 			"docs_inserted", docsInserted,
 			"docs_skipped", docsSkipped,
@@ -505,13 +537,14 @@ func scrapeLibToArtifact(
 	// Each artifact is rebuilt from scratch, so docsTotal is the
 	// absolute row count for the lib in this artifact — no append-
 	// vs-replace ambiguity.
-	if err := db.UpdateLibCount(d, src.LibID, docsTotal); err != nil {
+	if err := db.UpdateLibCount(d, src.LibID, src.Version, docsTotal); err != nil {
 		slog.Error("scraper.update_lib_count_failed",
 			"lib_id", src.LibID,
+			"version", src.Version,
 			"docs_total", docsTotal,
 			"err", err.Error(),
 		)
-		return docsTotal, skippedThisLib, fmt.Errorf("update lib count %q: %w", src.LibID, err)
+		return docsTotal, skippedThisLib, fmt.Errorf("update lib count %q version %q: %w", src.LibID, src.Version, err)
 	}
 
 	// Write the `.state` sidecar AFTER the `.db` is committed and the
@@ -523,6 +556,7 @@ func scrapeLibToArtifact(
 	now := time.Now().UTC()
 	state := &packs.StateFile{
 		LibID:         src.LibID,
+		Version:       src.Version,
 		SchemaVersion: db.CurrentSchemaVersion,
 		Embedder: packs.EmbedderState{
 			Kind:  e.Kind(),
@@ -544,6 +578,7 @@ func scrapeLibToArtifact(
 
 	slog.Info("scraper.lib_done",
 		"lib_id", src.LibID,
+		"version", src.Version,
 		"ref", src.Ref,
 		"docs_total", docsTotal,
 		"duration_ms", time.Since(libStart).Milliseconds(),

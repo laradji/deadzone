@@ -140,7 +140,7 @@ func TestSearchByEmbedding_RanksRelevantFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
-	results, err := db.SearchByEmbedding(d, qv, "", 10)
+	results, err := db.SearchByEmbedding(d, qv, "", "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestSearchByEmbedding_FiltersByLib(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
-	results, err := db.SearchByEmbedding(d, qv, "go-sdk", 10)
+	results, err := db.SearchByEmbedding(d, qv, "go-sdk", "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestSearchByEmbedding_Acceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Embed query: %v", err)
 	}
-	results, err := db.SearchByEmbedding(d, qv, "", 10)
+	results, err := db.SearchByEmbedding(d, qv, "", "", 10)
 	if err != nil {
 		t.Fatalf("SearchByEmbedding: %v", err)
 	}
@@ -220,6 +220,78 @@ func TestSearchByEmbedding_Acceptance(t *testing.T) {
 		for i, r := range results {
 			t.Logf("  #%d: [%s] %s", i+1, r.LibID, r.Title)
 		}
+	}
+}
+
+// TestSearchByEmbedding_FiltersByLibAllVersions seeds one lib_id
+// with two versions and asserts that the lib-scoped search
+// (version == "") surfaces both versions' rows.
+func TestSearchByEmbedding_FiltersByLibAllVersions(t *testing.T) {
+	d := openTestDB(t)
+
+	docs := []db.Doc{
+		{LibID: "/foo/tf", Version: "v1.14", Title: "tf install", Content: "install in v1.14"},
+		{LibID: "/foo/tf", Version: "v1.13", Title: "tf install", Content: "install in v1.13"},
+		{LibID: "/other/lib", Version: "", Title: "unrelated", Content: "noise"},
+	}
+	for _, doc := range docs {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+	}
+
+	qv, err := testEmbedder.EmbedQuery("install")
+	if err != nil {
+		t.Fatalf("Embed query: %v", err)
+	}
+	results, err := db.SearchByEmbedding(d, qv, "/foo/tf", "", 10)
+	if err != nil {
+		t.Fatalf("SearchByEmbedding: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+	seen := map[string]bool{}
+	for _, r := range results {
+		if r.LibID != "/foo/tf" {
+			t.Errorf("filter leaked: LibID = %q", r.LibID)
+		}
+		seen[r.Version] = true
+	}
+	if !seen["v1.14"] || !seen["v1.13"] {
+		t.Errorf("expected both versions, got %v", seen)
+	}
+}
+
+// TestSearchByEmbedding_FiltersByLibAndVersion pins the two-arg
+// filter path: when both lib and version are supplied, only the
+// matching (lib_id, version) rows come back.
+func TestSearchByEmbedding_FiltersByLibAndVersion(t *testing.T) {
+	d := openTestDB(t)
+
+	docs := []db.Doc{
+		{LibID: "/foo/tf", Version: "v1.14", Title: "tf install", Content: "install in v1.14"},
+		{LibID: "/foo/tf", Version: "v1.13", Title: "tf install", Content: "install in v1.13"},
+	}
+	for _, doc := range docs {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+	}
+
+	qv, err := testEmbedder.EmbedQuery("install")
+	if err != nil {
+		t.Fatalf("Embed query: %v", err)
+	}
+	results, err := db.SearchByEmbedding(d, qv, "/foo/tf", "v1.14", 10)
+	if err != nil {
+		t.Fatalf("SearchByEmbedding: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (v1.14 only)", len(results))
+	}
+	if results[0].Version != "v1.14" {
+		t.Errorf("Version = %q, want v1.14", results[0].Version)
 	}
 }
 
@@ -331,14 +403,14 @@ func TestUpsertLibIfNew_Idempotent(t *testing.T) {
 	d := openTestDB(t)
 	c := &countingEmbedder{inner: testEmbedder}
 
-	if err := db.UpsertLibIfNew(d, "/facebook/react", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/facebook/react", "", c); err != nil {
 		t.Fatalf("first UpsertLibIfNew: %v", err)
 	}
 	if c.calls != 1 {
 		t.Fatalf("after first upsert: Embed called %d time(s), want 1", c.calls)
 	}
 
-	if err := db.UpsertLibIfNew(d, "/facebook/react", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/facebook/react", "", c); err != nil {
 		t.Fatalf("second UpsertLibIfNew: %v", err)
 	}
 	if c.calls != 1 {
@@ -348,11 +420,48 @@ func TestUpsertLibIfNew_Idempotent(t *testing.T) {
 	// And a sanity check: a *different* lib_id does trigger a fresh Embed
 	// call. This catches the failure mode where UpsertLibIfNew gets
 	// over-eager and short-circuits on any non-empty libs table.
-	if err := db.UpsertLibIfNew(d, "/vercel/next.js", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/vercel/next.js", "", c); err != nil {
 		t.Fatalf("upsert second lib: %v", err)
 	}
 	if c.calls != 2 {
 		t.Errorf("after upserting a second lib: Embed called %d time(s), want 2", c.calls)
+	}
+}
+
+// TestUpsertLibIfNew_AllowsSameLibDifferentVersion pins the #113
+// "(lib_id, version) is the primary key" promise: two rows with the
+// same lib_id and different versions must coexist, and each pair
+// gets exactly one EmbedDocument call.
+func TestUpsertLibIfNew_AllowsSameLibDifferentVersion(t *testing.T) {
+	d := openTestDB(t)
+	c := &countingEmbedder{inner: testEmbedder}
+
+	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.14", c); err != nil {
+		t.Fatalf("upsert v1.14: %v", err)
+	}
+	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.13", c); err != nil {
+		t.Fatalf("upsert v1.13: %v", err)
+	}
+	// Two distinct (lib_id, version) pairs → two embed calls.
+	if c.calls != 2 {
+		t.Errorf("Embed called %d time(s), want 2 (one per version)", c.calls)
+	}
+
+	var count int
+	if err := d.QueryRow(`SELECT count(*) FROM libs WHERE lib_id = ?`, "/hashicorp/terraform").Scan(&count); err != nil {
+		t.Fatalf("count libs: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("libs rows for /hashicorp/terraform = %d, want 2", count)
+	}
+
+	// And the re-upsert of an existing pair is still idempotent (no
+	// extra embed call).
+	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.14", c); err != nil {
+		t.Fatalf("re-upsert v1.14: %v", err)
+	}
+	if c.calls != 2 {
+		t.Errorf("after re-upsert: Embed called %d time(s), want 2", c.calls)
 	}
 }
 
@@ -364,12 +473,12 @@ func TestUpdateLibCount_UpdatesRightRow(t *testing.T) {
 	d := openTestDB(t)
 
 	for _, libID := range []string{"/a/one", "/b/two"} {
-		if err := db.UpsertLibIfNew(d, libID, testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, libID, "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", libID, err)
 		}
 	}
 
-	if err := db.UpdateLibCount(d, "/a/one", 42); err != nil {
+	if err := db.UpdateLibCount(d, "/a/one", "", 42); err != nil {
 		t.Fatalf("UpdateLibCount: %v", err)
 	}
 
@@ -407,7 +516,7 @@ func TestSearchLibsByEmbedding_RanksRelevantFirst(t *testing.T) {
 		"/expressjs/express",
 	}
 	for _, libID := range libs {
-		if err := db.UpsertLibIfNew(d, libID, testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, libID, "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", libID, err)
 		}
 	}
@@ -439,7 +548,7 @@ func TestSearchLibsByEmbedding_HonoursLimit(t *testing.T) {
 	d := openTestDB(t)
 
 	for _, libID := range []string{"/a/one", "/b/two", "/c/three"} {
-		if err := db.UpsertLibIfNew(d, libID, testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, libID, "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", libID, err)
 		}
 	}
@@ -474,10 +583,10 @@ func TestTopLibsByDocCount_OrdersDescending(t *testing.T) {
 		{"/medium/lib", 25},
 	}
 	for _, l := range libs {
-		if err := db.UpsertLibIfNew(d, l.id, testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, l.id, "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", l.id, err)
 		}
-		if err := db.UpdateLibCount(d, l.id, l.count); err != nil {
+		if err := db.UpdateLibCount(d, l.id, "", l.count); err != nil {
 			t.Fatalf("UpdateLibCount %q: %v", l.id, err)
 		}
 	}

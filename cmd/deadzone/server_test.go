@@ -119,6 +119,76 @@ func TestHandleSearchDocs_ReturnsSnippets(t *testing.T) {
 	})
 }
 
+// TestHandleSearchDocs_VersionRequiresLibID pins the usage-error
+// guard: passing version without lib_id is rejected before any
+// embed/query work.
+func TestHandleSearchDocs_VersionRequiresLibID(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"), db.Meta{
+		EmbedderKind: testEmbedder.Kind(),
+		EmbeddingDim: testEmbedder.Dim(),
+		ModelVersion: testEmbedder.ModelVersion(),
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+	handler := makeSearchHandler(d, testEmbedder, false)
+
+	_, _, err = handler(context.Background(), &mcp.CallToolRequest{}, SearchDocsInput{
+		Query:   "anything",
+		Version: "v1.14",
+	})
+	if err == nil {
+		t.Fatal("expected error for version without lib_id, got nil")
+	}
+}
+
+// TestHandleSearchDocs_VersionFiltersAndSurfaces seeds two versions of
+// the same lib_id and asserts the filtered query returns only that
+// version's snippets AND that each snippet carries the version in the
+// Snippet.Version field the LLM sees.
+func TestHandleSearchDocs_VersionFiltersAndSurfaces(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"), db.Meta{
+		EmbedderKind: testEmbedder.Kind(),
+		EmbeddingDim: testEmbedder.Dim(),
+		ModelVersion: testEmbedder.ModelVersion(),
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+
+	docs := []db.Doc{
+		{LibID: "/hashicorp/terraform", Version: "v1.14", Title: "tf v1.14 intro", Content: "v1.14 install instructions"},
+		{LibID: "/hashicorp/terraform", Version: "v1.13", Title: "tf v1.13 intro", Content: "v1.13 install instructions"},
+	}
+	for _, doc := range docs {
+		vec, err := testEmbedder.EmbedDocument(doc.Title + "\n" + doc.Content)
+		if err != nil {
+			t.Fatalf("Embed %q: %v", doc.Title, err)
+		}
+		if err := db.Insert(d, doc, vec); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+	}
+
+	handler := makeSearchHandler(d, testEmbedder, false)
+	_, out, err := handler(context.Background(), &mcp.CallToolRequest{}, SearchDocsInput{
+		Query:   "install",
+		LibID:   "/hashicorp/terraform",
+		Version: "v1.14",
+	})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if len(out.Snippets) != 1 {
+		t.Fatalf("got %d snippets, want 1", len(out.Snippets))
+	}
+	if out.Snippets[0].Version != "v1.14" {
+		t.Errorf("snippet Version = %q, want v1.14", out.Snippets[0].Version)
+	}
+}
+
 // TestHandleSearchLibraries exercises the search_libraries handler end
 // to end against a hand-seeded libs catalog. The corpus is intentionally
 // small but heterogeneous (different doc_counts, different topics) so
@@ -145,10 +215,10 @@ func TestHandleSearchLibraries(t *testing.T) {
 		{"/expressjs/express", 75},
 	}
 	for _, l := range libs {
-		if err := db.UpsertLibIfNew(d, l.id, testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, l.id, "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", l.id, err)
 		}
-		if err := db.UpdateLibCount(d, l.id, l.count); err != nil {
+		if err := db.UpdateLibCount(d, l.id, "", l.count); err != nil {
 			t.Fatalf("UpdateLibCount %q: %v", l.id, err)
 		}
 	}
