@@ -1,0 +1,25 @@
+name: Refresh a library
+description: Ask for an existing indexed library to be re-scraped (e.g. upstream docs changed)
+title: "registry: refresh /<org>/<project>"
+body:
+  - type: input
+    id: lib_id
+    attributes:
+      label: lib_id
+      description: The existing lib_id to refresh. Must already be in libraries_sources.yaml.
+      placeholder: /hashicorp/terraform
+    validations:
+      required: true
+  - type: input
+    id: new_ref
+    attributes:
+      label: New upstream ref (optional)
+      description: If the refresh is to bump a pinned ref (see #103), give the new tag or SHA. Leave blank for a straight re-scrape of the current ref.
+      placeholder: v1.15.0
+  - type: textarea
+    id: reason
+    attributes:
+      label: Reason
+      description: What changed upstream? New docs section, bug fix in existing doc, stale content, etc.
+    validations:
+      required: true
