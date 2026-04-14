@@ -30,11 +30,12 @@ Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/c
 Deadzone exposes two MCP tools to clients (Claude Code, Cursor, etc.):
 
 ```
-search_docs(query, lib_id?, tokens?) → []Snippet
+search_docs(query, lib_id?, version?, tokens?) → []Snippet
 ```
 
 - `query` — natural-language search query (matched semantically against the indexed docs)
 - `lib_id` — optional `/org/project` filter (e.g. `/modelcontextprotocol/go-sdk`)
+- `version` — optional version pin (e.g. `"1.14"`); requires `lib_id`. Omit to search across every indexed version of the lib; `version` alone is rejected.
 - `tokens` — response budget, default 5000, min 1000 (`~4 chars/token`)
 
 ```
@@ -43,9 +44,9 @@ search_libraries(name, limit?) → []LibraryHit
 
 - `name` — free-text library name to resolve (e.g. `"terraform aws"`); empty returns the most-indexed libraries by `doc_count`
 - `limit` — max results, default 10, max 50
-- Each `LibraryHit` carries `lib_id`, `doc_count`, and a `match_score` in `[0, 1]` (1.0 = closest cosine match) so the LLM can pick a single canonical id or surface multiple candidates to the user.
+- Each `LibraryHit` carries `lib_id`, `version` (empty for unversioned libs), `doc_count`, and a `match_score` in `[0, 1]` (1.0 = closest cosine match). One entry per indexed `(lib_id, version)` pair — group by `lib_id` on the client to see all versions of the same library.
 
-`search_libraries` is the resolver step: a free-text query like `"react"` is matched against a dedicated `libs` vector table and returns ranked canonical `lib_id` values. Pass one of those into `search_docs` to get the actual snippets.
+`search_libraries` is the resolver step: a free-text query like `"react"` is matched against a dedicated `libs` vector table and returns ranked canonical `(lib_id, version)` pairs. Pass the `lib_id` (and optionally `version`) into `search_docs` to get the actual snippets.
 
 Documentation is fetched by the `deadzone scrape` subcommand, embedded into vectors, and stored in a local Turso database file.
 
