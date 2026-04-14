@@ -26,12 +26,11 @@ Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/c
 Deadzone exposes two MCP tools to clients (Claude Code, Cursor, etc.):
 
 ```
-search_docs(query, lib_id?, topic?, tokens?) → []Snippet
+search_docs(query, lib_id?, tokens?) → []Snippet
 ```
 
 - `query` — natural-language search query (matched semantically against the indexed docs)
 - `lib_id` — optional `/org/project` filter (e.g. `/modelcontextprotocol/go-sdk`)
-- `topic` — optional section filter (not yet implemented)
 - `tokens` — response budget, default 5000, min 1000 (`~4 chars/token`)
 
 ```
