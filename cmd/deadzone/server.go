@@ -20,7 +20,6 @@ import (
 type SearchDocsInput struct {
 	Query  string `json:"query" jsonschema:"the search query"`
 	LibID  string `json:"lib_id,omitempty" jsonschema:"library ID in /org/project format (optional)"`
-	Topic  string `json:"topic,omitempty" jsonschema:"topic or section to focus on (optional)"`
 	Tokens int    `json:"tokens,omitempty" jsonschema:"max tokens to return, min 1000, default 5000 (optional)"`
 }
 
