@@ -318,7 +318,7 @@ func scrapeLibToArtifact(
 	meta db.Meta,
 	artifactsDir string,
 	src scraper.ResolvedSource,
-) (int, int, error) {
+) (docsTotal int, skippedThisLib int, err error) {
 	artifactDir := packs.ArtifactDir(artifactsDir, src.LibID, src.Version)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return 0, 0, fmt.Errorf("create artifact dir %s: %w", artifactDir, err)
@@ -382,13 +382,34 @@ func scrapeLibToArtifact(
 	// filled in at the end of this function once we know the real
 	// number. Each ResolvedSource covers exactly one (lib_id, version)
 	// slot so a single upsert per source is the correct grain.
-	if err := db.UpsertLibIfNew(d, src.LibID, src.Version, e); err != nil {
-		return 0, 0, fmt.Errorf("upsert lib %q version %q: %w", src.LibID, src.Version, err)
+	if upsertErr := db.UpsertLibIfNew(d, src.LibID, src.Version, e); upsertErr != nil {
+		return 0, 0, fmt.Errorf("upsert lib %q version %q: %w", src.LibID, src.Version, upsertErr)
 	}
 
+	// Deferred so libs.doc_count reflects what actually landed in the
+	// docs table even if the URL loop aborts mid-way (#65). The named
+	// docsTotal return captures the running total at defer time;
+	// LIFO ordering puts this before defer d.Close() so the Exec still
+	// runs against an open handle. Never clobbers a non-nil err from
+	// the loop — the update failure is logged and only promoted to the
+	// returned error when the scrape would otherwise have succeeded.
+	defer func() {
+		updateErr := db.UpdateLibCount(d, src.LibID, src.Version, docsTotal)
+		if updateErr == nil {
+			return
+		}
+		slog.Error("scraper.update_lib_count_failed",
+			"lib_id", src.LibID,
+			"version", src.Version,
+			"docs_total", docsTotal,
+			"err", updateErr.Error(),
+		)
+		if err == nil {
+			err = fmt.Errorf("update lib count %q version %q: %w", src.LibID, src.Version, updateErr)
+		}
+	}()
+
 	libStart := time.Now()
-	var docsTotal int
-	var skippedThisLib int
 
 	for _, u := range src.URLs {
 		// Per-URL fetch — split out from the embed/insert loop so the
@@ -532,27 +553,16 @@ func scrapeLibToArtifact(
 		docsTotal += docsInserted
 	}
 
-	// Update the libs catalog with the final indexed doc count so
-	// search_libraries can rank by "how well-indexed is this lib".
-	// Each artifact is rebuilt from scratch, so docsTotal is the
-	// absolute row count for the lib in this artifact — no append-
-	// vs-replace ambiguity.
-	if err := db.UpdateLibCount(d, src.LibID, src.Version, docsTotal); err != nil {
-		slog.Error("scraper.update_lib_count_failed",
-			"lib_id", src.LibID,
-			"version", src.Version,
-			"docs_total", docsTotal,
-			"err", err.Error(),
-		)
-		return docsTotal, skippedThisLib, fmt.Errorf("update lib count %q version %q: %w", src.LibID, src.Version, err)
-	}
-
-	// Write the `.state` sidecar AFTER the `.db` is committed and the
-	// libs catalog row is updated, so a failure mid-scrape leaves any
-	// pre-existing sidecar intact (operators can re-run the scrape to
-	// regenerate both). `created_at` is preserved from the sidecar we
-	// read before the wipe; absent or zero on the first scrape, in
-	// which case it is seeded from `now` below.
+	// Write the `.state` sidecar once the docs table is fully populated;
+	// the libs catalog row is updated by the deferred UpdateLibCount
+	// installed earlier in this function (see #65), which runs just
+	// before `d.Close()` on every exit path. Reaching this point means
+	// the URL loop completed without a fatal error, so writing the
+	// sidecar here reflects a fully successful scrape — a mid-scrape
+	// abort returns above and leaves any pre-existing sidecar intact.
+	// `created_at` is preserved from the sidecar we read before the
+	// wipe; absent or zero on the first scrape, in which case it is
+	// seeded from `now` below.
 	now := time.Now().UTC()
 	state := &packs.StateFile{
 		LibID:         src.LibID,
