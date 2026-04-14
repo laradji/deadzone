@@ -28,6 +28,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 			Model: "nomic-ai/nomic-embed-text-v1.5",
 			Dim:   768,
 		},
+		Ref:       "v1.2.3",
 		CreatedAt: created,
 		UpdatedAt: updated,
 		URLCount:  6,
@@ -61,6 +62,9 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	}
 	if got.DocCount != want.DocCount {
 		t.Errorf("DocCount = %d, want %d", got.DocCount, want.DocCount)
+	}
+	if got.Ref != want.Ref {
+		t.Errorf("Ref = %q, want %q", got.Ref, want.Ref)
 	}
 }
 

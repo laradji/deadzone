@@ -59,8 +59,8 @@ libraries:
 	if cfg.Libraries[1].LibID != "/facebook/react" {
 		t.Errorf("libraries[1].LibID = %q", cfg.Libraries[1].LibID)
 	}
-	if got := cfg.Libraries[1].Versions; len(got) != 2 || got[0] != "v18" || got[1] != "v19" {
-		t.Errorf("libraries[1].Versions = %v, want [v18 v19]", got)
+	if got := cfg.Libraries[1].Versions; len(got) != 2 || got[0].Name != "v18" || got[1].Name != "v19" {
+		t.Errorf("libraries[1].Versions = %v, want [{v18} {v19}]", got)
 	}
 }
 
@@ -340,7 +340,7 @@ func TestExpand_MultiVersionExpandsAndSubstitutes(t *testing.T) {
 	src := scraper.LibrarySource{
 		LibID:    "/facebook/react",
 		Kind:     "github-md",
-		Versions: []string{"v18", "v19"},
+		Versions: []scraper.VersionEntry{{Name: "v18"}, {Name: "v19"}},
 		URLs: []string{
 			"https://raw.githubusercontent.com/facebook/react/{version}/README.md",
 			"https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md",
@@ -488,4 +488,202 @@ func mustLoadInline(t *testing.T, body string) *scraper.Config {
 		t.Fatalf("LoadConfig: %v", err)
 	}
 	return cfg
+}
+
+// --- {ref} pinning (#103) ---
+
+func TestLoadConfig_RefRules(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "single-version URL has {ref} but ref is unset",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    urls:
+      - https://example.com/{ref}/a.md
+`,
+			want: "ref is not set",
+		},
+		{
+			name: "multi-version URL has {ref} but no ref anywhere",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions: [v1, v2]
+    urls:
+      - https://example.com/{version}/{ref}/a.md
+`,
+			want: "neither versions",
+		},
+		{
+			name: "ref contains whitespace",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    ref: "v1 0"
+    urls:
+      - https://example.com/{ref}/a.md
+`,
+			want: "whitespace",
+		},
+		{
+			name: "per-version ref contains whitespace",
+			yaml: `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions:
+      v1: { ref: "tag with space" }
+    urls:
+      - https://example.com/{version}/{ref}/a.md
+`,
+			want: "whitespace",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, tc.yaml)
+			_, err := scraper.LoadConfig(path)
+			if err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_RefSetButURLHasNoPlaceholderIsAllowed(t *testing.T) {
+	// Back-compat: a lib may declare ref: for documentation/future use
+	// even if no URL substitutes it yet. The scraper does not error.
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    ref: v1.0.0
+    urls:
+      - https://example.com/main/a.md
+`)
+	got := cfg.Resolve("")
+	if len(got) != 1 {
+		t.Fatalf("Resolve returned %d, want 1", len(got))
+	}
+	if got[0].Ref != "v1.0.0" {
+		t.Errorf("ResolvedSource.Ref = %q, want v1.0.0", got[0].Ref)
+	}
+	if got[0].URLs[0] != "https://example.com/main/a.md" {
+		t.Errorf("URL was rewritten unexpectedly: %q", got[0].URLs[0])
+	}
+}
+
+func TestExpand_SingleVersionSubstitutesRef(t *testing.T) {
+	src := scraper.LibrarySource{
+		LibID: "/python/cpython",
+		Kind:  scraper.KindGithubRST,
+		Ref:   "v3.13.1",
+		URLs: []string{
+			"https://raw.githubusercontent.com/python/cpython/{ref}/Doc/library/os.rst",
+			"https://raw.githubusercontent.com/python/cpython/{ref}/Doc/library/sys.rst",
+		},
+	}
+	out := src.Expand()
+	if len(out) != 1 {
+		t.Fatalf("Expand returned %d, want 1", len(out))
+	}
+	r := out[0]
+	if r.Ref != "v3.13.1" {
+		t.Errorf("Ref = %q, want v3.13.1", r.Ref)
+	}
+	want := []string{
+		"https://raw.githubusercontent.com/python/cpython/v3.13.1/Doc/library/os.rst",
+		"https://raw.githubusercontent.com/python/cpython/v3.13.1/Doc/library/sys.rst",
+	}
+	for i, u := range want {
+		if r.URLs[i] != u {
+			t.Errorf("URLs[%d] = %q, want %q", i, r.URLs[i], u)
+		}
+	}
+}
+
+func TestLoadConfig_VersionsMapShape(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /hashicorp/terraform
+    kind: github-md
+    versions:
+      v1.14: { ref: v1.14.6 }
+      v1.13: { ref: v1.13.5 }
+    urls:
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/index.mdx
+`)
+	got := cfg.Resolve("")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	// Declaration order is preserved.
+	want := []struct {
+		libID string
+		ref   string
+		url   string
+	}{
+		{
+			libID: "/hashicorp/terraform/v1.14",
+			ref:   "v1.14.6",
+			url:   "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.14.6/content/terraform/v1.14.x/docs/intro/index.mdx",
+		},
+		{
+			libID: "/hashicorp/terraform/v1.13",
+			ref:   "v1.13.5",
+			url:   "https://raw.githubusercontent.com/hashicorp/web-unified-docs/v1.13.5/content/terraform/v1.13.x/docs/intro/index.mdx",
+		},
+	}
+	for i, w := range want {
+		if got[i].LibID != w.libID {
+			t.Errorf("[%d].LibID = %q, want %q", i, got[i].LibID, w.libID)
+		}
+		if got[i].Ref != w.ref {
+			t.Errorf("[%d].Ref = %q, want %q", i, got[i].Ref, w.ref)
+		}
+		if got[i].URLs[0] != w.url {
+			t.Errorf("[%d].URLs[0] = %q, want %q", i, got[i].URLs[0], w.url)
+		}
+	}
+}
+
+func TestLoadConfig_VersionsMapShape_PerVersionRefOverridesTopLevel(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    ref: fallback-ref
+    versions:
+      v1: { ref: per-version-ref }
+      v2: {}
+    urls:
+      - https://example.com/{version}/{ref}/a.md
+`)
+	got := cfg.Resolve("")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	if got[0].Ref != "per-version-ref" {
+		t.Errorf("v1 Ref = %q, want per-version-ref", got[0].Ref)
+	}
+	if got[1].Ref != "fallback-ref" {
+		t.Errorf("v2 Ref = %q, want fallback-ref (top-level fallback)", got[1].Ref)
+	}
+	if got[0].URLs[0] != "https://example.com/v1/per-version-ref/a.md" {
+		t.Errorf("v1 URL = %q", got[0].URLs[0])
+	}
+	if got[1].URLs[0] != "https://example.com/v2/fallback-ref/a.md" {
+		t.Errorf("v2 URL = %q", got[1].URLs[0])
+	}
 }

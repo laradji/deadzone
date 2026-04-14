@@ -349,6 +349,7 @@ func scrapeLibToArtifact(
 		"base_lib_id", src.BaseLibID,
 		"version", src.Version,
 		"kind", src.Kind,
+		"ref", src.Ref,
 		"url_count", len(src.URLs),
 		"artifact_path", artifactPath,
 	)
@@ -528,6 +529,7 @@ func scrapeLibToArtifact(
 			Model: e.ModelVersion(),
 			Dim:   e.Dim(),
 		},
+		Ref:       src.Ref,
 		CreatedAt: now,
 		UpdatedAt: now,
 		URLCount:  len(src.URLs),
@@ -542,6 +544,7 @@ func scrapeLibToArtifact(
 
 	slog.Info("scraper.lib_done",
 		"lib_id", src.LibID,
+		"ref", src.Ref,
 		"docs_total", docsTotal,
 		"duration_ms", time.Since(libStart).Milliseconds(),
 		"artifact_path", artifactPath,

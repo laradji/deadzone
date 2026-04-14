@@ -282,6 +282,14 @@ libraries:
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/README.md
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
 
+  # Single-version lib pinned to a git tag for reproducible scrapes —
+  # `{ref}` in any URL is substituted with the lib's `ref:` value.
+  - lib_id: /python/cpython
+    kind: github-rst
+    ref: v3.13.1
+    urls:
+      - https://raw.githubusercontent.com/python/cpython/{ref}/Doc/library/os.rst
+
   # Multi-version lib — `versions` expands `{version}` in each URL,
   # producing one effective lib_id per version (`/facebook/react/v18`,
   # `/facebook/react/v19`, …) — matches Context7's `/org/project/version`
@@ -292,14 +300,25 @@ libraries:
     urls:
       - https://raw.githubusercontent.com/facebook/react/{version}/README.md
       - https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md
+
+  # Multi-version lib with a per-version git pin (map shorthand) — each
+  # version gets its own `ref:` substituted into URLs alongside `{version}`.
+  - lib_id: /hashicorp/terraform
+    kind: github-md
+    versions:
+      v1.14: { ref: v1.14.6 }
+      v1.13: { ref: v1.13.5 }
+    urls:
+      - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/{version}.x/docs/intro/index.mdx
 ```
 
 | Field | Required | Purpose |
 |---|---|---|
 | `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
 | `kind` | yes | source kind discriminator — `github-md` for raw markdown, `github-rst` for raw reStructuredText (cpython, Django, NumPy, …), `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
-| `urls` | yes | list of doc URLs (with optional `{version}` placeholder) |
-| `versions` | no | list of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version |
+| `urls` | yes | list of doc URLs (with optional `{version}` and/or `{ref}` placeholders) |
+| `versions` | no | list `[v1, v2]` or map `{v1: {ref: tag1}, …}` of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version. The map form pins each version to its own git ref. |
+| `ref` | no | git tag or commit SHA substituted into `{ref}` in `urls` (#103). For multi-version libs, a per-version ref in the `versions:` map overrides this top-level ref. URLs that don't contain `{ref}` are left untouched, so a lib can opt into pinning incrementally. |
 
 Adding a new library means adding a YAML entry — no Go editing, no recompile.
 

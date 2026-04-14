@@ -228,9 +228,14 @@ No metadata. No lifecycle. No sharing model. **Just enough to lift Deadzone out 
 - **Migration cost is bounded** at the current corpus size. The minute the corpus grows, the cost of switching schemas grows with it — but at 1-10 libs, conversion is a script.
 - **Composable with the other decisions**: the 4-field schema is exactly what `deadzone scrape -lib X` and `deadzone scrape -config Y` need to do per-lib filtering and per-lib artifact production.
 
+### Reproducibility hook (#103)
+
+The schema gained a fifth optional field, `ref:`, in #103: a git tag or commit SHA that gets substituted into the literal `{ref}` placeholder in URLs at config-resolve time. Without it, every URL points at an unpinned `main`/`master` branch and the resulting `deadzone.db` drifts silently between rebuilds even when the registry and code haven't changed. With it, two operators on the same registry pin produce byte-identical artifacts. Per-version refs (map shorthand for `versions:`) keep multi-version libs reproducible too. The field is opt-in per lib so the schema stays minimal — URLs without `{ref}` are passed through unchanged. The resolved ref is recorded in each artifact's `state.yaml` sidecar so an operator can see what was actually scraped.
+
 ### Trace
 
 - Designed in #51, merged in #54
+- Reproducibility pin added in #103
 - The long-term registry research lives in #52 (open, post-mvp)
 
 ### Holds at scale
