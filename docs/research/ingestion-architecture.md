@@ -212,10 +212,10 @@ Before #51, the scraper hardcoded a single library and its URLs as Go constants 
   kind: github-md                          # source kind discriminator
   urls:                                    # required: list of doc URLs
     - https://...
-  versions: []                             # optional: shorthand for multi-version libs
+  versions: {}                             # optional: map of multi-version tags
 ```
 
-The `versions: []` shorthand expands `{version}` placeholders in URLs and produces one effective `lib_id` per version (matching Context7's `/org/project/version` convention). Opt-in via `-config <file>` flag, with a two-level `-lib` filter:
+The `versions:` map expands `{version}` placeholders in URLs and produces one effective `lib_id` per version (matching Context7's `/org/project/version` convention). Opt-in via `-config <file>` flag, with a two-level `-lib` filter:
 
 - `-lib /org/project` matches every expanded version
 - `-lib /org/project/v18` matches one specific expanded version

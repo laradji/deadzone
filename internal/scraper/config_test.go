@@ -32,7 +32,9 @@ libraries:
       - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
   - lib_id: /facebook/react
     kind: github-md
-    versions: [v18, v19]
+    versions:
+      v18: {}
+      v19: {}
     urls:
       - https://raw.githubusercontent.com/facebook/react/{version}/README.md
       - https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md
@@ -224,7 +226,9 @@ func TestLoadConfig_VersionsRules(t *testing.T) {
 libraries:
   - lib_id: /org/project
     kind: github-md
-    versions: [v1, v2]
+    versions:
+      v1: {}
+      v2: {}
     urls:
       - https://example.com/{version}/a.md
       - https://example.com/main/b.md
@@ -248,7 +252,8 @@ libraries:
 libraries:
   - lib_id: /org/project
     kind: github-md
-    versions: ["v1/foo"]
+    versions:
+      "v1/foo": {}
     urls:
       - https://example.com/{version}/a.md
 `,
@@ -260,7 +265,8 @@ libraries:
 libraries:
   - lib_id: /org/project
     kind: github-md
-    versions: ["v 1"]
+    versions:
+      "v 1": {}
     urls:
       - https://example.com/{version}/a.md
 `,
@@ -272,7 +278,8 @@ libraries:
 libraries:
   - lib_id: /org/project
     kind: github-md
-    versions: ["{version}"]
+    versions:
+      "{version}": {}
     urls:
       - https://example.com/{version}/a.md
 `,
@@ -284,7 +291,8 @@ libraries:
 libraries:
   - lib_id: /org/project
     kind: github-md
-    versions: [""]
+    versions:
+      "": {}
     urls:
       - https://example.com/{version}/a.md
 `,
@@ -302,6 +310,27 @@ libraries:
 				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+// TestLoadConfig_VersionsListShapeRejected pins #117: the legacy list
+// form `versions: [v1, v2]` is rejected at parse time with a message
+// that points at the supported map form.
+func TestLoadConfig_VersionsListShapeRejected(t *testing.T) {
+	path := writeConfig(t, `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions: [v1, v2]
+    urls:
+      - https://example.com/{version}/a.md
+`)
+	_, err := scraper.LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected error for list-shape versions, got nil")
+	}
+	if !strings.Contains(err.Error(), "list form is no longer supported") {
+		t.Errorf("error %q does not contain %q", err.Error(), "list form is no longer supported")
 	}
 }
 
@@ -405,7 +434,9 @@ libraries:
       - https://example.com/go-sdk/README.md
   - lib_id: /facebook/react
     kind: github-md
-    versions: [v18, v19]
+    versions:
+      v18: {}
+      v19: {}
     urls:
       - https://example.com/react/{version}/README.md
 `)
@@ -431,7 +462,9 @@ func TestResolve_FilterByLibAndVersion(t *testing.T) {
 libraries:
   - lib_id: /facebook/react
     kind: github-md
-    versions: [v18, v19]
+    versions:
+      v18: {}
+      v19: {}
     urls:
       - https://example.com/react/{version}/README.md
 `)
@@ -489,7 +522,9 @@ func TestResolve_VersionFilterWithoutMatchingVersion(t *testing.T) {
 libraries:
   - lib_id: /facebook/react
     kind: github-md
-    versions: [v18, v19]
+    versions:
+      v18: {}
+      v19: {}
     urls:
       - https://example.com/react/{version}/README.md
 `)
@@ -508,7 +543,9 @@ func TestResolve_MultiVersionLibIDStaysBase(t *testing.T) {
 libraries:
   - lib_id: /hashicorp/terraform
     kind: github-md
-    versions: [v1.14, v1.13]
+    versions:
+      v1.14: {}
+      v1.13: {}
     urls:
       - https://example.com/tf/{version}/README.md
 `)
@@ -567,7 +604,9 @@ libraries:
 libraries:
   - lib_id: /org/project
     kind: github-md
-    versions: [v1, v2]
+    versions:
+      v1: {}
+      v2: {}
     urls:
       - https://example.com/{version}/{ref}/a.md
 `,

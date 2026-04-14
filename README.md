@@ -293,10 +293,13 @@ libraries:
   # Multi-version lib — `versions` expands `{version}` in each URL,
   # producing one effective lib_id per version (`/facebook/react/v18`,
   # `/facebook/react/v19`, …) — matches Context7's `/org/project/version`
-  # convention.
+  # convention. Entries with no per-version overrides use the `{}` empty
+  # map; add `ref:` and/or `urls:` inside the map to override per version.
   - lib_id: /facebook/react
     kind: github-md
-    versions: [v18, v19]
+    versions:
+      v18: {}
+      v19: {}
     urls:
       - https://raw.githubusercontent.com/facebook/react/{version}/README.md
       - https://raw.githubusercontent.com/facebook/react/{version}/docs/getting-started.md
@@ -334,7 +337,7 @@ libraries:
 | `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
 | `kind` | yes | source kind discriminator — `github-md` for raw markdown, `github-rst` for raw reStructuredText (cpython, Django, NumPy, …), `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
 | `urls` | yes | list of doc URLs (with optional `{version}` and/or `{ref}` placeholders) |
-| `versions` | no | list `[v1, v2]` or map `{v1: {ref: tag1, urls: [...]}, …}` of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version. The map form accepts per-version `ref:` and per-version `urls:` overrides. |
+| `versions` | no | map `{v1: {ref: tag1, urls: [...]}, v2: {}, …}` of version tags; expands `{version}` in `urls` and produces one effective `lib_id` per version. Each value accepts optional per-version `ref:` and `urls:` overrides — use `{}` when a version has neither. The legacy list form `[v1, v2]` is rejected (see #117). |
 | `ref` | no | git tag or commit SHA substituted into `{ref}` in `urls` (#103). For multi-version libs, a per-version ref in the `versions:` map overrides this top-level ref. URLs that don't contain `{ref}` are left untouched, so a lib can opt into pinning incrementally. |
 | `versions[v].urls` | no | per-version URL list (#115). When set, replaces the top-level `urls:` for this version wholesale — use it when two versions of the same lib diverge structurally (a file added, renamed, or removed between versions). Omit the field to inherit the baseline; an explicit empty list is rejected. |
 
