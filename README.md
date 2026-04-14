@@ -439,6 +439,10 @@ Every subcommand emits structured JSON logs to **stderr** using `log/slog`. Stdo
 
 Tracked on the [GitHub issues board](https://github.com/laradji/deadzone/issues). Open issues are scoped via the `mvp`, `feature`, `research`, and `post-mvp` labels.
 
+## Contributing
+
+To request a new library or refresh an existing one, use the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick the matching form.
+
 ## License
 
 Deadzone is licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE) for the third-party attributions that ship with the binary.
