@@ -43,10 +43,15 @@ type StateFile struct {
 	LibID         string        `yaml:"lib_id"`
 	SchemaVersion int           `yaml:"schema_version"`
 	Embedder      EmbedderState `yaml:"embedder"`
-	CreatedAt     time.Time     `yaml:"created_at"`
-	UpdatedAt     time.Time     `yaml:"updated_at"`
-	URLCount      int           `yaml:"url_count"`
-	DocCount      int           `yaml:"doc_count"`
+	// Ref is the resolved upstream git tag or commit SHA the URLs were
+	// pinned to via the registry's `ref:` field (#103). Empty for libs
+	// that have not opted into pinning yet — back-compat with pre-#103
+	// state files.
+	Ref       string    `yaml:"ref,omitempty"`
+	CreatedAt time.Time `yaml:"created_at"`
+	UpdatedAt time.Time `yaml:"updated_at"`
+	URLCount  int       `yaml:"url_count"`
+	DocCount  int       `yaml:"doc_count"`
 }
 
 // EmbedderState mirrors the embedder identity triple the scraper also
