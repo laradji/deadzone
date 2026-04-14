@@ -2,11 +2,15 @@
 
 A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic search over third-party library documentation, indexed locally with [Turso](https://turso.tech) vector storage.
 
-> **Status:** early MVP. Vector search is wired end-to-end on a CGO-free
+> **Status:** `v0.1.0` released (2026-04-13); `0.2` milestone in flight.
+> Vector search is wired end-to-end on a
 > [tursogo](https://github.com/tursodatabase/turso/tree/main/bindings/go)
-> driver and a [hugot](https://github.com/knights-analytics/hugot) embedder
-> running [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
-> on the ONNX Runtime backend (CGO). Full
+> driver (pure-Go via purego) and a
+> [hugot](https://github.com/knights-analytics/hugot) embedder running
+> [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
+> on the ONNX Runtime backend. The binary is CGO-linked at build time;
+> at runtime the only native dependency is `libonnxruntime`, auto-fetched
+> and SHA256-verified on first launch. Full
 > [roadmap](https://github.com/laradji/deadzone/issues).
 
 Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
