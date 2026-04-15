@@ -1,0 +1,156 @@
+name: Build AppImage
+description: |
+  Repackage a per-platform deadzone tarball into an AppImage.
+  Reads the tarball from the working directory, produces
+  `deadzone_<version>_linux_<arch>.AppImage` as an output.
+
+  `AppImage/appimagetool` release `1.9.1` is pinned here instead of
+  the `continuous` tag; bumping it is a conscious step (same philosophy
+  as TOKENIZERS_VERSION in release.yml). The older `AppImage/AppImageKit`
+  repo is archived and all its release-13 assets have been renamed
+  `obsolete-*` — don't use them.
+
+inputs:
+  tarball:
+    description: Path (or glob) of the input tarball produced by the build job.
+    required: true
+  arch:
+    description: "`amd64` or `arm64` — matches the Linux build matrix."
+    required: true
+  icon:
+    description: Path to the 256x256 placeholder icon checked into the repo.
+    required: false
+    default: .github/assets/deadzone.png
+
+outputs:
+  appimage:
+    description: Path to the produced AppImage file.
+    value: ${{ steps.build.outputs.appimage }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install appimagetool
+      shell: bash
+      env:
+        APPIMAGE_ARCH: ${{ inputs.arch }}
+      run: |
+        set -euo pipefail
+        # AppImage/appimagetool release 1.9.1 is the active successor
+        # to the archived AppImageKit repo (whose release-13 assets are
+        # now prefixed `obsolete-*`). Both x86_64 and aarch64 AppImages
+        # are published per release. Pinning (vs the `continuous` tag)
+        # means a bump is an explicit commit.
+        case "${APPIMAGE_ARCH}" in
+          amd64) tool_arch="x86_64" ;;
+          arm64) tool_arch="aarch64" ;;
+          *) echo "unsupported arch: ${APPIMAGE_ARCH}" >&2; exit 1 ;;
+        esac
+        url="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-${tool_arch}.AppImage"
+        curl -fL -o /tmp/appimagetool "${url}"
+        chmod +x /tmp/appimagetool
+
+    - name: Install libfuse2
+      shell: bash
+      run: |
+        set -euo pipefail
+        # appimagetool is itself an AppImage and needs FUSE v2 to
+        # self-mount. Ubuntu 24.04 runners don't ship libfuse2 by
+        # default (FUSE v3 is the new default), so install it here.
+        # --appimage-extract-and-run would also work but costs an extra
+        # extract step per invocation.
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends libfuse2
+
+    - name: Assemble AppDir and build AppImage
+      id: build
+      shell: bash
+      env:
+        TARBALL_GLOB: ${{ inputs.tarball }}
+        APPIMAGE_ARCH: ${{ inputs.arch }}
+        ICON_PATH: ${{ inputs.icon }}
+      run: |
+        set -euo pipefail
+        # Resolve the tarball glob (download-artifact lands one file).
+        shopt -s nullglob
+        matches=( ${TARBALL_GLOB} )
+        if [[ ${#matches[@]} -ne 1 ]]; then
+          echo "::error::expected exactly 1 tarball matching '${TARBALL_GLOB}', got ${#matches[@]}"
+          printf '  %s\n' "${matches[@]}" >&2
+          exit 1
+        fi
+        tarball="${matches[0]}"
+
+        # Tarball naming: deadzone_<version>_linux_<arch>.tar.gz — the
+        # version segment is everything between `deadzone_` and
+        # `_linux_<arch>.tar.gz`, so peel both sides to recover it.
+        base="$(basename "${tarball}" .tar.gz)"
+        version="${base#deadzone_}"
+        version="${version%_linux_${APPIMAGE_ARCH}}"
+        if [[ -z "${version}" || "${version}" == "${base}" ]]; then
+          echo "::error::could not parse version from tarball name: ${base}" >&2
+          exit 1
+        fi
+
+        workdir="$(mktemp -d)"
+        tar -xzf "${tarball}" -C "${workdir}"
+        extracted="${workdir}/${base}"
+        if [[ ! -x "${extracted}/deadzone" ]]; then
+          echo "::error::extracted tarball missing executable deadzone binary" >&2
+          ls -la "${extracted}" >&2 || true
+          exit 1
+        fi
+
+        appdir="${workdir}/deadzone.AppDir"
+        mkdir -p "${appdir}/usr/bin"
+        cp "${extracted}/deadzone" "${appdir}/usr/bin/deadzone"
+        cp "${extracted}/LICENSE" "${extracted}/NOTICE" "${extracted}/README.md" "${appdir}/"
+
+        # AppRun wrapper. Explicitly steers DEADZONE_ORT_CACHE at the
+        # user's XDG cache dir — the AppImage payload is read-only at
+        # runtime (SquashFS mount), so letting the Go default land
+        # somewhere inside the mount would be a footgun. This matches
+        # internal/ort/ort.go's existing default, just lifted up so the
+        # contract is documented at the package boundary too.
+        cat > "${appdir}/AppRun" <<'APPRUN'
+        #!/bin/bash
+        set -e
+        HERE="$(dirname "$(readlink -f "$0")")"
+        export DEADZONE_ORT_CACHE="${DEADZONE_ORT_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/deadzone/ort}"
+        exec "${HERE}/usr/bin/deadzone" "$@"
+        APPRUN
+        chmod +x "${appdir}/AppRun"
+
+        # Minimal CLI .desktop file. Terminal=true tells launchers to
+        # spawn a terminal, but in practice deadzone is invoked from
+        # the shell or by an MCP client (stdio), so this is just spec
+        # compliance — not a desktop-integration feature.
+        cat > "${appdir}/deadzone.desktop" <<'DESKTOP'
+        [Desktop Entry]
+        Name=deadzone
+        Exec=deadzone
+        Icon=deadzone
+        Type=Application
+        Categories=Utility;Development;
+        Terminal=true
+        DESKTOP
+
+        # appimagetool looks for <AppName>.png (or .svg) at the AppDir
+        # root; a 256x256 placeholder is enough to satisfy validation.
+        cp "${GITHUB_WORKSPACE}/${ICON_PATH}" "${appdir}/deadzone.png"
+
+        output="deadzone_${version}_linux_${APPIMAGE_ARCH}.AppImage"
+        # ARCH env var is how appimagetool picks the embedded runtime;
+        # without it the tool guesses from the host, which is correct
+        # on the matrix but explicit is cheaper than debugging later.
+        case "${APPIMAGE_ARCH}" in
+          amd64) export ARCH="x86_64" ;;
+          arm64) export ARCH="aarch64" ;;
+        esac
+        # -n skips the GPG signing prompt (we don't sign yet; see #124
+        # out-of-scope). --no-appstream because this is a CLI with no
+        # AppStream metadata by design.
+        /tmp/appimagetool -n --no-appstream "${appdir}" "${output}"
+
+        ls -la "${output}"
+        echo "appimage=${output}" >> "$GITHUB_OUTPUT"
