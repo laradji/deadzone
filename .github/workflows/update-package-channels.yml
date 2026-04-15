@@ -27,16 +27,23 @@ jobs:
     runs-on: ubuntu-latest
     # Skip pre-releases (rc/beta/alpha) — Homebrew users expect stable.
     if: github.event.release.prerelease == false
+    env:
+      # Platform this job targets. Single source of truth — used to pick
+      # the matching sha256 out of checksums.txt AND to anchor the
+      # formula rewrite on the right `url` line. #106's Linux job sets
+      # its own ASSET_SUFFIX (e.g. _linux_amd64.tar.gz) and reuses the
+      # exact same step shape.
+      ASSET_SUFFIX: _darwin_arm64.tar.gz
     steps:
       - name: Checkout caller repo
         uses: actions/checkout@v5
 
-      - name: Extract darwin-arm64 sha256
+      - name: Extract platform sha256
         id: sha
         uses: ./.github/actions/extract-release-sha256
         with:
           checksums-url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/deadzone_${{ github.event.release.tag_name }}_checksums.txt
-          asset-suffix: _darwin_arm64.tar.gz
+          asset-suffix: ${{ env.ASSET_SUFFIX }}
 
       - name: Checkout tap repo
         uses: actions/checkout@v5
@@ -54,13 +61,28 @@ jobs:
           set -euo pipefail
           cd tap
           version="${TAG#v}"
-          # Single-platform formula: one `sha256` line at 6-space indent
-          # inside the on_arm do block. When Linux channels add more
-          # sha256 lines to this formula, this rewriter must become
-          # context-aware (anchor on the preceding url line, or switch
-          # to a Ruby-aware rewriter). See #106.
-          sed -i -E "s|^(  version \")[^\"]+(\")|\1${version}\2|"             Formula/deadzone.rb
-          sed -i -E "s|^(      sha256 \")[0-9a-f]+(\")|\1${SHA256}\2|"        Formula/deadzone.rb
+          # Escape regex metacharacters in ASSET_SUFFIX so it can safely
+          # anchor a sed address (the `.` in `.tar.gz` is the main concern;
+          # the full set covers any suffix shape a future channel picks).
+          suffix_re="$(printf '%s' "$ASSET_SUFFIX" | sed -e 's|[]/$*.^[]|\\&|g')"
+          # Version: single `version "..."` declaration at 2-space indent,
+          # unambiguous across platforms.
+          sed -i -E "s|^(  version \")[^\"]+(\")|\1${version}\2|" Formula/deadzone.rb
+          # sha256: anchor on the `url` line whose asset name ends with
+          # the platform suffix, then rewrite the `sha256` line immediately
+          # below (sed `n` advances pattern space). Platform-scoped — safe
+          # when the formula grows more platforms (#106's Linux block will
+          # carry its own `url`/`sha256` pair rewritten by its own job).
+          sed -i -E "/${suffix_re}/{n;s|^([[:space:]]+sha256 \")[0-9a-f]+(\")|\1${SHA256}\2|;}" Formula/deadzone.rb
+          # Verify the rewrite actually landed. Protects against a silent
+          # no-op if ASSET_SUFFIX drifts from the formula's url naming, or
+          # if the formula layout changes in a way that breaks the anchor —
+          # better to fail the release bump than push a stale sha256.
+          if ! grep -qF "sha256 \"${SHA256}\"" Formula/deadzone.rb; then
+            echo "::error::sha256 rewrite failed — expected hash not present in Formula/deadzone.rb after rewrite (ASSET_SUFFIX=${ASSET_SUFFIX})"
+            git --no-pager diff -- Formula/deadzone.rb
+            exit 1
+          fi
           git --no-pager diff -- Formula/deadzone.rb
 
       - name: Commit and push
