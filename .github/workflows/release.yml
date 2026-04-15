@@ -189,9 +189,76 @@ jobs:
             -artifacts ./empty-artifacts \
             -db /tmp/deadzone-smoke.db
 
+  # Repackages each Linux tarball into an AppImage via the
+  # .github/actions/build-appimage composite. Runs after `smoke` so a
+  # broken tarball can't silently produce a broken AppImage (the tarball
+  # smoke is the cheaper canary). AppImage smoke (FUSE mount + ORT
+  # bootstrap) is inlined at the end of this job because the runner
+  # already has the AppImage on disk and libfuse2 installed via the
+  # composite — no sense adding a fourth job for two extra steps.
+  # Aggregation happens in `release` below, which globs `deadzone-*`
+  # artifacts; the `-appimage` suffix keeps AppImage and tarball
+  # artifacts from colliding on upload-artifact names.
+  appimage:
+    name: appimage (linux/${{ matrix.goarch }})
+    needs: smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: deadzone-linux-${{ matrix.goarch }}
+
+      - name: Build AppImage
+        id: build
+        uses: ./.github/actions/build-appimage
+        with:
+          tarball: deadzone_*_linux_${{ matrix.goarch }}.tar.gz
+          arch: ${{ matrix.goarch }}
+
+      # Mirrors the tarball smoke's contract (see the `smoke` job
+      # above): -version proves the AppImage launches and dylib linkage
+      # resolves inside the SquashFS mount, then `consolidate` with an
+      # empty artifacts dir exercises the ORT bootstrap (#73) from a
+      # read-only payload into $XDG_CACHE_HOME. If AppRun's
+      # DEADZONE_ORT_CACHE override regresses, this step is where it
+      # surfaces — the bootstrap would try to write inside the mount
+      # and fail.
+      - name: Smoke AppImage -version
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x "${{ steps.build.outputs.appimage }}"
+          "./${{ steps.build.outputs.appimage }}" -version
+
+      - name: Smoke AppImage consolidate (ORT bootstrap)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p empty-artifacts
+          "./${{ steps.build.outputs.appimage }}" consolidate \
+            -artifacts ./empty-artifacts \
+            -db /tmp/deadzone-appimage-smoke.db
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deadzone-linux-${{ matrix.goarch }}-appimage
+          path: ${{ steps.build.outputs.appimage }}
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: publish release
-    needs: [build, smoke]
+    needs: [build, smoke, appimage]
     runs-on: ubuntu-24.04
     # The job runs for both tag pushes and workflow_dispatch so the
     # dry-run path can validate the tarball aggregation on a branch.
@@ -226,13 +293,15 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          # Single checksums.txt covers every per-platform tarball — users
-          # who want to verify hit one file, one command. The consolidated
-          # `deadzone.db` is uploaded separately by `deadzone dbrelease`
-          # from the operator's laptop after this job finishes (see #101
-          # §H); its sha256 lives in a sibling `deadzone.db.sha256` asset
-          # written by that subcommand.
-          sha256sum deadzone_*.tar.gz > "deadzone_${VERSION}_checksums.txt"
+          # Single checksums.txt covers every per-platform tarball and
+          # AppImage — users who want to verify hit one file, one
+          # command. The consolidated `deadzone.db` is uploaded
+          # separately by `deadzone dbrelease` from the operator's
+          # laptop after this job finishes (see #101 §H); its sha256
+          # lives in a sibling `deadzone.db.sha256` asset written by
+          # that subcommand.
+          sha256sum deadzone_*.tar.gz deadzone_*.AppImage \
+            > "deadzone_${VERSION}_checksums.txt"
           cat "deadzone_${VERSION}_checksums.txt"
 
       - name: Create GitHub release
@@ -249,4 +318,5 @@ jobs:
             --title "$VERSION" \
             --generate-notes \
             dist/deadzone_*.tar.gz \
+            dist/deadzone_*.AppImage \
             "dist/deadzone_${VERSION}_checksums.txt"

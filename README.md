@@ -54,7 +54,7 @@ Documentation is fetched by the `deadzone scrape` subcommand, embedded into vect
 
 Pre-built binaries for **macOS Apple Silicon**, **Linux amd64**, and **Linux arm64** are published on the [Releases page](https://github.com/laradji/deadzone/releases). Windows is blocked upstream (no `libtokenizers.a`). If you want to build from source instead — most useful if you're contributing or running on an unsupported platform — skip to [Build from source](#build-from-source).
 
-macOS Apple Silicon users can also install via [Homebrew](#homebrew-macos-apple-silicon) below — it's a one-liner and skips the quarantine workaround.
+macOS Apple Silicon users can also install via [Homebrew](#homebrew-macos-apple-silicon) below — it's a one-liner and skips the quarantine workaround. Linux users have a one-liner too: the [AppImage](#appimage-linux) bundles the binary and its assets into a single self-mounting file.
 
 ### Homebrew (macOS Apple Silicon)
 
@@ -67,6 +67,23 @@ That resolves to the custom tap at [`laradji/homebrew-deadzone`](https://github.
 Apple Silicon only — Intel Macs aren't built by the release pipeline. If you need darwin-amd64, [build from source](#build-from-source).
 
 Homebrew installs into a non-quarantined location, so the [quarantine workaround](#macos-clear-the-quarantine-attribute) below doesn't apply.
+
+### AppImage (Linux)
+
+```bash
+VERSION=v0.1.0
+ARCH=amd64  # or arm64
+
+curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.AppImage"
+chmod +x "deadzone_${VERSION}_linux_${ARCH}.AppImage"
+"./deadzone_${VERSION}_linux_${ARCH}.AppImage" -version
+```
+
+The AppImage self-mounts its payload via FUSE v2. Most desktop distros have `libfuse2` preinstalled; minimal server or container images often don't. If you hit `dlopen(): error loading libfuse.so.2`, either install the FUSE v2 package (`apt-get install libfuse2` on Debian/Ubuntu, `dnf install fuse-libs` on Fedora) or pass `--appimage-extract-and-run`, which bypasses FUSE entirely by extracting the payload to a temp dir per invocation:
+
+```bash
+"./deadzone_${VERSION}_linux_${ARCH}.AppImage" --appimage-extract-and-run -version
+```
 
 ### Quick install
 
