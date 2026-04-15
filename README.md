@@ -54,6 +54,20 @@ Documentation is fetched by the `deadzone scrape` subcommand, embedded into vect
 
 Pre-built binaries for **macOS Apple Silicon**, **Linux amd64**, and **Linux arm64** are published on the [Releases page](https://github.com/laradji/deadzone/releases). Windows is blocked upstream (no `libtokenizers.a`). If you want to build from source instead — most useful if you're contributing or running on an unsupported platform — skip to [Build from source](#build-from-source).
 
+macOS Apple Silicon users can also install via [Homebrew](#homebrew-macos-apple-silicon) below — it's a one-liner and skips the quarantine workaround.
+
+### Homebrew (macOS Apple Silicon)
+
+```bash
+brew install laradji/deadzone/deadzone
+```
+
+That resolves to the custom tap at [`laradji/homebrew-deadzone`](https://github.com/laradji/homebrew-deadzone) (not `homebrew-core`). `brew upgrade deadzone` pulls the newest tagged release.
+
+Apple Silicon only — Intel Macs aren't built by the release pipeline. If you need darwin-amd64, [build from source](#build-from-source).
+
+Homebrew installs into a non-quarantined location, so the [quarantine workaround](#macos-clear-the-quarantine-attribute) below doesn't apply.
+
 ### Quick install
 
 Pick the archive for your platform and extract it into the directory you want to run deadzone from:
@@ -87,7 +101,9 @@ shasum -a 256 --ignore-missing -c "deadzone_${VERSION}_checksums.txt"
 
 ### macOS: clear the quarantine attribute
 
-The 0.1.x binaries are unsigned, so Gatekeeper blocks them on first launch. Strip the quarantine xattr once, after extracting the archive:
+Skip this if you installed via [Homebrew](#homebrew-macos-apple-silicon) — it doesn't set the quarantine attribute in the first place.
+
+The 0.1.x binaries are unsigned, so Gatekeeper blocks them on first launch when extracted from a downloaded tarball. Strip the quarantine xattr once, after extracting the archive:
 
 ```bash
 xattr -d com.apple.quarantine deadzone

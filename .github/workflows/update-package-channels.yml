@@ -1,0 +1,81 @@
+# Auto-bump downstream package manifests when a stable release is published.
+#
+# Today this only bumps the Homebrew tap at laradji/homebrew-deadzone.
+# #106 will add sibling jobs (`update-aur`, `update-appimage-manifest`, or
+# whichever Linux channel wins) — the generic filename and the factored
+# extract-release-sha256 action exist so that work plugs in without a
+# rewrite. If you're adding a new channel, copy update-homebrew as a
+# template and parameterize it with your own asset-suffix + PAT.
+
+name: update-package-channels
+
+on:
+  release:
+    types: [published]
+
+# Prevent a rapid second release from racing an earlier bump against the
+# same tap repo. Channel-scoped (concurrency per job, not per workflow)
+# would be ideal but isn't expressible here — a whole-workflow lock is
+# fine at 0.1.x cadence.
+concurrency:
+  group: update-package-channels
+  cancel-in-progress: false
+
+jobs:
+  update-homebrew:
+    name: Bump Homebrew tap
+    runs-on: ubuntu-latest
+    # Skip pre-releases (rc/beta/alpha) — Homebrew users expect stable.
+    if: github.event.release.prerelease == false
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Extract darwin-arm64 sha256
+        id: sha
+        uses: ./.github/actions/extract-release-sha256
+        with:
+          checksums-url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/deadzone_${{ github.event.release.tag_name }}_checksums.txt
+          asset-suffix: _darwin_arm64.tar.gz
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v5
+        with:
+          repository: laradji/homebrew-deadzone
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Rewrite formula
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tap
+          version="${TAG#v}"
+          # Single-platform formula: one `sha256` line at 6-space indent
+          # inside the on_arm do block. When Linux channels add more
+          # sha256 lines to this formula, this rewriter must become
+          # context-aware (anchor on the preceding url line, or switch
+          # to a Ruby-aware rewriter). See #106.
+          sed -i -E "s|^(  version \")[^\"]+(\")|\1${version}\2|"             Formula/deadzone.rb
+          sed -i -E "s|^(      sha256 \")[0-9a-f]+(\")|\1${SHA256}\2|"        Formula/deadzone.rb
+          git --no-pager diff -- Formula/deadzone.rb
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name  "deadzone-release-bot"
+          git config user.email "noreply@github.com"
+          git add Formula/deadzone.rb
+          if git diff --cached --quiet; then
+            echo "Formula already at ${TAG} — nothing to commit."
+            exit 0
+          fi
+          git commit -m "deadzone ${TAG}"
+          git push
