@@ -1,0 +1,57 @@
+name: Extract release asset sha256
+description: |
+  Download the per-release `<project>_<version>_checksums.txt` asset produced by
+  release.yml and extract the sha256 of a single tarball identified by a
+  platform suffix (e.g. `_darwin_arm64.tar.gz`, `_linux_amd64.tar.gz`).
+
+  Reusable across package-channel auto-bump jobs: Homebrew today, AUR/AppImage
+  when #106 lands. The suffix-based contract means a new channel only needs to
+  pass its own platform string, not a custom URL builder.
+
+inputs:
+  checksums-url:
+    description: Full URL to the per-release checksums.txt asset.
+    required: true
+  asset-suffix:
+    description: |
+      Platform suffix matched against the end of a checksums.txt line
+      (e.g. `_darwin_arm64.tar.gz`). Must match exactly one line or the
+      action fails — pass a suffix unique enough to disambiguate.
+    required: true
+
+outputs:
+  sha256:
+    description: Hex-encoded sha256 of the matched asset.
+    value: ${{ steps.extract.outputs.sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download and extract
+      id: extract
+      shell: bash
+      env:
+        CHECKSUMS_URL: ${{ inputs.checksums-url }}
+        ASSET_SUFFIX: ${{ inputs.asset-suffix }}
+      run: |
+        set -euo pipefail
+        checksums="$(curl -fsSL "$CHECKSUMS_URL")"
+        # Fixed-string match, then validate end-anchoring in bash — avoids
+        # regex surprises if a suffix ever contains metacharacters.
+        matches=""
+        while IFS= read -r line; do
+          [[ "$line" == *"${ASSET_SUFFIX}" ]] && matches+="${line}"$'\n'
+        done <<< "$checksums"
+        match_count="$(printf '%s' "$matches" | grep -c . || true)"
+        if [[ "$match_count" -eq 0 ]]; then
+          echo "::error::No line ending in '${ASSET_SUFFIX}' found in ${CHECKSUMS_URL}"
+          printf '%s\n' "$checksums" >&2
+          exit 1
+        fi
+        if [[ "$match_count" -gt 1 ]]; then
+          echo "::error::Suffix '${ASSET_SUFFIX}' matched ${match_count} lines; expected exactly 1"
+          printf '%s' "$matches" >&2
+          exit 1
+        fi
+        sha256="$(printf '%s' "$matches" | awk '{print $1}')"
+        echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
