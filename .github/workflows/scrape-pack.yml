@@ -138,15 +138,31 @@ jobs:
             args+=(-version "${{ matrix.entry.version }}")
           fi
           go run -tags ORT ./cmd/deadzone "${args[@]}"
-      - name: Record slot status
-        # Runs on both cache-hit (scrape step skipped) and cache-miss
-        # (scrape step succeeded) paths. Failed scrapes skip this step
-        # via the default "prior step failed" gate; consolidate's
-        # summary falls back to "failed" on a missing .run_status file.
+      - name: Record slot status + anchor upload LCA
+        # Two jobs in one shell because they're both "prep for the
+        # upload-artifact step below":
+        #
+        #   1. .run_status marks the slot as scraped-or-cached so
+        #      consolidate's summary can render the run table. Runs on
+        #      both cache-hit (scrape step skipped) and cache-miss
+        #      (scrape step succeeded). A failed scrape skips this step
+        #      entirely via the default "prior step failed" gate;
+        #      consolidate's summary falls back to "failed" on a
+        #      missing .run_status file.
+        #
+        #   2. artifacts/.pack-root anchors upload-artifact@v4's LCA
+        #      calculation at `artifacts/`. Without it, matching only
+        #      `artifacts/<slug>/...` would collapse the LCA to
+        #      `artifacts/<slug>/`, stripping the slug prefix from the
+        #      archive and causing every slot's artifact.db to collide
+        #      at the same root after download-artifact merge-multiple.
+        #      The sentinel is a file (not a dir), so
+        #      db.Consolidate's `<dir>/*/artifact.db` glob skips it.
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "artifacts/${{ matrix.entry.slug }}"
+          : > artifacts/.pack-root
           if [ "${{ steps.artifact-cache.outputs.cache-hit }}" = "true" ]; then
             echo cached > "artifacts/${{ matrix.entry.slug }}/.run_status"
           else
@@ -160,8 +176,15 @@ jobs:
           # is pinned to 1 day because this is strictly inter-job scratch
           # inside a single dispatch; the long-lived transport is the
           # artifact cache restored above.
+          #
+          # path is `artifacts/` (not `artifacts/<slug>`) on purpose —
+          # see the LCA note on the "Record slot status + anchor upload
+          # LCA" step above. Each matrix slot restored only its own
+          # slug into `artifacts/<slug>/`, so the archive carries
+          # exactly one lib's payload under `<slug>/` plus the LCA
+          # sentinel .pack-root.
           name: scrape-pack-${{ matrix.entry.slug }}
-          path: artifacts/${{ matrix.entry.slug }}
+          path: artifacts/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
@@ -199,14 +222,14 @@ jobs:
       - name: Fetch staged artifacts
         uses: actions/download-artifact@v4
         with:
-          # merge-multiple flattens every scrape-pack-<slug> artifact into
-          # the workspace. Each upload preserved the repo-relative
-          # `artifacts/<slug>/` tree, so the extracted layout lands
-          # exactly where `deadzone consolidate -artifacts ./artifacts`
-          # expects it.
+          # Each scrape slot uploaded with LCA = artifacts/, so every
+          # archive carries `<slug>/...` at its root. Extracting under
+          # `path: artifacts/` with merge-multiple therefore rebuilds
+          # `artifacts/<slug>/...` per slot without collisions — the
+          # shape `deadzone consolidate -artifacts ./artifacts` expects.
           pattern: scrape-pack-*
           merge-multiple: true
-          path: .
+          path: artifacts/
       - name: Consolidate
         run: go run -tags ORT ./cmd/deadzone consolidate -db deadzone.db -artifacts ./artifacts
       - name: Release (if tag)
