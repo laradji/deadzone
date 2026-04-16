@@ -1,0 +1,258 @@
+# scrape-pack — batch scrape the registry on GH-hosted runners, consolidate
+# into a single deadzone.db, optionally publish via `deadzone dbrelease`.
+#
+# Decisions live in docs/research/batch-scrape-actions.md and #126:
+#   - workflow_dispatch only (no cron until #47)
+#   - per-lib artifact cache IS the freshness shim across runs
+#   - inter-JOB transport in a SINGLE run uses Pattern B (upload-artifact
+#     staging) because Pattern C (REST cache API) is not implementable —
+#     the cache archive download URL is a runtime-signed Azure Blob link
+#     that only @actions/cache's Node runtime token can negotiate, not
+#     reachable from `gh api`. The cross-run freshness story still runs
+#     entirely through the cache layer; upload-artifact is scratch
+#     transport scoped to one dispatch.
+#   - dbrelease fires only when inputs.tag is non-empty; empty tag stops
+#     at the consolidated-db cache (no side effects on the releases page)
+
+name: scrape-pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      lib:
+        description: "Filter base lib_id (e.g. /hashicorp/terraform). Empty = every resolved lib."
+        required: false
+        type: string
+        default: ""
+      tag:
+        description: "Release tag (e.g. v0.1.0). Non-empty chains `deadzone dbrelease`. Empty stops at consolidated-db cache."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write # dbrelease writes GH Release assets when inputs.tag != ""
+
+concurrency:
+  # Queue serially: parallel dispatches would fight over the same cache
+  # keys, and dbrelease --clobbers the same asset names, so we let one
+  # finish before the next starts.
+  group: scrape-pack
+  cancel-in-progress: false
+
+env:
+  # Mirror ci.yml verbatim — same pinned tokenizer static archive, same
+  # model + ORT cache roots. Bumping TOKENIZERS_VERSION in ci.yml
+  # invalidates the composite action's cache key via its own hashFiles
+  # rule; this workflow piggybacks on that invalidation.
+  TOKENIZERS_VERSION: v1.26.0
+  DEADZONE_HUGOT_CACHE: ${{ github.workspace }}/.deadzone-cache/models
+  DEADZONE_ORT_CACHE: ${{ github.workspace }}/.deadzone-cache/ort
+  CGO_ENABLED: "1"
+  CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+
+jobs:
+  expand-libs:
+    name: expand-libs
+    runs-on: ubuntu-latest
+    outputs:
+      libs: ${{ steps.list.outputs.libs }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: Emit resolved libs as JSON
+        id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(scrape -list -config libraries_sources.yaml)
+          if [ -n "${{ inputs.lib }}" ]; then
+            args+=(-lib "${{ inputs.lib }}")
+          fi
+          libs="$(go run -tags ORT ./cmd/deadzone "${args[@]}")"
+          echo "resolved: $libs"
+          echo "libs=$libs" >> "$GITHUB_OUTPUT"
+
+  scrape:
+    name: scrape (${{ matrix.entry.slug }})
+    needs: expand-libs
+    runs-on: ubuntu-latest
+    strategy:
+      # Siblings must keep running when one lib breaks — continue-on-error
+      # semantics at the matrix level (#93 mirrors this inside a single
+      # scrape invocation). The consolidate summary surfaces per-slot
+      # failures so a broken slot is visible, not silently dropped.
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        entry: ${{ fromJSON(needs.expand-libs.outputs.libs) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: Cache embedding model
+        # Key verbatim from .github/workflows/ci.yml — bumping the embedder
+        # (internal/embed/hugot.go) invalidates both caches in lockstep,
+        # which is exactly the freshness invariant for the artifact cache
+        # below.
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_HUGOT_CACHE }}
+          key: hugot-model-${{ runner.os }}-${{ hashFiles('internal/embed/hugot.go') }}
+          restore-keys: |
+            hugot-model-${{ runner.os }}-
+      - name: Cache ONNX Runtime library
+        # Key verbatim from .github/workflows/ci.yml — see comment above.
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_ORT_CACHE }}
+          key: ort-lib-${{ runner.os }}-${{ hashFiles('internal/ort/ort.go') }}
+          restore-keys: |
+            ort-lib-${{ runner.os }}-
+      - name: Cache per-lib artifact
+        id: artifact-cache
+        uses: actions/cache@v5
+        with:
+          # libraries_sources.yaml hash gates every resolved entry, so a
+          # URL edit anywhere in the registry invalidates every lib's
+          # cache — intentional over-invalidation vs per-section hashing
+          # that would be fragile to YAML reordering. Embedder hash is
+          # included so a vector-space change forces a rescrape in
+          # lockstep with the embedding model cache above.
+          path: artifacts/${{ matrix.entry.slug }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ hashFiles('libraries_sources.yaml') }}-${{ hashFiles('internal/embed/hugot.go') }}
+      - name: Scrape (cache miss)
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(scrape -artifacts ./artifacts -lib "${{ matrix.entry.lib_id }}")
+          if [ -n "${{ matrix.entry.version }}" ]; then
+            args+=(-version "${{ matrix.entry.version }}")
+          fi
+          go run -tags ORT ./cmd/deadzone "${args[@]}"
+      - name: Record slot status
+        # Runs on both cache-hit (scrape step skipped) and cache-miss
+        # (scrape step succeeded) paths. Failed scrapes skip this step
+        # via the default "prior step failed" gate; consolidate's
+        # summary falls back to "failed" on a missing .run_status file.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "artifacts/${{ matrix.entry.slug }}"
+          if [ "${{ steps.artifact-cache.outputs.cache-hit }}" = "true" ]; then
+            echo cached > "artifacts/${{ matrix.entry.slug }}/.run_status"
+          else
+            echo scraped > "artifacts/${{ matrix.entry.slug }}/.run_status"
+          fi
+      - name: Stage artifact for consolidate
+        uses: actions/upload-artifact@v4
+        with:
+          # Pattern B fan-in staging — see research doc §4 for why
+          # Pattern C (REST cache API) is not buildable today. Retention
+          # is pinned to 1 day because this is strictly inter-job scratch
+          # inside a single dispatch; the long-lived transport is the
+          # artifact cache restored above.
+          name: scrape-pack-${{ matrix.entry.slug }}
+          path: artifacts/${{ matrix.entry.slug }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  consolidate:
+    name: consolidate
+    needs: [expand-libs, scrape]
+    # Run even when individual scrape slots failed — fail-fast: false on
+    # the matrix is pointless if the downstream job refuses to render a
+    # partial DB + summary. expand-libs must succeed though, because
+    # without its JSON there is no summary to write.
+    if: always() && needs.expand-libs.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: Restore hugot model cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_HUGOT_CACHE }}
+          key: hugot-model-${{ runner.os }}-${{ hashFiles('internal/embed/hugot.go') }}
+          restore-keys: |
+            hugot-model-${{ runner.os }}-
+      - name: Restore ORT cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_ORT_CACHE }}
+          key: ort-lib-${{ runner.os }}-${{ hashFiles('internal/ort/ort.go') }}
+          restore-keys: |
+            ort-lib-${{ runner.os }}-
+      - name: Fetch staged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # merge-multiple flattens every scrape-pack-<slug> artifact into
+          # the workspace. Each upload preserved the repo-relative
+          # `artifacts/<slug>/` tree, so the extracted layout lands
+          # exactly where `deadzone consolidate -artifacts ./artifacts`
+          # expects it.
+          pattern: scrape-pack-*
+          merge-multiple: true
+          path: .
+      - name: Consolidate
+        run: go run -tags ORT ./cmd/deadzone consolidate -db deadzone.db -artifacts ./artifacts
+      - name: Release (if tag)
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run -tags ORT ./cmd/deadzone dbrelease -db deadzone.db -tag "${{ inputs.tag }}"
+      - name: Summary
+        if: always()
+        shell: bash
+        env:
+          LIBS_JSON: ${{ needs.expand-libs.outputs.libs }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          scraped=0; cached=0; failed=0
+          {
+            echo "## scrape-pack summary"
+            echo ""
+            if [ -n "$RELEASE_TAG" ]; then
+              echo "Release tag: \`$RELEASE_TAG\`"
+            else
+              echo "Release tag: _(none — consolidated cache only)_"
+            fi
+            echo ""
+            echo "| lib | version | status |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # jq pre-substitutes "-" for empty versions so bash's IFS=$'\t'
+          # read does not collapse consecutive tabs on single-version
+          # slots (whitespace IFS semantics would eat the empty field).
+          while IFS=$'\t' read -r lib_id version slug; do
+            status_path="artifacts/${slug}/.run_status"
+            if [ -f "$status_path" ]; then
+              status="$(tr -d '[:space:]' < "$status_path")"
+            else
+              status="failed"
+            fi
+            case "$status" in
+              scraped) scraped=$((scraped + 1)) ;;
+              cached)  cached=$((cached + 1)) ;;
+              *)       status="failed"; failed=$((failed + 1)) ;;
+            esac
+            echo "| \`$lib_id\` | \`$version\` | $status |" >> "$GITHUB_STEP_SUMMARY"
+          done < <(printf '%s' "$LIBS_JSON" | jq -r '.[] | [.lib_id, (if .version == "" then "-" else .version end), .slug] | @tsv')
+          {
+            echo ""
+            echo "**Totals:** $scraped scraped, $cached cached, $failed failed"
+          } >> "$GITHUB_STEP_SUMMARY"

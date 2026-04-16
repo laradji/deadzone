@@ -247,6 +247,8 @@ The per-lib artifact folders under `./artifacts/<slug>/` (each containing `artif
 
 > **Note.** The per-artifact GitHub Release distribution flow (`deadzone packs {upload,download,list}`) is paused as of [#101](https://github.com/laradji/deadzone/issues/101) — contributors who want a working DB run `just scrape && just consolidate` locally. Releases carry `deadzone.db` as a single consolidated asset; per-artifact distribution will return when CI takes over at scale.
 
+The full registry can also be scraped from GitHub Actions via the `scrape-pack` workflow (see [`.github/workflows/scrape-pack.yml`](.github/workflows/scrape-pack.yml)) — `gh workflow run scrape-pack.yml -f tag=<tag>` scrapes every resolved lib in parallel, consolidates, and publishes `deadzone.db` to the tagged release; omit `-f tag=…` to stop at a consolidated-db cache.
+
 Run `just` (no args) to list every recipe. Override the DB path with positional args: `just consolidate foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
 
 ### Building release binaries
