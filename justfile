@@ -110,10 +110,10 @@ vet:
 tidy:
     mise exec -- go mod tidy
 
-# Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry)
-scrape lib="":
+# Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry; pass version=X to pin to one expanded version)
+scrape lib="" version="":
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
-        mise exec -- go run -tags ORT ./cmd/deadzone scrape -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }}
+        mise exec -- go run -tags ORT ./cmd/deadzone scrape -artifacts ./artifacts {{ if lib != "" { "-lib " + lib } else { "" } }} {{ if version != "" { "-version " + version } else { "" } }}
 
 # Merge per-lib artifacts in ./artifacts/ into the main deadzone DB
 consolidate db="deadzone.db":

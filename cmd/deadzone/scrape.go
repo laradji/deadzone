@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -87,6 +88,12 @@ func runScrape(args []string) error {
 	parallelScrapeViaAgent := fs.Int("parallel-scrape-via-agent",
 		envIntOr(EnvParallelScrapeViaAgent, defaultParallelScrapeViaAgent),
 		"max concurrent scrape-via-agent libs (env: "+EnvParallelScrapeViaAgent+"; flag wins over env)")
+	// -list short-circuits before embedder/agent setup and emits the
+	// resolved (lib_id, version, slug) matrix to stdout as JSON. Consumed
+	// by .github/workflows/scrape-pack.yml's expand-libs job (see #126);
+	// intentionally the only side-effect-free flag on this subcommand so
+	// a CI runner can list libs without a model cache or network.
+	listOnly := fs.Bool("list", false, "emit JSON array of {lib_id, version, slug} resolved from -config and exit; skips the embedder and all I/O")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -128,6 +135,10 @@ func runScrape(args []string) error {
 		default:
 			return fmt.Errorf("no libraries to scrape in %s", *configPath)
 		}
+	}
+
+	if *listOnly {
+		return emitResolvedList(sources)
 	}
 
 	// One artifacts/ dir per scrape run; created on demand so the first
@@ -681,6 +692,33 @@ func setupAgent(ctx context.Context, sources []scraper.ResolvedSource) (*scraper
 		"model", agent.Model(),
 	)
 	return agent, nil
+}
+
+// emitResolvedList writes the resolved (lib_id, version, slug) matrix
+// to stdout as a JSON array, one object per ResolvedSource. Consumed by
+// .github/workflows/scrape-pack.yml's expand-libs step, which pipes the
+// value into a `matrix:` via `fromJSON`. slug matches packs.Slug so the
+// cache-key path in each scrape matrix slot is trivially reconstructible
+// from the JSON alone.
+func emitResolvedList(sources []scraper.ResolvedSource) error {
+	type libEntry struct {
+		LibID   string `json:"lib_id"`
+		Version string `json:"version"`
+		Slug    string `json:"slug"`
+	}
+	entries := make([]libEntry, 0, len(sources))
+	for _, s := range sources {
+		entries = append(entries, libEntry{
+			LibID:   s.LibID,
+			Version: s.Version,
+			Slug:    packs.Slug(s.LibID, s.Version),
+		})
+	}
+	enc := json.NewEncoder(os.Stdout)
+	// Single-line output: GitHub Actions' `$GITHUB_OUTPUT` protocol
+	// breaks on embedded newlines unless the multi-line heredoc form is
+	// used, and the expand-libs job uses the single-line form.
+	return enc.Encode(entries)
 }
 
 // envIntOr reads an integer from env var name, falling back to def if
