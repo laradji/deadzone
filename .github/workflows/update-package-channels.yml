@@ -12,6 +12,19 @@ name: update-package-channels
 on:
   release:
     types: [published]
+  # Manual escape hatch. The `release` event above does NOT fire when the
+  # publishing release is created by the default GITHUB_TOKEN (GitHub's
+  # anti-recursion rule), which is exactly what release.yml's
+  # `gh release create` does today. Operators therefore need a way to
+  # bump the tap after a release lands; this trigger provides it.
+  # Replace release.yml's GITHUB_TOKEN usage with a PAT to restore the
+  # automatic path (tracked separately).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to bump to (e.g. v0.2.0). Must be published."
+        required: true
+        type: string
 
 # Prevent a rapid second release from racing an earlier bump against the
 # same tap repo. Channel-scoped (concurrency per job, not per workflow)
@@ -26,7 +39,9 @@ jobs:
     name: Bump Homebrew tap
     runs-on: ubuntu-latest
     # Skip pre-releases (rc/beta/alpha) — Homebrew users expect stable.
-    if: github.event.release.prerelease == false
+    # On workflow_dispatch the operator is on the hook for picking a
+    # stable tag, so the gate short-circuits to true.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
     env:
       # Platform this job targets. Single source of truth — used to pick
       # the matching sha256 out of checksums.txt AND to anchor the
@@ -34,6 +49,10 @@ jobs:
       # its own ASSET_SUFFIX (e.g. _linux_amd64.tar.gz) and reuses the
       # exact same step shape.
       ASSET_SUFFIX: _darwin_arm64.tar.gz
+      # Unified tag for both triggers. The `release` event exposes
+      # `github.event.release.tag_name`; workflow_dispatch exposes
+      # `inputs.tag`. Fallback short-circuits on the first non-empty.
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - name: Checkout caller repo
         uses: actions/checkout@v5
@@ -42,7 +61,7 @@ jobs:
         id: sha
         uses: ./.github/actions/extract-release-sha256
         with:
-          checksums-url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/deadzone_${{ github.event.release.tag_name }}_checksums.txt
+          checksums-url: https://github.com/${{ github.repository }}/releases/download/${{ env.TAG }}/deadzone_${{ env.TAG }}_checksums.txt
           asset-suffix: ${{ env.ASSET_SUFFIX }}
 
       - name: Checkout tap repo
@@ -54,7 +73,6 @@ jobs:
 
       - name: Rewrite formula
         env:
-          TAG: ${{ github.event.release.tag_name }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
         shell: bash
         run: |
@@ -86,8 +104,6 @@ jobs:
           git --no-pager diff -- Formula/deadzone.rb
 
       - name: Commit and push
-        env:
-          TAG: ${{ github.event.release.tag_name }}
         shell: bash
         run: |
           set -euo pipefail
