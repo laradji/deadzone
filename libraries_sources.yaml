@@ -144,7 +144,6 @@ libraries:
       - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/advanced/websockets.md
       - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/advanced/wsgi.md
       - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/async.md
-      - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/background-tasks.md
       - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/benchmarks.md
       - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/contributing.md
       - https://raw.githubusercontent.com/fastapi/fastapi/{ref}/docs/en/docs/deployment/cloud.md
