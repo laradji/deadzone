@@ -390,6 +390,8 @@ libraries:
 
 Adding a new library means adding a YAML entry — no Go editing, no recompile.
 
+Don't want to edit the YAML yourself? Open an issue via the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick **Add a library** or **Refresh a library** — the template collects exactly what's needed for a registry entry.
+
 The scrape subcommand accepts a few flags for working with the registry and the artifact directory:
 
 ```bash
@@ -524,7 +526,7 @@ Every subcommand emits structured JSON logs to **stderr** using `log/slog`. Stdo
 
 ## Roadmap
 
-Tracked on the [GitHub issues board](https://github.com/laradji/deadzone/issues). Open issues are scoped via the `mvp`, `feature`, `research`, and `post-mvp` labels.
+Tracked on the [GitHub issues board](https://github.com/laradji/deadzone/issues). Scope lives in [milestones](https://github.com/laradji/deadzone/milestones) (`0.1` shipped, `0.2` shipped, `0.3` in flight). Category via `feature` / `research` labels; priority via `P1` / `P2` / `P3`.
 
 ## Contributing
 
