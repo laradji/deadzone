@@ -1,473 +1,74 @@
-# Deadzone
-
-A Go-based [MCP](https://modelcontextprotocol.io) server that exposes semantic search over third-party library documentation, indexed locally with [Turso](https://turso.tech) vector storage.
-
-> **Status:** `v0.1.0` released (2026-04-13); `0.2` milestone in flight.
-> Vector search is wired end-to-end on a
-> [tursogo](https://github.com/tursodatabase/turso/tree/main/bindings/go)
-> driver (pure-Go via purego) and a
-> [hugot](https://github.com/knights-analytics/hugot) embedder running
-> [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
-> on the ONNX Runtime backend. The binary is CGO-linked at build time;
-> at runtime the only native dependency is `libonnxruntime`, auto-fetched
-> and SHA256-verified on first launch. Full
-> [roadmap](https://github.com/laradji/deadzone/issues).
-
-Deadzone is a self-hosted alternative to [Context7](https://github.com/upstash/context7) for users who want to keep their docs index on their own machine.
-
-## Features
-
-- **Self-hosted** — local file database, no cloud dependency, no API key
-- **Single download** — one archive, one `deadzone` binary with subcommands, ONNX Runtime auto-fetched on first run
-- **Semantic search** — vector embeddings with cosine similarity via Turso's native vector support
-- **MCP native** — stdio protocol, plugs directly into Claude Code, Cursor, and other MCP clients
-- **Multi-library** — `/org/project` namespacing with first-class `lib_id` filtering
-- **Token-budget aware** — trims response size to fit the caller's context window
-- **Cross-platform** — prebuilt for macOS arm64, Linux amd64, and Linux arm64
-
-## What it does
-
-Deadzone exposes two MCP tools to clients (Claude Code, Cursor, etc.):
-
 ```
-search_docs(query, lib_id?, version?, tokens?) → []Snippet
+         _                _
+      __| | ___  __ _  __| |_______  _ __   ___
+     / _` |/ _ \/ _` |/ _` |_  / _ \| '_ \ / _ \
+    | (_| |  __/ (_| | (_| |/ / (_) | | | |  __/
+     \__,_|\___|\__,_|\__,_/___\___/|_| |_|\___|
+
+    > semantic doc search. local file. no cloud. no key.
+    > you ask in english. it answers in snippets.
 ```
 
-- `query` — natural-language search query (matched semantically against the indexed docs)
-- `lib_id` — optional `/org/project` filter (e.g. `/modelcontextprotocol/go-sdk`)
-- `version` — optional version pin (e.g. `"1.14"`); requires `lib_id`. Omit to search across every indexed version of the lib; `version` alone is rejected.
-- `tokens` — response budget, default 5000, min 1000 (`~4 chars/token`)
+> **Status.** `v0.2.0` shipped 2026-04-17. Vector search wired end-to-end. MCP over stdio. One binary, three platforms, zero telemetry. Milestone `0.3` in flight — see the [roadmap](https://github.com/laradji/deadzone/milestones).
+> The scraper is still the messy half — [#64](https://github.com/laradji/deadzone/issues/64) is honest about it.
 
-```
-search_libraries(name, limit?) → []LibraryHit
-```
+---
 
-- `name` — free-text library name to resolve (e.g. `"terraform aws"`); empty returns the most-indexed libraries by `doc_count`
-- `limit` — max results, default 10, max 50
-- Each `LibraryHit` carries `lib_id`, `version` (empty for unversioned libs), `doc_count`, and a `match_score` in `[0, 1]` (1.0 = closest cosine match). One entry per indexed `(lib_id, version)` pair — group by `lib_id` on the client to see all versions of the same library.
+## The pitch, in one paragraph
 
-`search_libraries` is the resolver step: a free-text query like `"react"` is matched against a dedicated `libs` vector table and returns ranked canonical `(lib_id, version)` pairs. Pass the `lib_id` (and optionally `version`) into `search_docs` to get the actual snippets.
+Your AI client says `"how do I register a tool?"`. The doc says `AddTool`. A grep-based index shrugs; a vector index doesn't. Deadzone is the vector index — `nomic-embed-text-v1.5` over Turso's native cosine distance, wrapped in a Go binary that speaks MCP over stdio and keeps every byte on your laptop. It is, roughly, [Context7](https://github.com/upstash/context7) with the internet turned off.
 
-Documentation is fetched by the `deadzone scrape` subcommand, embedded into vectors, and stored in a local Turso database file.
+---
 
-## Install
+## Rules of the deadzone
 
-Pre-built binaries for **macOS Apple Silicon**, **Linux amd64**, and **Linux arm64** are published on the [Releases page](https://github.com/laradji/deadzone/releases). Windows is blocked upstream (no `libtokenizers.a`). If you want to build from source instead — most useful if you're contributing or running on an unsupported platform — skip to [Build from source](#build-from-source).
+1. **One binary.** `deadzone`. Subcommands for everything. No `pip install`, no `npm i`, no `docker compose up`.
+2. **The index never leaves.** Local Turso file. No account. No API key. No egress on the hot path.
+3. **Natural language first.** Embeddings over cosine. `FTS5` is not invited.
+4. **The binary is the version.** The DB is pinned to the binary. Upgrade the binary, the DB follows; don't, and it won't.
+5. **Fail loudly or not at all.** `DEADZONE_DB_OFFLINE=1` refuses to guess. Verification failures in the scraper drop the doc, not the run.
 
-macOS Apple Silicon users can also install via [Homebrew](#homebrew-macos-apple-silicon) below — it's a one-liner and skips the quarantine workaround. Linux users have a one-liner too: the [AppImage](#appimage-linux) bundles the binary and its assets into a single self-mounting file.
+---
 
-### Homebrew (macOS Apple Silicon)
+## Install (pick one; they all converge on the same binary)
 
-```bash
+```sh
+# macOS Apple Silicon — the one-liner
 brew install laradji/deadzone/deadzone
-```
 
-That resolves to the custom tap at [`laradji/homebrew-deadzone`](https://github.com/laradji/homebrew-deadzone) (not `homebrew-core`). `brew upgrade deadzone` pulls the newest tagged release.
-
-Apple Silicon only — Intel Macs aren't built by the release pipeline. If you need darwin-amd64, [build from source](#build-from-source).
-
-Homebrew installs into a non-quarantined location, so the [quarantine workaround](#macos-clear-the-quarantine-attribute) below doesn't apply.
-
-### AppImage (Linux)
-
-```bash
-VERSION=v0.1.0
-ARCH=amd64  # or arm64
-
+# Linux — self-mounting AppImage (amd64 | arm64)
+VERSION=v0.2.0 ARCH=amd64
 curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.AppImage"
 chmod +x "deadzone_${VERSION}_linux_${ARCH}.AppImage"
-"./deadzone_${VERSION}_linux_${ARCH}.AppImage" -version
-```
 
-The AppImage self-mounts its payload via FUSE v2. Most desktop distros have `libfuse2` preinstalled; minimal server or container images often don't. If you hit `dlopen(): error loading libfuse.so.2`, either install the FUSE v2 package (`apt-get install libfuse2` on Debian/Ubuntu, `dnf install fuse-libs` on Fedora) or pass `--appimage-extract-and-run`, which bypasses FUSE entirely by extracting the payload to a temp dir per invocation:
-
-```bash
-"./deadzone_${VERSION}_linux_${ARCH}.AppImage" --appimage-extract-and-run -version
-```
-
-### Quick install
-
-Pick the archive for your platform and extract it into the directory you want to run deadzone from:
-
-```bash
-VERSION=v0.1.0
-
-# macOS Apple Silicon
+# Anything else — tarball + quarantine strip on macOS
 curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_darwin_arm64.tar.gz" | tar xz
-
-# Linux amd64
-curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_amd64.tar.gz" | tar xz
-
-# Linux arm64
-curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_arm64.tar.gz" | tar xz
+xattr -d com.apple.quarantine ./deadzone   # macOS only, until notarization lands
 ```
 
-Each archive extracts a single `deadzone` binary plus `LICENSE`, `NOTICE`, and `README.md`.
+Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
 
-### Verify checksums
+**Verify checksums** (optional but cheap):
 
-```bash
+```sh
 curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_checksums.txt"
-
-# Linux
-sha256sum --ignore-missing -c "deadzone_${VERSION}_checksums.txt"
-
-# macOS
-shasum -a 256 --ignore-missing -c "deadzone_${VERSION}_checksums.txt"
+sha256sum  --ignore-missing -c "deadzone_${VERSION}_checksums.txt"   # Linux
+shasum -a 256 --ignore-missing -c "deadzone_${VERSION}_checksums.txt"   # macOS
 ```
 
-### macOS: clear the quarantine attribute
+**AppImage needs FUSE v2.** Most desktops ship it; minimal servers don't. If you get `dlopen(): libfuse.so.2`, either `apt-get install libfuse2` (or `dnf install fuse-libs`) or pass `--appimage-extract-and-run` to bypass FUSE entirely.
 
-Skip this if you installed via [Homebrew](#homebrew-macos-apple-silicon) — it doesn't set the quarantine attribute in the first place.
+---
 
-The 0.1.x binaries are unsigned, so Gatekeeper blocks them on first launch when extracted from a downloaded tarball. Strip the quarantine xattr once, after extracting the archive:
+## Run
 
-```bash
-xattr -d com.apple.quarantine deadzone
+```sh
+./deadzone server
 ```
 
-This workaround goes away once notarization lands.
+That's the quick-start. On first launch it fetches `deadzone.db` matched to this binary's version, SHA256-verifies, caches it under the platform data dir, and serves. Second launch onwards: zero network. Upgrade the binary and the DB re-fetches on next launch; don't, and the cache is served forever.
 
-### Subcommands, briefly
-
-End users usually only touch the first three. `deadzone scrape` is for contributors maintaining [`libraries_sources.yaml`](libraries_sources.yaml).
-
-| Subcommand | What it's for |
-|---|---|
-| `deadzone server` | MCP stdio server — what your AI client talks to. Auto-fetches the `deadzone.db` matching this binary's version on first run, and re-fetches only when the binary itself is upgraded (see [Data](#data)). |
-| `deadzone fetch-db` | Explicit cache-warmup / refresh of `deadzone.db` (useful before going offline, or to recover from local corruption with `-force`). |
-| `deadzone consolidate` | Merges per-lib artifacts into a single `deadzone.db` (contributor flow) |
-| `deadzone scrape` | Re-scrapes a library from its configured sources |
-| `deadzone dbrelease` | Operator-driven: uploads `deadzone.db` + `.sha256` to a tagged GitHub Release |
-| `deadzone packs` | Disabled (see [#101](https://github.com/laradji/deadzone/issues/101)); use `dbrelease` |
-
-Run `deadzone -h` for the subcommand list, or `deadzone <sub> -h` for a subcommand's flags. `deadzone -version` prints the banner without touching the DB or embedder.
-
-### Runtime dependencies
-
-Deadzone follows the same pattern for every native runtime dependency: **no system installs, nothing bundled in the binary, nothing pulled at build time except what links statically**. Instead, each shared library is fetched on first use, SHA256-verified against a pinned manifest, cached in the user-cache dir, and loaded via `purego` (`tursogo`) or `dlopen` (ONNX Runtime) at runtime. Subsequent runs reuse the cache; second-launch startup is instant.
-
-This keeps the install flow to "download the tarball, extract, run" across macOS arm64, Linux amd64, and Linux arm64 without a package manager or a C toolchain. It also makes air-gapped installs easy: pre-populate the caches or point the escape-hatch env vars at hand-positioned libraries.
-
-**What gets fetched on first launch of `deadzone server`, `deadzone scrape`, or `deadzone consolidate`:**
-
-| Dependency | Size | Where it's cached | Escape-hatch env var |
-|---|---|---|---|
-| ONNX Runtime shared library (`libonnxruntime`) | ~33 MB | `$DEADZONE_ORT_CACHE` (defaults to `<user-cache>/deadzone/ort/`) | `DEADZONE_ORT_LIB_PATH` — point at a hand-positioned library to skip the download |
-| `nomic-ai/nomic-embed-text-v1.5` ONNX weights (int8 quantized) | ~131 MB | `$DEADZONE_HUGOT_CACHE` (defaults to `<user-cache>/deadzone/models/`) | `DEADZONE_HUGOT_CACHE` — set before first launch to pre-position the model |
-
-The platform `<user-cache>` resolves to `~/Library/Caches/` on macOS and `~/.cache/` on Linux (or `$XDG_CACHE_HOME` when set). Both downloads are pinned in the binary (ORT version in `internal/ort/ort.go`, model name in `internal/embed/hugot.go`) and verified with SHA256 before being moved into place — there's no fallback to an un-verified fetch.
-
-**Linked at build time, not fetched:**
-
-- **Go standard library** — pinned to Go 1.26.2 via `.mise.toml`.
-- **`tursogo` (SQLite driver)** — pure Go via `purego`, no C toolchain needed.
-- **`libtokenizers.a` (Rust-built, from `daulet/tokenizers` releases)** — downloaded per-platform by `just fetch-tokenizers` (or CI's `install-native-deps` action), **statically linked** into the binary. Users never see it.
-
-The single CGO surface (hugot's ORT backend + `libtokenizers.a`) is the 2026-04-12 trade-off that unblocked #62 — see [`docs/research/embedder-choice.md`](docs/research/embedder-choice.md) and [`docs/research/ingestion-architecture.md`](docs/research/ingestion-architecture.md) decision 8 for the full reasoning.
-
-### Hello-world pipeline
-
-Tagged releases ship a prebuilt `deadzone.db` covering the libraries listed in [`libraries_sources.yaml`](libraries_sources.yaml). After extracting the binary, just run the server — the DB matching this binary's own version is downloaded on first launch into the platform data dir, sha256-verified, and cached. Steady-state startup is zero-network: the cache sidecar tag is compared against the binary's version at startup, and only a binary version bump triggers a re-fetch.
-
-```bash
-./deadzone server  # downloads deadzone.db on first run, then serves
-```
-
-The per-platform binary tarballs and their aggregated `deadzone_${VERSION}_checksums.txt` are uploaded by CI when the tag is pushed; `deadzone.db` and `deadzone.db.sha256` are uploaded separately by the maintainer via `deadzone dbrelease` (see [Releasing a new `deadzone.db`](#releasing-a-new-deadzonedb) below). The two halves live on the same release object.
-
-With the server running, point any MCP-capable client at it — see [Wire it into an MCP client](#wire-it-into-an-mcp-client) for the exact JSON snippet. To pin a different DB, hand-place the file and run with `./deadzone server -db /path/to/deadzone.db` — explicit `-db` bypasses the auto-fetch entirely.
-
-### Data
-
-`deadzone server` (and `deadzone fetch-db`) cache `deadzone.db` under the platform's standard per-user data directory:
-
-| Platform | Default cache path |
-|---|---|
-| macOS | `~/Library/Application Support/deadzone/deadzone.db` |
-| Linux | `$XDG_DATA_HOME/deadzone/deadzone.db` (falls back to `~/.local/share/deadzone/deadzone.db`) |
-| Windows | `%LOCALAPPDATA%\deadzone\deadzone.db` |
-
-A sibling `deadzone.db.release` text file records the release tag the cache was fetched from.
-
-**The cached DB is pinned to the binary's own version.** On every startup the server compares the cache sidecar tag against the binary's compiled-in version (set by `-ldflags -X main.version=...`, see `build-release` in the [`justfile`](justfile)):
-
-- **Tag matches** → zero-network fast path; the cache is served as-is. No GitHub API call.
-- **Tag differs** (the binary was upgraded) → fetch `/releases/tags/<binary-version>`, atomic-swap the cache, serve the new DB.
-- **Binary is a dev build** (literal `dev`, `-dirty` suffix, or `git describe` between-tags form) → fall back to `/releases/latest` with a `server.db_version_dev_fallback` WARN so local iteration stays ergonomic.
-
-The DB does not auto-upgrade independently of the binary: if upstream publishes a newer DB while this binary is still running, the server keeps using the cached DB it was pinned to. `deadzone upgrade` (or a tarball re-extract) is what changes the binary's version and, on next launch, triggers the DB swap.
-
-**Env-var escape hatches** (matching the `DEADZONE_ORT_*` / `DEADZONE_HUGOT_*` pattern):
-
-| Env var | Effect |
-|---|---|
-| `DEADZONE_DB_CACHE` | Override the cache directory. |
-| `DEADZONE_DB_OFFLINE=1` | Never make a network call. Fails loudly on first run if nothing is cached; also fails loudly if the cache exists but its version doesn't match the binary — hand-place a `deadzone.db` that matches, or unset the env var so the auto-fetch can run. |
-
-`deadzone fetch-db` is the explicit refresh path: pre-populate the cache before going offline, or recover from local corruption with `deadzone fetch-db -force` (same binary version, fresh bytes, sha256-verified).
-
-## Stack
-
-| | |
-|---|---|
-| Language | Go 1.26.2 (pinned via [`mise`](https://mise.jdx.dev)) |
-| Storage | [Turso](https://turso.tech) (local file) with native vector support (`F32_BLOB(N)` + `vector_distance_cos`, dim discovered from the embedder at first open) |
-| Driver | [`turso.tech/database/tursogo`](https://pkg.go.dev/turso.tech/database/tursogo) — **CGO-free**, via [`purego`](https://github.com/ebitengine/purego) |
-| Embeddings | [`hugot`](https://github.com/knights-analytics/hugot) running [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768-dim, 8192-token context) on the ONNX Runtime backend — CGO-linked, `libonnxruntime` auto-fetched + SHA256-verified at first use |
-| Protocol | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
-
-## Build from source
-
-Contributor path — skip this section if you installed a pre-built binary from [Install](#install).
-
-Go 1.26.2 and [`just`](https://just.systems) are pinned via [`.mise.toml`](.mise.toml) and intentionally not on the system `PATH`. The repo ships a `justfile` that wraps every Go invocation in `mise exec --`, so you don't need to remember the prefix:
-
-```bash
-# 1. Install the pinned toolchain — Go + just (one-time)
-mise install
-
-# 2. Fetch libtokenizers.a for your platform into ./lib/ (one-time, idempotent)
-just fetch-tokenizers  # darwin-arm64, linux-amd64, linux-arm64
-
-# 3. Build (CGO + -tags ORT, links ./lib/libtokenizers.a)
-just build             # = mise exec -- go build -tags ORT ./...
-
-# 4. Scrape the full corpus locally — one artifact folder per lib under ./artifacts/
-just scrape            # = mise exec -- go run -tags ORT ./cmd/deadzone scrape -artifacts ./artifacts
-
-# 5. Merge the per-lib artifacts into the main deadzone.db
-just consolidate       # = mise exec -- go run -tags ORT ./cmd/deadzone consolidate -db deadzone.db -artifacts ./artifacts
-
-# 6. Run the MCP server against the consolidated DB
-just serve             # = mise exec -- go run -tags ORT ./cmd/deadzone server -db deadzone.db
-```
-
-The per-lib artifact folders under `./artifacts/<slug>/` (each containing `artifact.db` + `state.yaml`) and `deadzone.db` are all gitignored — they're local build outputs. The committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) records the most recent `deadzone.db` release (tag, sha256, embedder, counts) as a release-history trace; it's rewritten by `deadzone dbrelease`, not by hand. When `-db` points at a missing file the server errors out and points at both auto-fetch (run without `-db`) and `consolidate` (build from local artifacts); it never auto-creates an empty file.
-
-> **Note.** The per-artifact GitHub Release distribution flow (`deadzone packs {upload,download,list}`) is paused as of [#101](https://github.com/laradji/deadzone/issues/101) — contributors who want a working DB run `just scrape && just consolidate` locally. Releases carry `deadzone.db` as a single consolidated asset; per-artifact distribution will return when CI takes over at scale.
-
-The full registry can also be scraped from GitHub Actions via the `scrape-pack` workflow (see [`.github/workflows/scrape-pack.yml`](.github/workflows/scrape-pack.yml)) — `gh workflow run scrape-pack.yml -f tag=<tag>` scrapes every resolved lib in parallel, consolidates, and publishes `deadzone.db` to the tagged release; omit `-f tag=…` to stop at a consolidated-db cache.
-
-Run `just` (no args) to list every recipe. Override the DB path with positional args: `just consolidate foo.db` / `just serve foo.db`. If you'd rather call `go` directly, prefix every command with `mise exec --` so you pick up the pinned toolchain.
-
-### Building release binaries
-
-`just build` is a fast compile check (`go build ./...` — produces no output binaries). To produce the single `deadzone` CLI at the repo root with version info embedded, use `just build-release`:
-
-```bash
-# Local dev build — version/commit/date default from git describe + rev-parse + UTC now
-just build-release
-./deadzone -version
-# → deadzone v0.1.0-2-gabc1234-dirty (abc1234, built 2026-04-12T12:00:00Z)
-
-# Release build — CI sets VERSION/COMMIT/DATE explicitly from the workflow
-VERSION=v0.1.0 COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%FT%TZ) just build-release
-./deadzone -version
-# → deadzone v0.1.0 (abc1234, built 2026-04-12T12:00:00Z)
-```
-
-`deadzone -version` prints the banner and exits without touching the DB or embedder — the fast path used by CI's smoke job. The recipe compiles with `-trimpath -ldflags "-s -w -X main.version=… -X main.commit=… -X main.date=…"`, so absolute build-host paths never leak into the binary and the stripped output stays small despite the CGO ORT dependency.
-
-### Refreshing a single library
-
-The per-lib folder layout means one library can be re-scraped without touching the others. The flow is the same for both single-version libs and multi-version (`/hashicorp/terraform/1.13`, `/hashicorp/terraform/1.14`, …) entries:
-
-```bash
-# Re-scrape locally (rebuilds exactly the matching artifacts/<slug>/artifact.db)
-just scrape /hashicorp/terraform           # base — every versioned child
-just scrape /hashicorp/terraform/1.14      # one expanded version
-
-# Then re-consolidate to pick up the change in the main DB.
-just consolidate
-```
-
-Each scrape rewrites `artifacts/<slug>/artifact.db` (and its `state.yaml`) in place; re-running `consolidate` merges the refreshed rows over the top of the existing main-DB slice under the same `lib_id`. There is currently no incremental distribution of individual libs — maintainers who want the whole refreshed corpus on a release ship the consolidated `deadzone.db` via `just dbrelease <tag>` (see below).
-
-### Releasing a new `deadzone.db`
-
-Releases are **two-phase** as of [#101](https://github.com/laradji/deadzone/issues/101): CI publishes the per-platform binary tarballs when the tag is pushed, and the maintainer uploads the consolidated `deadzone.db` + its sha256 to the same release from their laptop.
-
-```bash
-# 1. Regenerate deadzone.db from the committed scraper config.
-just scrape
-just consolidate
-
-# 2. Tag + push. CI's release.yml builds the three binary tarballs,
-#    uploads them, and creates the release object.
-git tag v0.1.0
-git push --tags
-
-# 3. Ship the DB to the same tag (sha256 is computed on-the-fly and
-#    uploaded as a sibling asset). Rewrites artifacts/manifest.yaml
-#    with the new release record.
-just dbrelease v0.1.0
-
-# 4. Commit the manifest diff so the release-history trace lands in git.
-git add artifacts/manifest.yaml && git commit -m "release v0.1.0" && git push
-```
-
-`deadzone dbrelease` shells out to `gh release upload <tag> deadzone.db deadzone.db.sha256 --clobber`. The `gh` CLI handles auth via your existing `gh auth login` state. Override the target repo with `-repo owner/name` when working from a fork.
-
-### Configuring which libraries to scrape
-
-The scraper reads its registry from [`libraries_sources.yaml`](libraries_sources.yaml) at the project root. Each entry maps a `lib_id` to the documentation URLs the scraper should fetch:
-
-```yaml
-libraries:
-  # Single-version lib — no `versions` key, urls used as-is.
-  - lib_id: /modelcontextprotocol/go-sdk
-    kind: github-md
-    urls:
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
-
-  # Single-version lib pinned to a git tag for reproducible scrapes —
-  # `{ref}` in any URL is substituted with the lib's `ref:` value.
-  - lib_id: /python/cpython
-    kind: github-rst
-    ref: v3.13.1
-    urls:
-      - https://raw.githubusercontent.com/python/cpython/{ref}/Doc/library/os.rst
-
-  # Multi-version lib — `versions` expands per-version entries into one
-  # effective lib_id per version (`/modelcontextprotocol/go-sdk/1.4`,
-  # `/modelcontextprotocol/go-sdk/1.5`, …). The `versions:` key is the
-  # user-facing identifier (major.minor, surfaced in `search_libraries` /
-  # `search_docs`); the git tag lives in each version's `ref:` field and
-  # is substituted into `{ref}` in URLs. See #120.
-  - lib_id: /modelcontextprotocol/go-sdk
-    kind: github-md
-    versions:
-      "1.4": { ref: v1.4.1 }
-      "1.5": { ref: v1.5.0 }
-    urls:
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/getting-started.md
-
-  # Per-version `urls:` override — when two versions share a git sha but
-  # the URL path has a literal version segment (HashiCorp's unified-docs
-  # monorepo), each version supplies its own `urls:` block with the
-  # literal hardcoded. See #115, #120.
-  - lib_id: /hashicorp/terraform
-    kind: github-md
-    ref: 9c479db1ab97
-    versions:
-      "1.13":
-        urls:
-          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.13.x/docs/intro/index.mdx
-      "1.14":
-        urls:
-          - https://raw.githubusercontent.com/hashicorp/web-unified-docs/{ref}/content/terraform/v1.14.x/docs/intro/index.mdx
-
-  # Per-version `urls:` override for structurally-diverging versions —
-  # one minor ships an extra doc page (or renames one). The version that
-  # differs replaces the baseline URL list wholesale; the version that
-  # omits `urls:` keeps inheriting the top-level list. See #115.
-  - lib_id: /modelcontextprotocol/go-sdk
-    kind: github-md
-    urls:
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
-      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/server.md
-    versions:
-      "1.4": { ref: v1.4.1 }              # inherits baseline (2 URLs)
-      "1.5":                              # full override (3 URLs)
-        ref: v1.5.0
-        urls:
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/server.md
-          - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/quick_start.md
-```
-
-| Field | Required | Purpose |
-|---|---|---|
-| `lib_id` | yes | canonical `/org/project` identifier (matches `db.docs.lib_id`) |
-| `kind` | yes | source kind discriminator — `github-md` for raw markdown, `github-rst` for raw reStructuredText (cpython, Django, NumPy, …), `scrape-via-agent` for HTML/text via an LLM (see [Scraping non-trivial doc sources](#scraping-non-trivial-doc-sources-scrape-via-agent)) |
-| `urls` | yes | list of doc URLs with an optional `{ref}` placeholder (#120 retired the former `{version}` placeholder). |
-| `versions` | no | map `{"1.4": {ref: v1.4.1, urls: [...]}, "1.5": {ref: v1.5.0}, …}` of user-facing version identifiers to per-version overrides. Keys are the identifiers surfaced to the MCP surface (`search_libraries` / `search_docs`); prefer `major.minor`. Each value accepts optional per-version `ref:` and `urls:` overrides. The legacy list form `[v1, v2]` is rejected (see #117). |
-| `ref` | no | git tag or commit SHA substituted into `{ref}` in `urls` (#103). For multi-version libs, a per-version ref in the `versions:` map overrides this top-level ref. URLs that don't contain `{ref}` are left untouched, so a lib can opt into pinning incrementally. |
-| `versions[v].urls` | no | per-version URL list (#115). When set, replaces the top-level `urls:` for this version wholesale. Use it when two versions of the same lib diverge structurally (a file added, renamed, or removed between versions), or when the URL path contains a literal version segment that can't be shared across versions (the HashiCorp Terraform case, #120). Omit the field to inherit the baseline; an explicit empty list is rejected. |
-
-Adding a new library means adding a YAML entry — no Go editing, no recompile.
-
-Don't want to edit the YAML yourself? Open an issue via the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick **Add a library** or **Refresh a library** — the template collects exactly what's needed for a registry entry.
-
-The scrape subcommand accepts a few flags for working with the registry and the artifact directory:
-
-```bash
-# Use a non-default registry path
-mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -config /path/to/libraries_sources.yaml
-
-# Use a non-default artifacts directory
-mise exec -- go run ./cmd/deadzone scrape -artifacts /var/cache/deadzone/artifacts
-
-# Scrape every configured version of one base lib
-mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /hashicorp/terraform
-
-# Scrape only one specific versioned lib (pass the major.minor identifier)
-mise exec -- go run ./cmd/deadzone scrape -artifacts ./artifacts -lib /hashicorp/terraform/1.14
-```
-
-`-lib` matches at two levels: a base `lib_id` selects every expanded version of that base; a fully versioned `lib_id` selects exactly one expanded entry. Omitting `-lib` scrapes everything in the registry. Each entry produces (or replaces) one `artifacts/<slug>/artifact.db` file (+ `state.yaml` sidecar) — the leading `/` is stripped from the `lib_id` and the remaining `/` characters become `_`, so `/hashicorp/terraform/1.14` lands at `artifacts/hashicorp_terraform_1.14/artifact.db`.
-
-### Scraping non-trivial doc sources (`scrape-via-agent`)
-
-> ⚠️ **Experimental.** The `scrape-via-agent` path is the messy half of Deadzone. It works, and it's how non-markdown sources (Terraform providers, mkdocs, etc.) get indexed today, but the LLM-extraction → strict-verifier loop is sensitive to: input truncation cutting mid code-block (the 48 KiB cap below), the model's HTML→markdown skill, and the verifier's appetite for verbatim code matches. Real-world hit rate on dense doc sites is currently ~50% per URL — see [#64](https://github.com/laradji/deadzone/issues/64). Prefer `github-md` whenever the project ships its docs as committed markdown in the repo (most do, including FastAPI, OpenTofu's mkdocs source, etc.). Reach for `scrape-via-agent` only when the docs genuinely live HTML-only on a doc site.
-
-The `github-md` and `github-rst` kinds only work on libraries that publish raw markdown or reStructuredText on GitHub. For everything else — Terraform providers (HTML), React (`react.dev`), mkdocs/docusaurus/vitepress sites, GitBook, ReadTheDocs — Deadzone supports a third source kind, `scrape-via-agent`, that delegates **content → clean markdown** extraction to any OpenAI-compatible chat completions endpoint.
-
-Deadzone does **not** host an LLM. You bring your own runtime — [Ollama](https://ollama.ai), [llama.cpp server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server), [vLLM](https://github.com/vllm-project/vllm), [LocalAI](https://localai.io), [LM Studio](https://lmstudio.ai), [Groq](https://groq.com), OpenAI itself, anything that speaks `POST /v1/chat/completions` — and point Deadzone at the endpoint via three environment variables:
-
-```bash
-# Required
-export DEADZONE_AGENT_ENDPOINT=http://localhost:11434/v1
-export DEADZONE_AGENT_ENDPOINT_MODEL=qwen2.5:7b
-
-# Optional — only set if your endpoint requires auth
-export DEADZONE_AGENT_ENDPOINT_API_KEY=sk-...
-```
-
-Then add an entry with `kind: scrape-via-agent` to `libraries_sources.yaml`:
-
-```yaml
-libraries:
-  - lib_id: /hashicorp/terraform-provider-aws
-    kind: scrape-via-agent
-    urls:
-      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
-      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
-      - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function
-```
-
-The downstream pipeline (`ParseMarkdown` → chunk → embed → store) is **identical** for both kinds. The only thing that changes is where the markdown comes from: `github-md` reads it directly from a `raw.githubusercontent.com` URL, `scrape-via-agent` fetches the page, hands it to the LLM, and indexes whatever clean markdown comes back.
-
-**Startup contract.** If `libraries_sources.yaml` contains any `scrape-via-agent` source, the scraper resolves the agent config from env, pings the endpoint with a trivial completion, and aborts the run with a clear error if anything is missing or unreachable. There is no silent fallback — a misconfigured endpoint fails the run before any URL is processed.
-
-**Hallucination protection.** Every fenced code block in the LLM's output is verified to appear verbatim in the source content. If the model invents a code example, the doc is dropped (`scraper.agent_verification_failed` in the log) and the rest of the URLs in that source still get processed. Prose hallucination is still possible — this catches the most dangerous failure mode but is not a complete defense.
-
-**Input budget.** Inputs longer than ~48 KiB are truncated with a single `agent.input_truncated` warning. Smart chunking is a planned follow-up.
-
-**Supported content types in v1.**
-
-| Content type | Status |
-|---|---|
-| `text/html`, `application/xhtml+xml` | supported |
-| `text/markdown`, `text/x-markdown` | supported |
-| `text/plain` | supported |
-| `application/pdf` | reserved — clear error, planned follow-up |
-| anything else | clear `unsupported content type` error |
-
-> **First-run model download.** The first `just scrape` or `just serve` invocation downloads the MiniLM-L6-v2 ONNX weights (~90 MB) into the platform user-cache directory under `deadzone/models/`:
->
-> - Linux: `$XDG_CACHE_HOME/deadzone/models` (or `~/.cache/deadzone/models`)
-> - macOS: `~/Library/Caches/deadzone/models`
-> - Windows: `%LOCALAPPDATA%\deadzone\models`
->
-> Subsequent runs reuse the on-disk model. Set `DEADZONE_HUGOT_CACHE` to override the location (used by tests and CI to share a workspace-local cache).
-
-### Wire it into an MCP client
-
-Add to your client's MCP config (Claude Code, Cursor, etc.):
+MCP client wire-up:
 
 ```json
 {
@@ -481,69 +82,239 @@ Add to your client's MCP config (Claude Code, Cursor, etc.):
 }
 ```
 
-The server resolves `deadzone.db` from the platform data dir on first launch (see [Data](#data) for cache paths and env-var overrides) and auto-upgrades it on subsequent launches. To pin a specific DB file, add `"-db", "/path/to/deadzone.db"` to `args`.
-
-Then call the `search_docs` or `search_libraries` tool from the client.
-
-## Layout
+Then, from the client:
 
 ```
-deadzone/
-├── cmd/
-│   └── deadzone/      # single CLI with subcommands:
-│                      #   server       — MCP stdio entrypoint (search_docs / search_libraries)
-│                      #   scrape       — fetch, embed & write per-lib artifacts
-│                      #   consolidate  — merge per-lib artifacts into the main DB
-│                      #   dbrelease    — upload ./deadzone.db to a tagged GitHub Release
-│                      #   packs        — disabled (#101); use dbrelease instead
-├── internal/
-│   ├── db/            # Turso schema, vector queries, consolidation helper
-│   ├── embed/         # Embedder interface + hugot/MiniLM implementation
-│   ├── scraper/       # Markdown fetcher + parser (H2-split, fence-aware)
-│   └── packs/         # Folder layout helpers, manifest schema, gh wrapper
-├── artifacts/
-│   ├── manifest.yaml  # tracked: release-history trace (tag, sha256, counts)
-│   └── <slug>/        # gitignored: per-lib folder with artifact.db + state.yaml
-└── docs/
-    └── research/      # Design notes (Context7 analysis, tursogo migration, etc.)
+search_libraries("terraform aws")                 → ranked (lib_id, version) pairs
+search_docs("creating an s3 bucket", lib_id=...)  → snippets, token-budgeted
 ```
 
-## Why vector search
+---
 
-LLM clients send natural-language queries — `"how to register a tool"` should find the right snippet even if the doc says `AddTool`. Pure exact-match retrieval (FTS5) misses this entirely. Deadzone uses vector embeddings + cosine similarity to handle semantic queries natively, with no hosted dependency.
+## The two tools
 
-More background in [`docs/research/context7-analysis.md`](docs/research/context7-analysis.md).
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  search_libraries(name, limit?) → []LibraryHit                      │
+│  ─────────────────────────────────────────────                      │
+│  free text   ──►  vector match against the `libs` table             │
+│                   ──► [{lib_id, version, doc_count, match_score}]   │
+├─────────────────────────────────────────────────────────────────────┤
+│  search_docs(query, lib_id?, version?, tokens?) → []Snippet         │
+│  ──────────────────────────────────────────────────                 │
+│  natural  ──► 768-dim embed ──► cosine over docs                    │
+│  language                      ──► token-budgeted snippets back     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-## Debugging
+| Arg         | Shape                   | Notes                                                                 |
+|-------------|-------------------------|-----------------------------------------------------------------------|
+| `query`     | string                  | Matched semantically. Don't write keywords; write what you want.      |
+| `lib_id`    | `/org/project`          | Optional filter. Grab one from `search_libraries`.                    |
+| `version`   | `"1.14"` or similar     | Optional pin; **requires** `lib_id`. `version` alone is rejected.     |
+| `tokens`    | int                     | Response budget. Default `5000`, min `1000`, ≈ 4 chars/token.         |
+| `limit`     | int                     | On `search_libraries` — max results. Default `10`, max `50`.          |
+| `name`      | string                  | Free text on `search_libraries`. Empty returns the most-indexed libs. |
 
-Every subcommand emits structured JSON logs to **stderr** using `log/slog`. Stdout is reserved for the MCP JSON-RPC channel on `deadzone server`, so anything written there that isn't a valid JSON-RPC message disconnects the client — `deadzone scrape`, `deadzone consolidate`, and `deadzone packs` follow the same convention for consistency. (`deadzone packs list` is the one exception: it writes a human-facing table to stdout so callers can pipe it through `awk`/`column`.)
+---
 
-- **Scraper.** `just scrape` writes logs straight to your terminal. Look for `scraper.start`, a `scraper.lib_start` per resolved library (with the `artifact_path` it's writing to), one `scraper.fetch` per URL (with `bytes`, `duration_ms`, `docs_extracted`, and `kind`), `scraper.indexed` summaries, a `scraper.lib_done` per library, and a final `scraper.done`. The "silently stalls on one URL" failure mode shows up as a missing `scraper.fetch` event for that URL. Errors land as `scraper.fetch_failed` / `scraper.insert_failed` with the URL and wrapped error. When any source uses `kind: scrape-via-agent`, expect `scraper.agent_configured` and `scraper.agent_ping_ok` once at startup; per-doc hallucination drops show up as `scraper.agent_verification_failed`, and oversized inputs as `agent.input_truncated`.
-- **Consolidate.** `just consolidate` emits a `consolidate.start` and a `consolidate.done` with the `artifacts` count, `docs_merged`, `libs_merged`, and `duration_ms`. A failure aborts before any write reaches the main DB; the wrapped error names the offending artifact.
-- **DB release.** `just dbrelease v0.1.0` emits `dbrelease.start` (with `db_path`, `tag`, `repo`), then `packs.dbrelease.uploaded` per uploaded asset (`deadzone.db` + `deadzone.db.sha256`), and a final `dbrelease.done` line carrying `sha256`, `size`, `lib_count`, `doc_count`, and the manifest path. The operator then commits the manifest diff to record the release.
-- **Server.** `deadzone server`'s stderr is captured by the MCP client. In Claude Code that's the `~/Library/Logs/Claude/mcp-server-deadzone.log` file (macOS) or your client's equivalent — check the MCP client docs. On startup the server emits a `server.start` line with the embedder meta and the indexed `doc_count`; each `search_docs` call emits one `search_docs` line with `lib_id`, `tokens`, `results`, and `latency_ms`. When `-db` is unset the server runs `db.Bootstrap` first; expect a `server.db_upgraded` line when the binary version bump triggered a cache swap, a `server.db_version_dev_fallback` WARN when running a dev build (dev builds use `/releases/latest` instead of pinning to a tag), or a `server.db_tag_sidecar_write_failed` WARN if the tag sidecar couldn't be persisted after a successful DB install (non-fatal — next startup will just re-fetch). If an explicit `-db <path>` is missing the server refuses to start and points at both the auto-fetch path (run without `-db`) and `deadzone consolidate`.
-- **Verbose mode.** Every subcommand takes `-verbose`. On the server it adds the raw `query` field to per-call logs (off by default because queries may contain user data). On the scraper it adds per-doc `scraper.doc_indexed` Debug lines, useful when debugging the parser on a new library.
+## Under the hood
 
-## Roadmap
+```
+  deadzone server
+       │
+       ▼
+  ┌──────────────┐   stdio JSON-RPC       ┌───────────────┐
+  │  MCP client  │ ─────────────────────► │   handler     │
+  └──────────────┘                        └──────┬────────┘
+                                                 │
+                              ┌──────────────────┴──────────────────┐
+                              ▼                                     ▼
+                     ┌────────────────┐                   ┌──────────────────┐
+                     │   embedder     │                   │   Turso (local)  │
+                     │  hugot + ORT   │                   │  F32_BLOB(768)   │
+                     │  nomic v1.5    │                   │  vector_distance │
+                     └────────┬───────┘                   └──────────────────┘
+                              │  768-dim                             ▲
+                              └──────────────  query vector  ────────┘
+```
 
-Tracked on the [GitHub issues board](https://github.com/laradji/deadzone/issues). Scope lives in [milestones](https://github.com/laradji/deadzone/milestones) (`0.1` shipped, `0.2` shipped, `0.3` in flight). Category via `feature` / `research` labels; priority via `P1` / `P2` / `P3`.
+| Layer      | Choice                                                                        |
+|------------|-------------------------------------------------------------------------------|
+| Language   | Go 1.26.2, pinned via [`mise`](https://mise.jdx.dev)                           |
+| Storage    | [Turso](https://turso.tech) local file — native `F32_BLOB(N)` + `vector_distance_cos` |
+| Driver     | [`tursogo`](https://pkg.go.dev/turso.tech/database/tursogo) — **CGO-free** via [`purego`](https://github.com/ebitengine/purego) |
+| Embedder   | [`hugot`](https://github.com/knights-analytics/hugot) → `nomic-ai/nomic-embed-text-v1.5`, 768-dim, 8192-token ctx (int8 quantized) |
+| Runtime    | ONNX Runtime — binary CGO-linked at build time; `libonnxruntime` auto-fetched + SHA256-verified on first launch |
+| Protocol   | [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) over stdio |
 
-## Contributing
+The binary itself is CGO-linked (hugot ORT backend + static `libtokenizers.a`). At **runtime** the only native surface is `libonnxruntime`, loaded via `dlopen` after a SHA256-verified auto-download. Everything else — Go stdlib, `tursogo`, the model weights — is either statically linked or fetched on first launch against a pinned hash. No system installs. No `sudo`. If a download drifts from its pinned hash, the run aborts; there is no fallback to an unverified fetch.
 
-To request a new library or refresh an existing one, use the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick the matching form.
+Escape hatches for air-gapped boxes:
+
+| Env var                   | Effect                                                      |
+|---------------------------|-------------------------------------------------------------|
+| `DEADZONE_ORT_LIB_PATH`   | Hand-positioned `libonnxruntime` path. Skips the download.  |
+| `DEADZONE_ORT_CACHE`      | Override the ORT library cache dir.                         |
+| `DEADZONE_HUGOT_CACHE`    | Override the model-weights cache dir.                       |
+| `DEADZONE_DB_CACHE`       | Override the `deadzone.db` cache dir.                       |
+| `DEADZONE_DB_OFFLINE=1`   | Refuse any network call. Fails loudly if nothing is cached. |
+
+Default cache paths per platform:
+
+| Platform | `deadzone.db` lives at                                           |
+|----------|------------------------------------------------------------------|
+| macOS    | `~/Library/Application Support/deadzone/deadzone.db`              |
+| Linux    | `$XDG_DATA_HOME/deadzone/deadzone.db` (else `~/.local/share/...`) |
+| Windows  | `%LOCALAPPDATA%\deadzone\deadzone.db`                             |
+
+A sibling `deadzone.db.release` text file records the tag the cache was fetched from. Startup compares it against the binary's compiled-in version: match → zero-network; differs → fetch and atomic-swap; dev build → fall back to `/releases/latest` with a `server.db_version_dev_fallback` WARN.
+
+---
+
+## Add a library
+
+Contributor path. End users don't touch this — they just get what ships in `deadzone.db`.
+
+**Not editing YAML yourself?** Open an issue via the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick **Add a library** or **Refresh a library**. The template collects exactly what a registry entry needs.
+
+**Editing YAML yourself?** Append to [`libraries_sources.yaml`](libraries_sources.yaml):
+
+```yaml
+libraries:
+  # Single-version lib — no `versions` key, urls used as-is.
+  - lib_id: /modelcontextprotocol/go-sdk
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/main/docs/quick_start.md
+
+  # Multi-version lib — `versions` expands into one effective lib_id
+  # per version (/org/project/1.4, /org/project/1.5, …). {ref} is
+  # substituted from each version's ref: field.
+  - lib_id: /modelcontextprotocol/go-sdk
+    kind: github-md
+    versions:
+      "1.4": { ref: v1.4.1 }
+      "1.5": { ref: v1.5.0 }
+    urls:
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/README.md
+      - https://raw.githubusercontent.com/modelcontextprotocol/go-sdk/{ref}/docs/getting-started.md
+```
+
+| Field                | Req | Purpose                                                                                                          |
+|----------------------|-----|------------------------------------------------------------------------------------------------------------------|
+| `lib_id`             | yes | Canonical `/org/project` identifier (matches `db.docs.lib_id`).                                                  |
+| `kind`               | yes | `github-md` (raw markdown), `github-rst` (raw reStructuredText), or `scrape-via-agent` (HTML/text via LLM).      |
+| `urls`               | yes | Doc URL list with an optional `{ref}` placeholder.                                                               |
+| `versions`           | no  | `{"1.4": {ref: v1.4.1, urls: [...]}, "1.5": {ref: v1.5.0}, …}` — user-facing identifiers prefer `major.minor`.   |
+| `ref`                | no  | Git tag or commit SHA substituted into `{ref}`. Per-version `ref:` overrides top-level.                          |
+| `versions[v].urls`   | no  | Per-version URL list — replaces baseline wholesale. Use for structurally divergent versions.                     |
+
+Pre-1.0: no Go editing, no recompile. Just edit YAML and re-scrape.
+
+---
+
+## Scrape-via-agent (experimental)
+
+> ⚠️ **The messy half.** Works today for non-markdown sources (Terraform providers, mkdocs, GitBook, …), but the LLM→verifier loop is sensitive to input truncation (48 KiB cap), HTML→markdown skill, and verbatim-code matching. Real-world hit rate on dense doc sites ≈ 50%/URL — see [#64](https://github.com/laradji/deadzone/issues/64). **Prefer `github-md` whenever the project ships committed markdown.**
+
+Bring your own LLM runtime — [Ollama](https://ollama.ai), [llama.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server), [vLLM](https://github.com/vllm-project/vllm), LocalAI, LM Studio, Groq, OpenAI, anything that speaks `POST /v1/chat/completions`:
+
+```sh
+export DEADZONE_AGENT_ENDPOINT=http://localhost:11434/v1
+export DEADZONE_AGENT_ENDPOINT_MODEL=qwen2.5:7b
+export DEADZONE_AGENT_ENDPOINT_API_KEY=sk-...   # optional
+```
+
+Then add a `kind: scrape-via-agent` entry to `libraries_sources.yaml` with a list of page URLs. The downstream pipeline (parse → chunk → embed → store) is **identical** to `github-md`; only the markdown source changes.
+
+**Guardrails.** Every fenced code block in the LLM output is verified verbatim against the source — invented examples drop the doc (`scraper.agent_verification_failed`), not the run. Missing/unreachable endpoint aborts at startup; no silent fallback.
+
+---
+
+## Local pipeline (contributors)
+
+```sh
+# 1. Install the pinned toolchain (Go 1.26.2 + just)
+mise install
+
+# 2. Fetch libtokenizers.a for your platform into ./lib/
+just fetch-tokenizers
+
+# 3. Build, scrape, consolidate, serve
+just build
+just scrape                       # all libs — one artifact folder per lib
+just scrape /hashicorp/terraform  # one base lib, every version
+just scrape /hashicorp/terraform/1.14   # one exact version
+just consolidate                  # merge artifacts/*/artifact.db → deadzone.db
+just serve                        # MCP server against deadzone.db
+```
+
+`just` with no args lists every recipe. Each scrape rewrites `artifacts/<slug>/artifact.db` + `state.yaml` in place; `consolidate` merges all artifact DBs atomically under `deadzone.db`. Per-lib folders are gitignored; the committed [`artifacts/manifest.yaml`](artifacts/manifest.yaml) records release history only.
+
+**Full registry via CI.** `gh workflow run scrape-pack.yml -f tag=vX.Y.Z` fans out the matrix, consolidates, and uploads `deadzone.db` to the tagged release. Omit `-f tag=…` to stop at a consolidated-db cache.
+
+---
+
+## Release flow
+
+Two-phase as of [#101](https://github.com/laradji/deadzone/issues/101) — CI ships binaries, operator ships the DB.
+
+```sh
+# 1. Regenerate deadzone.db from the committed scraper config.
+just scrape && just consolidate
+
+# 2. Tag + push. CI's release.yml builds the tarballs + AppImages + creates the release.
+git tag v0.X.0 && git push --tags
+
+# 3. Ship deadzone.db + deadzone.db.sha256 to the same release.
+just dbrelease v0.X.0
+
+# 4. Bump the Homebrew tap (until #130 lands the PAT-based auto-trigger).
+gh workflow run update-package-channels.yml -f tag=v0.X.0
+
+# 5. Commit artifacts/manifest.yaml so the release-history trace lands in git.
+git add artifacts/manifest.yaml && git commit -m "release v0.X.0" && git push
+```
+
+---
+
+## Logs
+
+Structured JSON on **stderr** via `log/slog`. Stdout is reserved for MCP JSON-RPC on `deadzone server`.
+
+| Subcommand      | Key events                                                                                                                      |
+|-----------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `scrape`        | `scraper.start`, `scraper.lib_start`, `scraper.fetch` (per URL), `scraper.indexed`, `scraper.lib_done`, `scraper.done`. Errors: `scraper.fetch_failed`, `scraper.insert_failed`. Agent path adds `scraper.agent_configured`, `scraper.agent_ping_ok`, `scraper.agent_verification_failed`, `agent.input_truncated`. |
+| `consolidate`   | `consolidate.start`, `consolidate.done` with `artifacts`, `docs_merged`, `libs_merged`, `duration_ms`.                          |
+| `dbrelease`     | `dbrelease.start`, `packs.dbrelease.uploaded` (per asset), `dbrelease.done` with `sha256`, `size`, `lib_count`, `doc_count`.    |
+| `server`        | `server.start` (embedder + `doc_count`), one `search_docs` per call (`lib_id`, `tokens`, `results`, `latency_ms`). Boot may emit `server.db_upgraded`, `server.db_version_dev_fallback` WARN, `server.db_tag_sidecar_write_failed` WARN. |
+
+`-verbose` on any subcommand adds debug-level detail. On `server` it logs the raw `query` (off by default — queries may carry user data). On `scrape` it adds per-doc `scraper.doc_indexed`.
+
+MCP client log paths: Claude Code on macOS writes to `~/Library/Logs/Claude/mcp-server-deadzone.log`; other clients vary.
+
+---
+
+## Roadmap & contributing
+
+Issues: [`laradji/deadzone/issues`](https://github.com/laradji/deadzone/issues). Scope via [milestones](https://github.com/laradji/deadzone/milestones) (`0.1` shipped, `0.2` shipped, `0.3` in flight). Category via `feature` / `research` labels; priority via `P1` / `P2` / `P3`.
+
+New library or refresh: use the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick the matching form.
+
+---
+
+## Why bother with vectors
+
+Because `"how to register a tool"` should find the doc that says `AddTool`, and no FTS5 query will get you there without the human already knowing the answer. Embeddings-first retrieval is the point; everything else is plumbing.
+
+Long-form: [`docs/research/context7-analysis.md`](docs/research/context7-analysis.md).
+
+---
 
 ## License
 
-Deadzone is licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE) for the third-party attributions that ship with the binary.
+[Apache License, Version 2.0](./LICENSE). Third-party attributions in [`NOTICE`](./NOTICE).
 
-## Content rights (scraped documentation)
-
-The Apache 2.0 license above covers the **Deadzone source code only**. It does **not** grant any rights over the third-party documentation that the scraper indexes. Each documentation source you point Deadzone at — whether through a `github-md` source or a `scrape-via-agent` source — remains the property of its original authors and is governed by whatever license those authors chose for it.
-
-In practice this means:
-
-- Running `deadzone scrape` against a public doc site is subject to that site's Terms of Service.
-- A pre-built `pack` distributed via the project's GitHub Releases is bound by the original content's license, not by Apache 2.0. The manifest in `artifacts/manifest.yaml` records each source's `lib_id` so you can trace back to the upstream license if needed.
-- Redistributing scraped content outside Deadzone's local search use case may require permission from the original authors.
-
-If you're indexing your own content for personal use, none of this matters. If you're considering distributing a Deadzone pack publicly, do the homework on each source first.
+**One important asterisk.** Apache 2.0 covers the Deadzone source code, and only that. It does **not** cover the third-party documentation the scraper indexes — those docs belong to their original authors under their own licenses. Running `deadzone scrape` is subject to each source's ToS. A pre-built pack is bound by the original content's license, not Apache 2.0. Personal local indexing: fine. Public redistribution: do the homework first.
