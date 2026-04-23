@@ -600,3 +600,189 @@ libraries:
       - https://docs.turso.tech/features/multi-db-schemas.md
       - https://docs.turso.tech/features/point-in-time-recovery.md
       - https://docs.turso.tech/features/sqlite-extensions.md
+
+  # knights-analytics/hugot — Go port of Hugging Face transformers.
+  # Load-bearing for internal/embed (ONNX inference over tokenized text).
+  # Tiny surface: README + contrib.md. CHANGELOG skipped (release log,
+  # not library docs). See #142.
+  - lib_id: /knights-analytics/hugot
+    kind: github-md
+    versions:
+      "0.6": { ref: v0.6.5 }
+      "0.7": { ref: v0.7.2 }
+    urls:
+      - https://raw.githubusercontent.com/knights-analytics/hugot/{ref}/README.md
+      - https://raw.githubusercontent.com/knights-analytics/hugot/{ref}/contrib.md
+
+  # spf13/cobra — CLI framework. Newly load-bearing after #134 (deadzone
+  # CLI migration from stdlib flag to cobra). Canonical doc source is
+  # site/content/ (Hugo markdown). CONDUCT/CONTRIBUTING/SECURITY skipped
+  # (project meta). See #142.
+  - lib_id: /spf13/cobra
+    kind: github-md
+    versions:
+      "1.9":  { ref: v1.9.1 }
+      "1.10": { ref: v1.10.2 }
+    urls:
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/README.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/active_help.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/user_guide.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/projects_using_cobra.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/completions/_index.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/completions/bash.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/completions/fish.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/completions/powershell.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/completions/zsh.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/docgen/_index.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/docgen/man.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/docgen/md.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/docgen/rest.md
+      - https://raw.githubusercontent.com/spf13/cobra/{ref}/site/content/docgen/yaml.md
+
+  # jdx/mise — polyglot version manager / task runner. Pinned by
+  # .mise.toml in this repo. CalVer tagging (v2026.4.X = April 2026);
+  # version key is major.minor (month), ref points at the latest patch
+  # of that month. URL list covers concept + configuration + workflow
+  # docs; the 64 auto-generated pages under docs/cli/ are skipped
+  # (equivalent to `mise help <cmd>`, not learning material). Plugin
+  # authoring docs (plugin-*-development.md, plugin-lua-modules.md) are
+  # also skipped — out of scope for deadzone's use of mise. See #142.
+  - lib_id: /jdx/mise
+    kind: github-md
+    versions:
+      "2026.3": { ref: v2026.3.9 }
+      "2026.4": { ref: v2026.4.19 }
+    urls:
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/README.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/index.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/about.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/architecture.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/cache-behavior.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/configuration.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/continuous-integration.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/core-tools.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/direnv.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/directories.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/errors.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/external-resources.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/faq.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/getting-started.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/glossary.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/hooks.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/ide-integration.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/installing-mise.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/mcp.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/paranoid.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/plugins.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/registry.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/shell-aliases.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/templates.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/tips-and-tricks.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/troubleshooting.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/url-replacements.md
+      - https://raw.githubusercontent.com/jdx/mise/{ref}/docs/walkthrough.md
+
+  # casey/just — command runner used by the top-level justfile. Pinned
+  # by .mise.toml. Tags drop the `v` prefix from 1.0 onwards. README is
+  # the canonical doc; GRAMMAR.md is the authoritative recipe-syntax
+  # reference; skills/just/SKILL.md is the upstream agent-oriented
+  # cheat sheet. CHANGELOG/CONTRIBUTING/中文 README skipped. See #142.
+  - lib_id: /casey/just
+    kind: github-md
+    versions:
+      "1.49": { ref: "1.49.0" }
+      "1.50": { ref: "1.50.0" }
+    urls:
+      - https://raw.githubusercontent.com/casey/just/{ref}/README.md
+      - https://raw.githubusercontent.com/casey/just/{ref}/GRAMMAR.md
+      - https://raw.githubusercontent.com/casey/just/{ref}/skills/just/SKILL.md
+
+  # direnv/direnv — per-directory env loader driving .envrc at the repo
+  # root. README + docs/* + man pages (served as markdown by upstream).
+  # docs/github-actions.md is omitted because it landed in v2.37 and
+  # does not exist at v2.36 — keeping a single URL list across both
+  # minors (no per-version override needed). See #142.
+  - lib_id: /direnv/direnv
+    kind: github-md
+    versions:
+      "2.36": { ref: v2.36.0 }
+      "2.37": { ref: v2.37.1 }
+    urls:
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/README.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/docs/development.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/docs/hook.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/docs/installation.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/docs/ruby.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/man/direnv.1.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/man/direnv.toml.1.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/man/direnv-stdlib.1.md
+      - https://raw.githubusercontent.com/direnv/direnv/{ref}/man/direnv-fetchurl.1.md
+
+  # daulet/tokenizers — Go bindings around Hugging Face tokenizers,
+  # statically linked into deadzone at build time (libtokenizers.a +
+  # CGO_LDFLAGS). Thin repo: README covers the static-build + CGO
+  # pattern exhaustively; examples/go + examples/web are the reference
+  # integrations. CONTRIBUTING skipped (project meta). See #142.
+  - lib_id: /daulet/tokenizers
+    kind: github-md
+    versions:
+      "1.26": { ref: v1.26.0 }
+      "1.27": { ref: v1.27.0 }
+    urls:
+      - https://raw.githubusercontent.com/daulet/tokenizers/{ref}/README.md
+      - https://raw.githubusercontent.com/daulet/tokenizers/{ref}/examples/go/README.md
+      - https://raw.githubusercontent.com/daulet/tokenizers/{ref}/examples/web/README.md
+
+  # microsoft/onnxruntime — ONNX inference runtime reached transitively
+  # via gomlx -> yalue/onnxruntime_go. Repo is huge; docs/ is mostly
+  # internal dev notes (ABI, training, operator kernels) that are not
+  # relevant to deadzone's use case. URL list is tightly scoped to the
+  # C API surface (what CGO linking actually needs): project README +
+  # C_API_Guidelines + c_cxx sample entry. See #142.
+  - lib_id: /microsoft/onnxruntime
+    kind: github-md
+    versions:
+      "1.24": { ref: v1.24.4 }
+      "1.25": { ref: v1.25.0 }
+    urls:
+      - https://raw.githubusercontent.com/microsoft/onnxruntime/{ref}/README.md
+      - https://raw.githubusercontent.com/microsoft/onnxruntime/{ref}/docs/C_API_Guidelines.md
+      - https://raw.githubusercontent.com/microsoft/onnxruntime/{ref}/docs/c_cxx/README.md
+
+  # modelcontextprotocol/modelcontextprotocol — the MCP spec (contract)
+  # vs. the already-indexed /modelcontextprotocol/go-sdk (implementation).
+  # Spec releases are date-coded; each tag keeps its own subtree under
+  # docs/specification/<date>/ so `{ref}` appears in both the tag and
+  # the in-repo path (substituteRef is strings.ReplaceAll — multiple
+  # occurrences are fine). Date strings don't fit the major.minor rule,
+  # so version keys fall back to the full date (same pattern as
+  # scaleway-sdk-go prereleases). tasks.mdx and schema.mdx are only in
+  # the 2025-11-25 tag — omitted to keep both URL lists identical. See
+  # #142.
+  - lib_id: /modelcontextprotocol/modelcontextprotocol
+    kind: github-md
+    versions:
+      "2025-06-18": { ref: 2025-06-18 }
+      "2025-11-25": { ref: 2025-11-25 }
+    urls:
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/index.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/changelog.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/architecture/index.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/index.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/authorization.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/lifecycle.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/security_best_practices.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/transports.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/utilities/cancellation.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/utilities/ping.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/basic/utilities/progress.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/client/elicitation.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/client/roots.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/client/sampling.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/index.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/prompts.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/resources.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/tools.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/utilities/completion.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/utilities/logging.mdx
+      - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/utilities/pagination.mdx
