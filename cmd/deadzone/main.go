@@ -7,9 +7,6 @@
 //	deadzone consolidate   merge ./artifacts/<slug>/artifact.db into a single deadzone.db
 //	deadzone fetch-db      download/refresh the cached deadzone.db from the latest GH Release
 //	deadzone dbrelease     upload ./deadzone.db to a tagged GitHub Release
-//	deadzone packs {upload|download|list}
-//	                       DISABLED per #101; returns a clear error. See
-//	                       `deadzone dbrelease` for the current release flow.
 //
 // Top-level `-version` short-circuits before any embedder/DB load so
 // the smoke test in release.yml can call it on a stock runner with no
@@ -17,11 +14,9 @@
 // supported — the single top-level banner is enough for the smoke test
 // and keeps each subcommand's flag surface focused on its own knobs.
 //
-// Routing is the same `os.Args[1]` switch + `flag.NewFlagSet` per sub
-// pattern that cmd/packs/main.go already used before this refactor —
-// see issue #98 for the consolidation rationale (one tarball, one
-// binary, the duplicated CGO+ORT payload shipped once instead of four
-// times).
+// Routing is an `os.Args[1]` switch + `flag.NewFlagSet` per sub — see
+// issue #98 for the consolidation rationale (one tarball, one binary,
+// the duplicated CGO+ORT payload shipped once instead of four times).
 package main
 
 import (
@@ -53,7 +48,6 @@ Subcommands:
   consolidate   merge ./artifacts/<slug>/artifact.db files into a single deadzone.db
   fetch-db      download/refresh the cached deadzone.db from the latest GH Release
   dbrelease     upload ./deadzone.db to a tagged GitHub Release (operator-driven)
-  packs         (disabled; see 'deadzone dbrelease')
 
 Run "deadzone <subcommand> -h" for subcommand flags.
 `
@@ -98,8 +92,6 @@ func dispatch(args []string) error {
 		return runDBRelease(rest)
 	case "fetch-db":
 		return runFetchDB(rest)
-	case "packs":
-		return runPacks(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %q\n\n", sub)
 		fmt.Fprint(os.Stderr, usage)
