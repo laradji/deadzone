@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/laradji/deadzone/internal/db"
@@ -603,6 +604,291 @@ func TestTopLibsByDocCount_OrdersDescending(t *testing.T) {
 		if results[i].LibID != w {
 			t.Errorf("position %d: got %q, want %q", i, results[i].LibID, w)
 		}
+	}
+}
+
+// seedMainDB writes a fully-valid consolidated DB at path via the
+// mutator path, inserts a handful of docs, and closes it. Used by the
+// OpenReader tests to get a realistic on-disk file without repeating
+// the Open/Insert boilerplate in every case.
+func seedMainDB(t *testing.T, path string) {
+	t.Helper()
+	d, err := db.Open(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("seed: Open: %v", err)
+	}
+	docs := []db.Doc{
+		{LibID: "/a/one", Title: "one", Content: "first doc"},
+		{LibID: "/b/two", Title: "two", Content: "second doc"},
+	}
+	for _, doc := range docs {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
+			t.Fatalf("seed: Insert %q: %v", doc.Title, err)
+		}
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("seed: Close: %v", err)
+	}
+}
+
+// TestOpenReader_ExistingDB checks the happy path: a DB seeded via the
+// mutator Open path can be reopened via OpenReader and answer SELECTs
+// with the same row count. Covers AC bullet "TestOpenReader_existingDB".
+func TestOpenReader_ExistingDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	defer d.Close()
+
+	var count int
+	if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&count); err != nil {
+		t.Fatalf("SELECT count(*): %v", err)
+	}
+	if count != 2 {
+		t.Errorf("doc count = %d, want 2", count)
+	}
+	if d.Meta != metaFor(testEmbedder) {
+		t.Errorf("Meta = %+v, want %+v", d.Meta, metaFor(testEmbedder))
+	}
+}
+
+// TestOpenReader_RejectsWrite is the core invariant: once a DB is
+// opened via OpenReader, the connection must refuse any write. Both an
+// INSERT and a CREATE TABLE are attempted so the test catches a
+// half-finished implementation that only guards one shape of mutation.
+func TestOpenReader_RejectsWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	defer d.Close()
+
+	// INSERT must fail — the stored vector width matches the
+	// embedder's dim, so if query_only didn't fire we'd silently
+	// succeed and the test would pass for the wrong reason.
+	insertVec := embedText(t, testEmbedder, db.Doc{Title: "t", Content: "c"})
+	if err := db.Insert(d, db.Doc{LibID: "x", Title: "t", Content: "c"}, insertVec); err == nil {
+		t.Error("Insert on reader: expected error, got nil")
+	}
+
+	// CREATE TABLE must also fail — the issue's acceptance criterion
+	// explicitly names it because the mutator Open path itself issues
+	// CREATE TABLE IF NOT EXISTS at boot, and a reader that still
+	// allows DDL would re-introduce the exact lock contention we are
+	// trying to eliminate.
+	if _, err := d.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY)`); err == nil {
+		t.Error("CREATE TABLE on reader: expected error, got nil")
+	}
+
+	// UPDATE and DELETE round out the mutation surface. query_only
+	// covers all three in one pragma, so a failure in any one branch
+	// points at a regression in the pragma-lifetime handling rather
+	// than a missing case in OpenReader.
+	if _, err := d.Exec(`UPDATE docs SET title = 'x' WHERE lib_id = '/a/one'`); err == nil {
+		t.Error("UPDATE on reader: expected error, got nil")
+	}
+	if _, err := d.Exec(`DELETE FROM docs WHERE lib_id = '/a/one'`); err == nil {
+		t.Error("DELETE on reader: expected error, got nil")
+	}
+}
+
+// TestOpenReader_MissingFile pins the "readers never spawn empty DBs"
+// contract. If the path does not exist, OpenReader must return an
+// os.ErrNotExist-wrapping error and must NOT create a stub file on
+// disk — otherwise a typo in -db on the server CLI would produce a
+// nonsense empty database that silently answers zero results.
+func TestOpenReader_MissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "never-created.db")
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err == nil {
+		d.Close()
+		t.Fatal("OpenReader on missing file: expected error, got nil")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected os.ErrNotExist, got %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Errorf("OpenReader created a stub file at %s; it must not", path)
+	}
+}
+
+// TestOpenReader_SchemaMismatch rebuilds a v1 (pre-libs) database by
+// hand and asserts that OpenReader rejects it with ErrSchemaMismatch.
+// Parity with TestDB_RejectsPreLibsSchema for the mutator path — the
+// reader must surface the same sentinel so callers using errors.Is can
+// treat the two paths interchangeably.
+func TestOpenReader_SchemaMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		t.Fatalf("raw open: %v", err)
+	}
+	raw.SetMaxOpenConns(1)
+	if _, err := raw.Exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create meta: %v", err)
+	}
+	for _, kv := range [][2]string{
+		{"embedder_kind", testEmbedder.Kind()},
+		{"embedding_dim", fmt.Sprintf("%d", testEmbedder.Dim())},
+		{"model_version", testEmbedder.ModelVersion()},
+	} {
+		if _, err := raw.Exec(`INSERT INTO meta(key, value) VALUES (?, ?)`, kv[0], kv[1]); err != nil {
+			t.Fatalf("insert meta %s: %v", kv[0], err)
+		}
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw close: %v", err)
+	}
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err == nil {
+		d.Close()
+		t.Fatal("expected ErrSchemaMismatch, got nil")
+	}
+	if !errors.Is(err, db.ErrSchemaMismatch) {
+		t.Errorf("expected ErrSchemaMismatch, got %v", err)
+	}
+}
+
+// TestOpenReader_EmbedderMismatch seeds a DB with the real embedder
+// meta, then tries to OpenReader it with three different shapes of
+// mismatched meta (kind, dim, model version). Mirrors
+// TestDB_RejectsEmbedderMismatch so the reader and mutator paths share
+// identical meta-enforcement semantics.
+func TestOpenReader_EmbedderMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	cases := []struct {
+		name string
+		meta db.Meta
+	}{
+		{
+			name: "different kind",
+			meta: db.Meta{EmbedderKind: "fake", EmbeddingDim: testEmbedder.Dim(), ModelVersion: testEmbedder.ModelVersion()},
+		},
+		{
+			name: "different dim",
+			meta: db.Meta{EmbedderKind: testEmbedder.Kind(), EmbeddingDim: testEmbedder.Dim() + 1, ModelVersion: testEmbedder.ModelVersion()},
+		},
+		{
+			name: "different model version",
+			meta: db.Meta{EmbedderKind: testEmbedder.Kind(), EmbeddingDim: testEmbedder.Dim(), ModelVersion: "made-up-model-v9"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := db.OpenReader(path, tc.meta)
+			if err == nil {
+				d.Close()
+				t.Fatal("expected ErrEmbedderMismatch, got nil")
+			}
+			if !errors.Is(err, db.ErrEmbedderMismatch) {
+				t.Errorf("expected ErrEmbedderMismatch, got %v", err)
+			}
+		})
+	}
+}
+
+// TestOpenReader_Concurrent is the load-bearing acceptance test for
+// #131: three goroutines call OpenReader against the same file and
+// each issues a SELECT; none of them must hit SQLITE_BUSY. Before the
+// reader/mutator split, three concurrent Open calls could race on the
+// boot-time CREATE TABLE IF NOT EXISTS meta write-intent lock. This
+// test would have caught that by observing a "database is locked"
+// error on at least one goroutine.
+func TestOpenReader_Concurrent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	const workers = 3
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		counts []int
+		errs   []error
+	)
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			d, err := db.OpenReader(path, metaFor(testEmbedder))
+			if err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("OpenReader: %w", err))
+				mu.Unlock()
+				return
+			}
+			defer d.Close()
+			var n int
+			if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("SELECT: %w", err))
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			counts = append(counts, n)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	if len(errs) > 0 {
+		for _, e := range errs {
+			t.Errorf("concurrent reader: %v", e)
+		}
+		t.FailNow()
+	}
+	if len(counts) != workers {
+		t.Fatalf("got %d counts, want %d", len(counts), workers)
+	}
+	for i, n := range counts {
+		if n != counts[0] {
+			t.Errorf("worker %d: count=%d, worker 0: count=%d; readers must see identical state", i, n, counts[0])
+		}
+	}
+}
+
+// TestOpenReader_Uninitialized checks the "DB file exists but was
+// never populated" case. A bare SQLite file with no meta table must
+// surface as ErrReaderNotInitialized — not as a silent success with
+// zero rows — so a misconfigured -db path fails loudly instead of
+// answering every query with "no match" forever.
+func TestOpenReader_Uninitialized(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.db")
+
+	// Create the file via the driver without any schema. This is what
+	// a stray `touch empty.db` or a half-failed bootstrap looks like.
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		t.Fatalf("raw open: %v", err)
+	}
+	// Force the file to actually exist on disk by issuing a trivial
+	// query; tursogo defers the create until the first operation.
+	if _, err := raw.Exec(`CREATE TABLE canary (x INTEGER)`); err != nil {
+		t.Fatalf("raw exec: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw close: %v", err)
+	}
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err == nil {
+		d.Close()
+		t.Fatal("expected ErrReaderNotInitialized, got nil")
+	}
+	if !errors.Is(err, db.ErrReaderNotInitialized) {
+		t.Errorf("expected ErrReaderNotInitialized, got %v", err)
 	}
 }
 

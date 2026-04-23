@@ -214,6 +214,125 @@ func Open(path string, meta Meta) (*DB, error) {
 	return &DB{DB: raw, Meta: meta}, nil
 }
 
+// ErrReaderNotInitialized is returned by OpenReader when the file
+// exists but has no meta rows — i.e. a mutator has never opened it to
+// lay down the schema. Readers must not bootstrap DBs themselves (that
+// is exclusively the mutator path's job), so the right fix is to run a
+// mutator command (consolidate / dbrelease / scrape) first. Wrap with
+// errors.Is to detect.
+var ErrReaderNotInitialized = errors.New("database was never initialized by a mutator")
+
+// OpenReader opens an existing deadzone database in read-only mode. It
+// is the entry point used by `deadzone server` and any other caller
+// that issues only SELECTs. Unlike Open it does NOT run any DDL and
+// does NOT accept writes: a PRAGMA query_only = 1 is set on the
+// connection immediately after open so any subsequent INSERT / UPDATE /
+// DELETE / CREATE TABLE returns a SQLite "attempt to write a readonly
+// database" error.
+//
+// Motivation: Open's unconditional CREATE TABLE IF NOT EXISTS meta
+// takes a write-intent lock on every boot, which serializes concurrent
+// MCP server processes against the same deadzone.db file. OpenReader
+// skips all schema DDL so N reader processes can coexist without
+// SQLITE_BUSY, while preserving the usual schema + embedder meta
+// cross-check semantics.
+//
+// Contract vs Open:
+//
+//   - Same validateMeta / schema_version / embedder meta checks.
+//     ErrSchemaMismatch and ErrEmbedderMismatch surface exactly as they
+//     do from Open, so callers can errors.Is them identically.
+//   - The file MUST exist. If it does not, os.ErrNotExist is returned
+//     wrapped with the path — readers never fabricate empty stubs.
+//   - The file MUST have been initialized by a mutator: if the meta
+//     table is absent or empty, ErrReaderNotInitialized is returned.
+//   - Writes fail fast via query_only and (as a second line of defence)
+//     the caller-facing *DB has no helper that attempts mutations.
+func OpenReader(path string, meta Meta) (*DB, error) {
+	if err := validateMeta(meta); err != nil {
+		return nil, fmt.Errorf("open db reader: %w", err)
+	}
+
+	// Stat first so a missing file surfaces as os.ErrNotExist rather
+	// than tursogo quietly creating a new empty DB. The mutator path
+	// (Open) intentionally creates-if-missing; the reader path never
+	// does.
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("open db reader %s: %w", path, err)
+	}
+
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		return nil, fmt.Errorf("open db reader: %w", err)
+	}
+
+	// Same tursogo-beta defensive serialization as Open. We also pin
+	// the idle pool to one connection with unlimited lifetime so the
+	// single connection we set PRAGMA query_only on below is the exact
+	// connection every subsequent query reuses. Without that pin, the
+	// pool could close and re-open an unpragma'd connection under load,
+	// silently dropping the read-only contract.
+	raw.SetMaxOpenConns(1)
+	raw.SetMaxIdleConns(1)
+	raw.SetConnMaxLifetime(0)
+	raw.SetConnMaxIdleTime(0)
+
+	// query_only turns the connection into a strict SELECT-only view of
+	// the database at the SQLite layer. It is intentionally set BEFORE
+	// any readMeta so even the meta-validation path cannot accidentally
+	// issue a write. The tursogo DSN is a bare path and does not
+	// support a ?mode=ro query string (documented at db.go:117), so
+	// this pragma is the portable way to enforce the read-only contract.
+	if _, err := raw.Exec(`PRAGMA query_only = 1`); err != nil {
+		raw.Close()
+		return nil, fmt.Errorf("open db reader %s: set query_only: %w", path, err)
+	}
+
+	// Probe sqlite_master before readMeta so a DB file that exists but
+	// has no meta table at all (e.g. a stray `touch deadzone.db`, or a
+	// half-failed bootstrap) surfaces as ErrReaderNotInitialized rather
+	// than as a raw "no such table: meta" driver error. Without this
+	// probe the caller can't tell a "please run a mutator first"
+	// situation from an honest I/O failure via errors.Is.
+	var metaTableCount int
+	if err := raw.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'`).Scan(&metaTableCount); err != nil {
+		raw.Close()
+		return nil, fmt.Errorf("open db reader %s: probe meta: %w", path, err)
+	}
+	if metaTableCount == 0 {
+		raw.Close()
+		return nil, fmt.Errorf("%w: %s: run `deadzone consolidate` or `deadzone dbrelease` to populate it",
+			ErrReaderNotInitialized, path)
+	}
+
+	stored, storedSchemaVersion, hasMeta, err := readMeta(raw)
+	if err != nil {
+		raw.Close()
+		return nil, fmt.Errorf("open db reader %s: read meta: %w", path, err)
+	}
+	if !hasMeta {
+		raw.Close()
+		return nil, fmt.Errorf("%w: %s: run `deadzone consolidate` or `deadzone dbrelease` to populate it",
+			ErrReaderNotInitialized, path)
+	}
+
+	// Schema version before embedder meta so an old DB with matching
+	// embedder but pre-libs schema surfaces as a schema problem rather
+	// than a spurious embedder mismatch — same ordering as Open.
+	if storedSchemaVersion != CurrentSchemaVersion {
+		raw.Close()
+		return nil, fmt.Errorf("%w: stored=%d current=%d; use a fresh database file and re-scrape until an in-place migration is implemented",
+			ErrSchemaMismatch, storedSchemaVersion, CurrentSchemaVersion)
+	}
+	if stored != meta {
+		raw.Close()
+		return nil, fmt.Errorf("%w: stored=%+v requested=%+v; use a fresh database file or rebuild with the matching embedder",
+			ErrEmbedderMismatch, stored, meta)
+	}
+
+	return &DB{DB: raw, Meta: stored}, nil
+}
+
 // OpenArtifact opens (or creates) a per-(lib_id, version) artifact
 // database. An artifact carries a single (lib_id, version) pair
 // recorded in its meta table; the recorded values are the source of
