@@ -287,9 +287,14 @@ func runServer(args []string) error {
 		return fmt.Errorf("stat db %s: %w", *dbPath, err)
 	}
 
-	// db.Open validates the embedder's reported meta against whatever
-	// the database was created with; a mismatch fails fast and tells
-	// the user to rebuild against a fresh file.
+	// db.OpenReader validates the embedder's reported meta against
+	// whatever the database was created with; a mismatch fails fast
+	// and tells the user to rebuild against a fresh file. Unlike
+	// db.Open (used by mutator subcommands like consolidate / scrape /
+	// dbrelease) it does NOT run any DDL and sets PRAGMA query_only on
+	// the connection, so N concurrent `deadzone server` processes can
+	// share the same deadzone.db file without racing each other on
+	// SQLite write-intent locks (#131).
 	e, err := embed.New(*embedderKind)
 	if err != nil {
 		return fmt.Errorf("embedder: %w", err)
@@ -300,7 +305,7 @@ func runServer(args []string) error {
 		}
 	}()
 
-	d, err := db.Open(*dbPath, db.Meta{
+	d, err := db.OpenReader(*dbPath, db.Meta{
 		EmbedderKind: e.Kind(),
 		EmbeddingDim: e.Dim(),
 		ModelVersion: e.ModelVersion(),

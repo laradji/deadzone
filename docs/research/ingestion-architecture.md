@@ -514,6 +514,10 @@ When #44 (the `libs` vector table) was being designed, it became clear that addi
 
 When adding a table or making a breaking schema change, bump the constant in the same commit.
 
+### Reader / mutator open split (#131)
+
+A second layering grew on top of `Open` in 0.3: `db.OpenReader` is the read-only entry point for `deadzone server` and any future SELECT-only caller, while `db.Open` remains the mutator entry point used by `scrape`, `consolidate`, and `dbrelease`. The reader path skips all schema DDL and sets `PRAGMA query_only = 1` on the pinned connection, so N concurrent `deadzone server` processes can share the same `deadzone.db` file without racing each other on SQLite write-intent locks. Schema + embedder-meta cross-checks (`ErrSchemaMismatch`, `ErrEmbedderMismatch`) surface identically from both paths. The **contract is that mutator paths own all DDL** — `OpenReader` never creates, migrates, or repairs — so the schema-versioning pattern above stays a single-writer story even when a fleet of readers is attached.
+
 ### Migration policy (locked pre-0.2): no back-compat on `deadzone.db`
 
 Explicit position for future schema changes — the repo has **zero external users of `deadzone.db`** today and the release pipeline rebuilds the DB from scratch on every tag:

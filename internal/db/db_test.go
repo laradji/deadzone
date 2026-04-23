@@ -1,11 +1,14 @@
 package db_test
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 
 	"github.com/laradji/deadzone/internal/db"
@@ -603,6 +606,444 @@ func TestTopLibsByDocCount_OrdersDescending(t *testing.T) {
 		if results[i].LibID != w {
 			t.Errorf("position %d: got %q, want %q", i, results[i].LibID, w)
 		}
+	}
+}
+
+// seedMainDB writes a fully-valid consolidated DB at path via the
+// mutator path, inserts a handful of docs, and closes it. Used by the
+// OpenReader tests to get a realistic on-disk file without repeating
+// the Open/Insert boilerplate in every case.
+func seedMainDB(t *testing.T, path string) {
+	t.Helper()
+	d, err := db.Open(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("seed: Open: %v", err)
+	}
+	docs := []db.Doc{
+		{LibID: "/a/one", Title: "one", Content: "first doc"},
+		{LibID: "/b/two", Title: "two", Content: "second doc"},
+	}
+	for _, doc := range docs {
+		if err := db.Insert(d, doc, embedText(t, testEmbedder, doc)); err != nil {
+			t.Fatalf("seed: Insert %q: %v", doc.Title, err)
+		}
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("seed: Close: %v", err)
+	}
+}
+
+// TestOpenReader_ExistingDB checks the happy path: a DB seeded via the
+// mutator Open path can be reopened via OpenReader and answer SELECTs
+// with the same row count. Covers AC bullet "TestOpenReader_existingDB".
+func TestOpenReader_ExistingDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	defer d.Close()
+
+	var count int
+	if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&count); err != nil {
+		t.Fatalf("SELECT count(*): %v", err)
+	}
+	if count != 2 {
+		t.Errorf("doc count = %d, want 2", count)
+	}
+	if d.Meta != metaFor(testEmbedder) {
+		t.Errorf("Meta = %+v, want %+v", d.Meta, metaFor(testEmbedder))
+	}
+}
+
+// TestOpenReader_RejectsWrite is the core invariant: once a DB is
+// opened via OpenReader, the connection must refuse any write. Both an
+// INSERT and a CREATE TABLE are attempted so the test catches a
+// half-finished implementation that only guards one shape of mutation.
+func TestOpenReader_RejectsWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	defer d.Close()
+
+	// INSERT must fail — the stored vector width matches the
+	// embedder's dim, so if query_only didn't fire we'd silently
+	// succeed and the test would pass for the wrong reason.
+	insertVec := embedText(t, testEmbedder, db.Doc{Title: "t", Content: "c"})
+	if err := db.Insert(d, db.Doc{LibID: "x", Title: "t", Content: "c"}, insertVec); err == nil {
+		t.Error("Insert on reader: expected error, got nil")
+	}
+
+	// CREATE TABLE must also fail — the issue's acceptance criterion
+	// explicitly names it because the mutator Open path itself issues
+	// CREATE TABLE IF NOT EXISTS at boot, and a reader that still
+	// allows DDL would re-introduce the exact lock contention we are
+	// trying to eliminate.
+	if _, err := d.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY)`); err == nil {
+		t.Error("CREATE TABLE on reader: expected error, got nil")
+	}
+
+	// UPDATE and DELETE round out the mutation surface. query_only
+	// covers all three in one pragma, so a failure in any one branch
+	// points at a regression in the pragma-lifetime handling rather
+	// than a missing case in OpenReader.
+	if _, err := d.Exec(`UPDATE docs SET title = 'x' WHERE lib_id = '/a/one'`); err == nil {
+		t.Error("UPDATE on reader: expected error, got nil")
+	}
+	if _, err := d.Exec(`DELETE FROM docs WHERE lib_id = '/a/one'`); err == nil {
+		t.Error("DELETE on reader: expected error, got nil")
+	}
+}
+
+// TestOpenReader_MissingFile pins the "readers never spawn empty DBs"
+// contract. If the path does not exist, OpenReader must return an
+// os.ErrNotExist-wrapping error and must NOT create a stub file on
+// disk — otherwise a typo in -db on the server CLI would produce a
+// nonsense empty database that silently answers zero results.
+func TestOpenReader_MissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "never-created.db")
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err == nil {
+		d.Close()
+		t.Fatal("OpenReader on missing file: expected error, got nil")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected os.ErrNotExist, got %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Errorf("OpenReader created a stub file at %s; it must not", path)
+	}
+}
+
+// TestOpenReader_SchemaMismatch rebuilds a v1 (pre-libs) database by
+// hand and asserts that OpenReader rejects it with ErrSchemaMismatch.
+// Parity with TestDB_RejectsPreLibsSchema for the mutator path — the
+// reader must surface the same sentinel so callers using errors.Is can
+// treat the two paths interchangeably.
+func TestOpenReader_SchemaMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		t.Fatalf("raw open: %v", err)
+	}
+	raw.SetMaxOpenConns(1)
+	if _, err := raw.Exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create meta: %v", err)
+	}
+	for _, kv := range [][2]string{
+		{"embedder_kind", testEmbedder.Kind()},
+		{"embedding_dim", fmt.Sprintf("%d", testEmbedder.Dim())},
+		{"model_version", testEmbedder.ModelVersion()},
+	} {
+		if _, err := raw.Exec(`INSERT INTO meta(key, value) VALUES (?, ?)`, kv[0], kv[1]); err != nil {
+			t.Fatalf("insert meta %s: %v", kv[0], err)
+		}
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw close: %v", err)
+	}
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err == nil {
+		d.Close()
+		t.Fatal("expected ErrSchemaMismatch, got nil")
+	}
+	if !errors.Is(err, db.ErrSchemaMismatch) {
+		t.Errorf("expected ErrSchemaMismatch, got %v", err)
+	}
+}
+
+// TestOpenReader_EmbedderMismatch seeds a DB with the real embedder
+// meta, then tries to OpenReader it with three different shapes of
+// mismatched meta (kind, dim, model version). Mirrors
+// TestDB_RejectsEmbedderMismatch so the reader and mutator paths share
+// identical meta-enforcement semantics.
+func TestOpenReader_EmbedderMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	cases := []struct {
+		name string
+		meta db.Meta
+	}{
+		{
+			name: "different kind",
+			meta: db.Meta{EmbedderKind: "fake", EmbeddingDim: testEmbedder.Dim(), ModelVersion: testEmbedder.ModelVersion()},
+		},
+		{
+			name: "different dim",
+			meta: db.Meta{EmbedderKind: testEmbedder.Kind(), EmbeddingDim: testEmbedder.Dim() + 1, ModelVersion: testEmbedder.ModelVersion()},
+		},
+		{
+			name: "different model version",
+			meta: db.Meta{EmbedderKind: testEmbedder.Kind(), EmbeddingDim: testEmbedder.Dim(), ModelVersion: "made-up-model-v9"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := db.OpenReader(path, tc.meta)
+			if err == nil {
+				d.Close()
+				t.Fatal("expected ErrEmbedderMismatch, got nil")
+			}
+			if !errors.Is(err, db.ErrEmbedderMismatch) {
+				t.Errorf("expected ErrEmbedderMismatch, got %v", err)
+			}
+		})
+	}
+}
+
+// listTables returns the names of every user-defined table in the
+// database at path, in lexicographic order. Used by
+// TestOpenReader_DoesNotIssueDDL to snapshot the schema around an
+// OpenReader call.
+func listTables(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		t.Fatalf("listTables: open: %v", err)
+	}
+	defer raw.Close()
+	rows, err := raw.Query(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+	if err != nil {
+		t.Fatalf("listTables: query: %v", err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatalf("listTables: scan: %v", err)
+		}
+		names = append(names, n)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("listTables: rows: %v", err)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestOpenReader_DoesNotIssueDDL is the direct structural test for
+// the #131 root-cause fix: OpenReader must not create, alter, or drop
+// any table on the file it opens. Before the reader/mutator split,
+// `deadzone server`'s boot would run `CREATE TABLE IF NOT EXISTS meta`
+// unconditionally (db.go:137, pre-refactor), taking a SQLite
+// write-intent lock on every start and racing other boots on the
+// same file. This test snapshots the full sqlite_master table list
+// before and after OpenReader and fails if the two differ — a much
+// stronger assertion than "N concurrent readers don't time out",
+// because it pins down WHY concurrent readers work rather than
+// verifying the symptom.
+func TestOpenReader_DoesNotIssueDDL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	before := listTables(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	// Issue a representative SELECT so any lazy DDL the driver might
+	// defer until first query has a chance to fire before we snapshot.
+	var n int
+	if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+		d.Close()
+		t.Fatalf("SELECT: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	after := listTables(t, path)
+	if len(before) != len(after) {
+		t.Fatalf("OpenReader changed table count: before=%v after=%v", before, after)
+	}
+	for i := range before {
+		if before[i] != after[i] {
+			t.Errorf("OpenReader altered schema: before=%v after=%v", before, after)
+			break
+		}
+	}
+}
+
+// TestOpenReader_CoexistsWithWriterOnSameFile holds a write-intent
+// lock on the main DB via a mutator-opened `BEGIN IMMEDIATE`, then
+// spawns multiple OpenReader calls against the same file. The
+// assertion is that every reader opens and answers its SELECT without
+// a SQLITE_BUSY, proving the reader path is safe under the exact
+// condition the old Open boot race could have hit: a writer actively
+// holding the reserved lock while a would-be reader starts up.
+//
+// Tursogo enables WAL by default (see the comment at db.go:129), so
+// in WAL mode readers and a writer coexist by design — this test
+// documents that we rely on that property and that OpenReader does
+// nothing to break it. Combined with TestOpenReader_DoesNotIssueDDL
+// (no boot-time DDL), the two together pin down the whole contract:
+// zero writes on boot, plus WAL concurrency, equals N readers safe
+// against 1 writer.
+func TestOpenReader_CoexistsWithWriterOnSameFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	mutator, err := db.Open(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("mutator Open: %v", err)
+	}
+	defer mutator.Close()
+
+	// Pin a connection and hold a reserved lock via BEGIN IMMEDIATE.
+	// SetMaxOpenConns(1) on the mutator side means there is a single
+	// conn; Conn() returns it, and the BEGIN IMMEDIATE sticks on that
+	// conn for the life of the test. Rollback on defer so we never
+	// leak a half-open tx into the pool.
+	ctx := context.Background()
+	writerConn, err := mutator.Conn(ctx)
+	if err != nil {
+		t.Fatalf("mutator Conn: %v", err)
+	}
+	defer writerConn.Close()
+
+	if _, err := writerConn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("BEGIN IMMEDIATE: %v", err)
+	}
+	defer func() {
+		if _, err := writerConn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+			t.Logf("ROLLBACK: %v", err)
+		}
+	}()
+
+	// Force real acquisition of the reserved lock by issuing a write
+	// on the pinned tx. BEGIN IMMEDIATE alone is intended to grab it,
+	// but writing a row removes any ambiguity about driver behaviour.
+	if _, err := writerConn.ExecContext(ctx,
+		`UPDATE docs SET title = 'held-' || title WHERE lib_id = '/a/one'`); err != nil {
+		t.Fatalf("writer UPDATE: %v", err)
+	}
+
+	// Now spawn N OpenReader calls. None of them should block
+	// indefinitely or fail with SQLITE_BUSY. A 5-second implicit
+	// timeout via the test runner's default would catch a hang; we
+	// assert success inline.
+	const readers = 3
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		counts []int
+		errs   []error
+	)
+	wg.Add(readers)
+	for i := 0; i < readers; i++ {
+		go func() {
+			defer wg.Done()
+			d, err := db.OpenReader(path, metaFor(testEmbedder))
+			if err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("OpenReader: %w", err))
+				mu.Unlock()
+				return
+			}
+			defer d.Close()
+			var n int
+			if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("SELECT: %w", err))
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			counts = append(counts, n)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	if len(errs) > 0 {
+		for _, e := range errs {
+			t.Errorf("reader vs held writer: %v", e)
+		}
+		t.FailNow()
+	}
+	if len(counts) != readers {
+		t.Fatalf("got %d reader results, want %d", len(counts), readers)
+	}
+	// Sanity: readers all see the pre-writer state (writer's tx is
+	// uncommitted, so its UPDATE is invisible). Seed inserts 2 rows.
+	for i, n := range counts {
+		if n != 2 {
+			t.Errorf("reader %d: count=%d, want 2 (uncommitted writer must be invisible)", i, n)
+		}
+	}
+}
+
+// TestOpenReader_PinsSingleConnection freezes the pool-posture
+// invariant that the read-only contract relies on. PRAGMA query_only
+// is per-connection, not per-DB — if a future change raises
+// SetMaxOpenConns past 1 (e.g. to parallelize reads under #45), the
+// database/sql pool can spawn a second, un-pragma'd connection and
+// silently accept writes on it. Pinning the cap at 1 at Stats() level
+// catches that regression before it can hit prod.
+func TestOpenReader_PinsSingleConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	defer d.Close()
+
+	stats := d.Stats()
+	if stats.MaxOpenConnections != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1; raising the cap requires re-establishing PRAGMA query_only per-connection (see #131 — query_only is not a DB-level pragma)",
+			stats.MaxOpenConnections)
+	}
+}
+
+// TestOpenReader_RejectsForeignSqliteFile covers the case where the
+// path points at a SQLite file the mutator path never touched — e.g.
+// a user pointed -db at somebody else's database by mistake, or a
+// half-failed bootstrap produced a file with an unrelated schema.
+// A readable file with no meta table must surface as
+// ErrReaderNotInitialized (actionable: "run consolidate") rather
+// than as a raw "no such table: meta" driver error (which looks like
+// corruption). A fresh deadzone.db created by a mutator always has
+// the meta table, so this branch does not fire on in-tree workflows
+// — it guards against pointing OpenReader at foreign files.
+func TestOpenReader_RejectsForeignSqliteFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.db")
+
+	// Create the file via the driver without any schema. This is what
+	// a stray `touch empty.db` or a half-failed bootstrap looks like.
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		t.Fatalf("raw open: %v", err)
+	}
+	// Force the file to actually exist on disk by issuing a trivial
+	// query; tursogo defers the create until the first operation.
+	if _, err := raw.Exec(`CREATE TABLE canary (x INTEGER)`); err != nil {
+		t.Fatalf("raw exec: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw close: %v", err)
+	}
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err == nil {
+		d.Close()
+		t.Fatal("expected ErrReaderNotInitialized, got nil")
+	}
+	if !errors.Is(err, db.ErrReaderNotInitialized) {
+		t.Errorf("expected ErrReaderNotInitialized, got %v", err)
 	}
 }
 
