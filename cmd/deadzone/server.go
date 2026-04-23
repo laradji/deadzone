@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
+
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
 	"github.com/laradji/deadzone/internal/logs"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Library IDs follow the format /org/project (e.g.
@@ -227,7 +228,7 @@ func makeSearchLibrariesHandler(d *db.DB, e embed.Embedder, verbose bool) func(c
 
 // libAttrs is the search_libraries equivalent of searchAttrs: a single
 // place to assemble the slog key/value list shared by success and
-// error paths. The raw name is gated behind -verbose for the same
+// error paths. The raw name is gated behind --verbose for the same
 // reason search_docs gates query text — names may carry user data
 // routed through the LLM.
 func libAttrs(input SearchLibrariesInput, name string, limit int, verbose bool, extra ...any) []any {
@@ -240,25 +241,53 @@ func libAttrs(input SearchLibrariesInput, name string, limit int, verbose bool, 
 	return attrs
 }
 
+// server subcommand flags — package-level so cobra's Flags().XxxVar can
+// bind them at init-time. One prefix per subcommand keeps the namespace
+// clean across sibling files.
+var (
+	serverDBPath       string
+	serverEmbedderKind string
+	serverVerbose      bool
+)
+
+var serverCmd = &cobra.Command{
+	Use:   "server",
+	Short: "Run the MCP stdio server against a deadzone.db",
+	Long: `Run the MCP stdio server backed by a deadzone.db.
+
+With --db unset the server auto-resolves from the per-platform cache and
+auto-upgrades to the latest published DB on startup (see #108). Set --db
+to an explicit path to pin to a specific file and skip the fetch.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runServer()
+	},
+}
+
+func init() {
+	serverCmd.Flags().StringVar(&serverDBPath, "db", "",
+		"path to turso database file (default: auto-resolve from cache + auto-fetch/auto-upgrade)")
+	serverCmd.Flags().StringVar(&serverEmbedderKind, "embedder", embed.KindHugot,
+		"embedder to use (valid: hugot)")
+	serverCmd.Flags().BoolVar(&serverVerbose, "verbose", false,
+		"include the raw query text in per-call logs")
+	rootCmd.AddCommand(serverCmd)
+}
+
 // runServer is the `deadzone server` entry point. The body is the
-// former cmd/server/main.go run(), with `flag.*` replaced by a per-sub
-// flag.FlagSet so the top-level dispatch can own os.Args without
-// colliding with the sibling subcommands' flag definitions.
-func runServer(args []string) error {
-	fs := flag.NewFlagSet("server", flag.ExitOnError)
-	dbPath := fs.String("db", "", "path to turso database file (default: auto-resolve from cache + auto-fetch/auto-upgrade)")
-	embedderKind := fs.String("embedder", embed.KindHugot, "embedder to use (valid: hugot)")
-	verbose := fs.Bool("verbose", false, "include the raw query text in per-call logs")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
+// former flag-based run(), with `flag.*` replaced by package-level vars
+// bound by cobra so the top-level dispatch owns os.Args without
+// colliding with the sibling subcommands.
+func runServer() error {
+	dbPath := serverDBPath
+	embedderKind := serverEmbedderKind
+	verbose := serverVerbose
 
 	// Wire slog before any other work so subsequent error paths emit
 	// structured JSON to stderr — never stdout, which is the MCP
 	// JSON-RPC channel.
-	slog.SetDefault(logs.New(os.Stderr, *verbose))
+	slog.SetDefault(logs.New(os.Stderr, verbose))
 
-	// Two -db modes (#108):
+	// Two --db modes (#108):
 	//   unset → auto-fetch from the latest GH Release into the
 	//           per-platform data dir, auto-upgrade on subsequent runs
 	//           when a newer release exists. The whole flow is bounded
@@ -267,7 +296,7 @@ func runServer(args []string) error {
 	//   set   → use the path verbatim. No fetch, no version check.
 	//           Error if missing — the operator opted into a specific
 	//           file and we respect that.
-	if *dbPath == "" {
+	if dbPath == "" {
 		// SIGINT-aware context so a Ctrl-C during a 200 MB first-fetch
 		// tears down cleanly instead of letting the HTTP client run
 		// to its 15-minute timeout.
@@ -277,14 +306,14 @@ func runServer(args []string) error {
 		if err != nil {
 			return fmt.Errorf("bootstrap deadzone.db: %w", err)
 		}
-		*dbPath = resolved
+		dbPath = resolved
 		if upgraded {
-			slog.Info("server.db_upgraded", "db_path", *dbPath)
+			slog.Info("server.db_upgraded", "db_path", dbPath)
 		}
-	} else if _, err := os.Stat(*dbPath); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s not found. Either run without -db to auto-fetch the latest published DB, or run `deadzone consolidate -db %s -artifacts ./artifacts` to build it from local artifacts", *dbPath, *dbPath)
+	} else if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s not found. Either run without --db to auto-fetch the latest published DB, or run `deadzone consolidate --db %s --artifacts ./artifacts` to build it from local artifacts", dbPath, dbPath)
 	} else if err != nil {
-		return fmt.Errorf("stat db %s: %w", *dbPath, err)
+		return fmt.Errorf("stat db %s: %w", dbPath, err)
 	}
 
 	// db.OpenReader validates the embedder's reported meta against
@@ -295,7 +324,7 @@ func runServer(args []string) error {
 	// the connection, so N concurrent `deadzone server` processes can
 	// share the same deadzone.db file without racing each other on
 	// SQLite write-intent locks (#131).
-	e, err := embed.New(*embedderKind)
+	e, err := embed.New(embedderKind)
 	if err != nil {
 		return fmt.Errorf("embedder: %w", err)
 	}
@@ -305,7 +334,7 @@ func runServer(args []string) error {
 		}
 	}()
 
-	d, err := db.OpenReader(*dbPath, db.Meta{
+	d, err := db.OpenReader(dbPath, db.Meta{
 		EmbedderKind: e.Kind(),
 		EmbeddingDim: e.Dim(),
 		ModelVersion: e.ModelVersion(),
@@ -328,7 +357,7 @@ func runServer(args []string) error {
 		"version", version,
 		"commit", commit,
 		"build_date", date,
-		"db_path", *dbPath,
+		"db_path", dbPath,
 		"embedder_kind", e.Kind(),
 		"embedding_dim", e.Dim(),
 		"model_version", e.ModelVersion(),
@@ -339,11 +368,11 @@ func runServer(args []string) error {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_docs",
 		Description: "Search documentation snippets for a library. Filter by library via lib_id (base form like /hashicorp/terraform). Pass version alongside lib_id to pin to a specific version (e.g. v1.14); omit version to search across all indexed versions of the lib. version without lib_id is rejected.",
-	}, makeSearchHandler(d, e, *verbose))
+	}, makeSearchHandler(d, e, verbose))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_libraries",
 		Description: "Resolve a free-text library name into a ranked list of (lib_id, version) candidates that can be passed to search_docs. Returns one entry per indexed (lib_id, version) pair — group by lib_id on the client to see the versions of the same library. Pass an empty name to list the most-indexed libraries by doc_count.",
-	}, makeSearchLibrariesHandler(d, e, *verbose))
+	}, makeSearchLibrariesHandler(d, e, verbose))
 
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		return fmt.Errorf("mcp run: %w", err)

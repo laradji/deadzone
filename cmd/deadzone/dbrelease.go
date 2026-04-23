@@ -9,7 +9,7 @@ package main
 //   - The tag already exists on the origin remote (operator pushed it).
 //   - CI's release.yml has already run for that tag and created the
 //     release object with the per-platform binary tarballs attached.
-//   - deadzone.db exists locally at -db (default ./deadzone.db).
+//   - deadzone.db exists locally at --db (default ./deadzone.db).
 //
 // Steps:
 //  1. sha256 ./deadzone.db and write ./deadzone.db.sha256 next to it.
@@ -26,7 +26,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -37,60 +36,87 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+	_ "turso.tech/database/tursogo"
+
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/laradji/deadzone/internal/packs"
-	_ "turso.tech/database/tursogo"
 )
 
-// runDBRelease is the entry point wired into the top-level dispatch in
-// main.go.
-func runDBRelease(args []string) error {
-	fs := flag.NewFlagSet("dbrelease", flag.ExitOnError)
-	dbPath := fs.String("db", "deadzone.db", "path to the consolidated deadzone.db")
-	tag := fs.String("tag", "", "release tag to upload to (required; the tag must already exist on origin)")
-	repo := fs.String("repo", "", "GitHub owner/name (default: from git remote via `gh`, falling back to "+packs.DefaultRepo+")")
-	manifestPath := fs.String("manifest", "./artifacts/manifest.yaml", "manifest to update")
-	verbose := fs.Bool("verbose", false, "enable Debug-level slog output")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	slog.SetDefault(logs.New(os.Stderr, *verbose))
+var (
+	dbreleaseDBPath       string
+	dbreleaseTag          string
+	dbreleaseRepo         string
+	dbreleaseManifestPath string
+	dbreleaseVerbose      bool
+)
 
-	if strings.TrimSpace(*tag) == "" {
-		return errors.New("dbrelease: -tag is required")
+var dbreleaseCmd = &cobra.Command{
+	Use:   "dbrelease",
+	Short: "Upload ./deadzone.db to a tagged GitHub Release (operator-driven)",
+	Long: `Ship deadzone.db to a tagged GitHub Release. The tag must already
+exist on origin (this command does not push tags); CI's release.yml must
+already have run for that tag so the release object exists.
+
+Writes deadzone.db + deadzone.db.sha256 to the release, then rewrites
+artifacts/manifest.yaml with the new record — remember to commit that.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runDBRelease()
+	},
+}
+
+func init() {
+	dbreleaseCmd.Flags().StringVar(&dbreleaseDBPath, "db", "deadzone.db",
+		"path to the consolidated deadzone.db")
+	dbreleaseCmd.Flags().StringVar(&dbreleaseTag, "tag", "",
+		"release tag to upload to (required; the tag must already exist on origin)")
+	dbreleaseCmd.Flags().StringVar(&dbreleaseRepo, "repo", "",
+		"GitHub owner/name (default: from git remote via `gh`, falling back to "+packs.DefaultRepo+")")
+	dbreleaseCmd.Flags().StringVar(&dbreleaseManifestPath, "manifest", "./artifacts/manifest.yaml",
+		"manifest to update")
+	dbreleaseCmd.Flags().BoolVar(&dbreleaseVerbose, "verbose", false,
+		"enable Debug-level slog output")
+	rootCmd.AddCommand(dbreleaseCmd)
+}
+
+func runDBRelease() error {
+	slog.SetDefault(logs.New(os.Stderr, dbreleaseVerbose))
+
+	if strings.TrimSpace(dbreleaseTag) == "" {
+		return errors.New("dbrelease: --tag is required")
 	}
 
-	fi, err := os.Stat(*dbPath)
+	fi, err := os.Stat(dbreleaseDBPath)
 	if err != nil {
-		return fmt.Errorf("dbrelease: stat %s: %w", *dbPath, err)
+		return fmt.Errorf("dbrelease: stat %s: %w", dbreleaseDBPath, err)
 	}
 	if fi.IsDir() {
-		return fmt.Errorf("dbrelease: -db %s is a directory", *dbPath)
+		return fmt.Errorf("dbrelease: --db %s is a directory", dbreleaseDBPath)
 	}
 
-	resolvedRepo := strings.TrimSpace(*repo)
+	resolvedRepo := strings.TrimSpace(dbreleaseRepo)
 	if resolvedRepo == "" {
-		resolvedRepo = resolveRepoFromGit(*manifestPath)
+		resolvedRepo = resolveRepoFromGit(dbreleaseManifestPath)
 	}
 	slog.Info("dbrelease.start",
-		"db_path", *dbPath,
-		"tag", *tag,
+		"db_path", dbreleaseDBPath,
+		"tag", dbreleaseTag,
 		"repo", resolvedRepo,
-		"manifest_path", *manifestPath,
+		"manifest_path", dbreleaseManifestPath,
 	)
 
-	hash, err := fileSHA256(*dbPath)
+	hash, err := fileSHA256(dbreleaseDBPath)
 	if err != nil {
-		return fmt.Errorf("dbrelease: sha256 %s: %w", *dbPath, err)
+		return fmt.Errorf("dbrelease: sha256 %s: %w", dbreleaseDBPath, err)
 	}
 
-	shaPath := *dbPath + ".sha256"
-	shaLine := fmt.Sprintf("%s  %s\n", hash, filepath.Base(*dbPath))
+	shaPath := dbreleaseDBPath + ".sha256"
+	shaLine := fmt.Sprintf("%s  %s\n", hash, filepath.Base(dbreleaseDBPath))
 	if err := os.WriteFile(shaPath, []byte(shaLine), 0o644); err != nil {
 		return fmt.Errorf("dbrelease: write %s: %w", shaPath, err)
 	}
 
-	stats, err := readDBStats(*dbPath)
+	stats, err := readDBStats(dbreleaseDBPath)
 	if err != nil {
 		return fmt.Errorf("dbrelease: read db stats: %w", err)
 	}
@@ -99,13 +125,13 @@ func runDBRelease(args []string) error {
 	defer cancel()
 
 	releaser := packs.NewGHReleaser()
-	if err := releaser.EnsureRelease(ctx, resolvedRepo, *tag); err != nil {
+	if err := releaser.EnsureRelease(ctx, resolvedRepo, dbreleaseTag); err != nil {
 		return fmt.Errorf("dbrelease: %w", err)
 	}
-	if err := releaser.Upload(ctx, resolvedRepo, *tag, *dbPath); err != nil {
+	if err := releaser.Upload(ctx, resolvedRepo, dbreleaseTag, dbreleaseDBPath); err != nil {
 		return fmt.Errorf("dbrelease: upload db: %w", err)
 	}
-	if err := releaser.Upload(ctx, resolvedRepo, *tag, shaPath); err != nil {
+	if err := releaser.Upload(ctx, resolvedRepo, dbreleaseTag, shaPath); err != nil {
 		return fmt.Errorf("dbrelease: upload sha256: %w", err)
 	}
 
@@ -114,8 +140,8 @@ func runDBRelease(args []string) error {
 	// retry without polluting git state.
 	m := &packs.Manifest{
 		Release: packs.ReleaseRecord{
-			Tag:       *tag,
-			Asset:     filepath.Base(*dbPath),
+			Tag:       dbreleaseTag,
+			Asset:     filepath.Base(dbreleaseDBPath),
 			SHA256:    hash,
 			Size:      fi.Size(),
 			IndexedAt: time.Now().UTC(),
@@ -128,20 +154,20 @@ func runDBRelease(args []string) error {
 			DocCount: stats.docCount,
 		},
 	}
-	if err := m.Save(*manifestPath); err != nil {
+	if err := m.Save(dbreleaseManifestPath); err != nil {
 		return fmt.Errorf("dbrelease: save manifest: %w", err)
 	}
 
 	slog.Info("dbrelease.done",
-		"tag", *tag,
-		"asset", filepath.Base(*dbPath),
+		"tag", dbreleaseTag,
+		"asset", filepath.Base(dbreleaseDBPath),
 		"sha256", hash,
 		"size", fi.Size(),
 		"lib_count", stats.libCount,
 		"doc_count", stats.docCount,
-		"manifest_path", *manifestPath,
+		"manifest_path", dbreleaseManifestPath,
 	)
-	fmt.Fprintf(os.Stderr, "dbrelease: wrote %s — remember to commit it.\n", *manifestPath)
+	fmt.Fprintf(os.Stderr, "dbrelease: wrote %s — remember to commit it.\n", dbreleaseManifestPath)
 	return nil
 }
 
@@ -228,7 +254,7 @@ func fileSHA256(path string) (string, error) {
 }
 
 // resolveRepoFromGit falls back to `gh repo view --json nameWithOwner`
-// when -repo is unset, giving the operator a sensible default on a
+// when --repo is unset, giving the operator a sensible default on a
 // typical clone. On any failure we drop to packs.DefaultRepo — the
 // GHReleaser call will surface a clearer error if the ultimate target
 // is wrong.

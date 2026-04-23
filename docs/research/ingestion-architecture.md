@@ -104,7 +104,7 @@ The main DB is a **derived view**; artifacts are the local source of truth.
 
 ### Rationale
 
-- **`deadzone scrape -lib /org/project` regenerates one artifact**, leaves the others untouched. Solves problem 1.
+- **`deadzone scrape --lib /org/project` regenerates one artifact**, leaves the others untouched. Solves problem 1.
 - **Each artifact is self-contained** and ships as a single file. Solves problems 2-3.
 - **Test fixtures can use real artifacts** when available. Solves problem 4.
 - **Scraping is parallelizable per lib** (per-artifact, no shared writer). Solves problem 5.
@@ -226,7 +226,7 @@ No metadata. No lifecycle. No sharing model. **Just enough to lift Deadzone out 
 
 - **Deliberately dumb so #52 (the long-term registry research) is free to redesign** without backwards-compat burden. The data structure is trivially convertible to whatever shape #52 picks.
 - **Migration cost is bounded** at the current corpus size. The minute the corpus grows, the cost of switching schemas grows with it — but at 1-10 libs, conversion is a script.
-- **Composable with the other decisions**: the 4-field schema is exactly what `deadzone scrape -lib X` and `deadzone scrape -config Y` need to do per-lib filtering and per-lib artifact production.
+- **Composable with the other decisions**: the 4-field schema is exactly what `deadzone scrape --lib X` and `deadzone scrape --config Y` need to do per-lib filtering and per-lib artifact production.
 
 ### Reproducibility hook (#103)
 

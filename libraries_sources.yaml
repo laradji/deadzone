@@ -78,9 +78,9 @@
 #     minors" policy (#118) indexes exactly one patch per minor, which
 #     is why dropping the patch from the identifier is lossless.
 #
-# Override this path with `deadzone scrape -config <path>`. Restrict a
-# run to one library with `-lib /org/project` (matches all versions) or
-# pin to one version with `-lib /org/project -version <tag>` (#113).
+# Override this path with `deadzone scrape --config <path>`. Restrict a
+# run to one library with `--lib /org/project` (matches all versions) or
+# pin to one version with `--lib /org/project --version <tag>` (#113).
 
 libraries:
   - lib_id: /modelcontextprotocol/go-sdk
