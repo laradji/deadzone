@@ -94,6 +94,10 @@ ort-lib-${{ runner.os }}-${{ hashFiles('internal/ort/ort.go') }}
 
 The "does NOT capture upstream changes" gap is the honest limit of this design. A semantically complete freshness layer (#47) will add a per-URL content hash or ETag to the cache key; until then, weekly wipe via `Actions cache management` UI is the workaround.
 
+### Cache keepalive
+
+GitHub Actions evicts cache entries not accessed in **7 days**. Since `scrape-pack.yml` is `workflow_dispatch`-only (decision #2), any operator silent for a week loses every `artifact-<slug>-<version>-…` entry — defeating the freshness-shim property above. `.github/workflows/cache-keepalive.yml` (see #128) fires `on.schedule: '0 4 * * 1,4'` (Mon + Thu 04:00 UTC, max gap 4 days under the 7-day ceiling) and touches each lib cache via `actions/cache/restore@v5` with the key **mirrored verbatim** from `scrape-pack.yml` L129-130 — drift would create a distinct cache entry and silently skip the refresh. Keepalive is orthogonal to #47: it refreshes `last_accessed_at`, not content. A miss (cache already evicted) is not a failure; the lib simply rescrapes fully on the next operator dispatch. When #47 lands with per-URL freshness signals, the keepalive may be superseded.
+
 ---
 
 ## 4. Fan-in pattern in the `consolidate` job (open sub-decision)

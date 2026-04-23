@@ -1,0 +1,161 @@
+# cache-keepalive — touches the per-lib artifact caches twice a week so their
+# `last_accessed_at` stays under GitHub Actions' 7-day inactivity eviction.
+#
+# Decisions live in docs/research/batch-scrape-actions.md §3 "Cache
+# keepalive" and #128:
+#   - keepalive is cache-access only: NO `deadzone scrape` / consolidate /
+#     dbrelease invocation, NO upload-artifact, NO embedder/ORT touch
+#   - the artifact cache key is mirrored verbatim from scrape-pack.yml
+#     L129-130; drift = different cache entry = no refresh
+#   - Mon + Thu at 04:00 UTC gives a max gap of 4 days, well under the
+#     7-day GHA eviction ceiling with margin for cron lag / runner
+#     queueing
+#   - orthogonal to #47 (freshness detection): we touch access time, not
+#     content. When #47 lands it may supersede this workflow entirely.
+
+name: cache-keepalive
+
+on:
+  schedule:
+    - cron: '0 4 * * 1,4'  # Mon + Thu 04:00 UTC — max gap 4d vs 7d GHA eviction
+  workflow_dispatch: {}
+
+permissions:
+  contents: read # no writes anywhere — keepalive never publishes
+
+concurrency:
+  # Serial by design: overlapping dispatches would race on the same
+  # restore keys. A miss is not a failure, so cancel-in-progress: false
+  # lets a slow run finish rather than dropping half the refreshes.
+  group: cache-keepalive
+  cancel-in-progress: false
+
+jobs:
+  expand-libs:
+    name: expand-libs
+    runs-on: ubuntu-latest
+    outputs:
+      libs: ${{ steps.list.outputs.libs }}
+      # Exposed so the `report` job can reconstruct the full cache key
+      # (artifact-<slug>-<version>-<libs_yaml_hash>-<hugot_hash>) to look
+      # up post-run hit/miss via the caches REST endpoint. hashFiles() is
+      # a GHA expression function and cannot be computed in bash, so we
+      # snapshot it here once (workspace is populated by checkout above).
+      key_suffix: ${{ steps.key.outputs.suffix }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: Emit resolved libs as JSON
+        id: list
+        # Pattern mirrored from scrape-pack.yml L67-78. No --lib filter:
+        # keepalive always touches every resolved (lib, version) pair.
+        shell: bash
+        run: |
+          set -euo pipefail
+          libs="$(go run -tags ORT ./cmd/deadzone scrape --list --config libraries_sources.yaml)"
+          echo "resolved: $libs"
+          echo "libs=$libs" >> "$GITHUB_OUTPUT"
+      - name: Compute cache key suffix
+        id: key
+        shell: bash
+        run: |
+          echo "suffix=${{ hashFiles('libraries_sources.yaml') }}-${{ hashFiles('internal/embed/hugot.go') }}" >> "$GITHUB_OUTPUT"
+
+  refresh:
+    name: refresh (${{ matrix.entry.slug }})
+    needs: expand-libs
+    runs-on: ubuntu-latest
+    strategy:
+      # A miss on one lib is not a failure and must not short-circuit the
+      # rest — matches scrape-pack.yml's stance on matrix tolerance.
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        entry: ${{ fromJSON(needs.expand-libs.outputs.libs) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Touch artifact cache
+        id: touch
+        # Mirror of scrape-pack.yml L129-130 — drift breaks the keepalive
+        # (different key = different cache entry = no refresh).
+        uses: actions/cache/restore@v5
+        with:
+          path: artifacts/${{ matrix.entry.slug }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ hashFiles('libraries_sources.yaml') }}-${{ hashFiles('internal/embed/hugot.go') }}
+      - name: Record hit/miss
+        # Per-slot summary row — satisfies the per-slot markdown
+        # requirement from #128. The aggregated table + totals live in
+        # the downstream `report` job.
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="miss"
+          if [ "${{ steps.touch.outputs.cache-hit }}" = "true" ]; then
+            status="hit"
+          fi
+          {
+            echo "### cache-keepalive — \`${{ matrix.entry.lib_id }}\` @ \`${{ matrix.entry.version }}\`"
+            echo ""
+            echo "| lib | version | status |"
+            echo "| --- | --- | --- |"
+            echo "| \`${{ matrix.entry.lib_id }}\` | \`${{ matrix.entry.version }}\` | $status |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: report
+    needs: [expand-libs, refresh]
+    # Render the aggregated summary even if some refresh slots errored
+    # on transient runner issues — expand-libs must have succeeded
+    # though, since without its JSON there is no lib list to report on.
+    if: always() && needs.expand-libs.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Read-only scope, additive to the workflow default. Required for
+      # `gh api /repos/:owner/:repo/actions/caches` which derives the
+      # post-run hit/miss view. No writes.
+      actions: read
+    steps:
+      - name: Aggregate hit/miss
+        env:
+          LIBS_JSON: ${{ needs.expand-libs.outputs.libs }}
+          KEY_SUFFIX: ${{ needs.expand-libs.outputs.key_suffix }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Enumerate current artifact-* cache keys. A lib's key appears
+          # in this list iff its cache existed at refresh time (the
+          # restore step updated its last_accessed_at) — i.e. a hit.
+          # Absent key ⇒ miss (nothing to refresh; next scrape-pack
+          # dispatch will fully rescrape the lib). This is the honest
+          # post-run signal; per-slot summaries have the authoritative
+          # cache-hit output from actions/cache/restore itself.
+          caches="$(gh api --paginate "/repos/$GH_REPO/actions/caches?per_page=100" --jq '.actions_caches[].key' || true)"
+          hit=0; miss=0
+          {
+            echo "## cache-keepalive summary"
+            echo ""
+            echo "| lib | version | status |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS=$'\t' read -r lib_id version slug; do
+            expected="artifact-${slug}-${version}-${KEY_SUFFIX}"
+            if printf '%s\n' "$caches" | grep -Fxq -- "$expected"; then
+              status="hit"; hit=$((hit + 1))
+            else
+              status="miss"; miss=$((miss + 1))
+            fi
+            echo "| \`$lib_id\` | \`$version\` | $status |" >> "$GITHUB_STEP_SUMMARY"
+          done < <(printf '%s' "$LIBS_JSON" | jq -r '.[] | [.lib_id, .version, .slug] | @tsv')
+          {
+            echo ""
+            echo "**Totals:** $hit hit, $miss miss"
+            echo ""
+            echo "_A \`miss\` is not a failure — the lib's cache has aged out (or never existed) and will be fully rescraped on the next \`scrape-pack\` operator dispatch._"
+          } >> "$GITHUB_STEP_SUMMARY"
