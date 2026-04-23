@@ -149,18 +149,9 @@ func Open(path string, meta Meta) (*DB, error) {
 	}
 
 	if hasMeta {
-		// Schema version is checked before embedder meta so that an old
-		// DB (with matching embedder but pre-libs schema) surfaces as a
-		// schema problem rather than a spurious embedder mismatch.
-		if storedSchemaVersion != CurrentSchemaVersion {
+		if err := checkStoredMeta(stored, storedSchemaVersion, meta); err != nil {
 			raw.Close()
-			return nil, fmt.Errorf("%w: stored=%d current=%d; use a fresh database file and re-scrape until an in-place migration is implemented",
-				ErrSchemaMismatch, storedSchemaVersion, CurrentSchemaVersion)
-		}
-		if stored != meta {
-			raw.Close()
-			return nil, fmt.Errorf("%w: stored=%+v requested=%+v; use a fresh database file or rebuild with the matching embedder",
-				ErrEmbedderMismatch, stored, meta)
+			return nil, err
 		}
 	} else {
 		if err := writeMeta(raw, meta); err != nil {
@@ -316,18 +307,9 @@ func OpenReader(path string, meta Meta) (*DB, error) {
 			ErrReaderNotInitialized, path)
 	}
 
-	// Schema version before embedder meta so an old DB with matching
-	// embedder but pre-libs schema surfaces as a schema problem rather
-	// than a spurious embedder mismatch — same ordering as Open.
-	if storedSchemaVersion != CurrentSchemaVersion {
+	if err := checkStoredMeta(stored, storedSchemaVersion, meta); err != nil {
 		raw.Close()
-		return nil, fmt.Errorf("%w: stored=%d current=%d; use a fresh database file and re-scrape until an in-place migration is implemented",
-			ErrSchemaMismatch, storedSchemaVersion, CurrentSchemaVersion)
-	}
-	if stored != meta {
-		raw.Close()
-		return nil, fmt.Errorf("%w: stored=%+v requested=%+v; use a fresh database file or rebuild with the matching embedder",
-			ErrEmbedderMismatch, stored, meta)
+		return nil, err
 	}
 
 	return &DB{DB: raw, Meta: stored}, nil
@@ -769,6 +751,27 @@ const (
 	// single-version form and is persisted as such.
 	metaKeyVersion = "version"
 )
+
+// checkStoredMeta validates that the on-disk schema version and
+// embedder identity match what the caller is bringing. Shared by Open
+// and OpenReader so the reader/mutator split cannot drift on error
+// messages, sentinels, or the ordering of the two checks.
+//
+// Schema version is checked before embedder meta on purpose: an old
+// DB whose embedder still matches but whose schema predates a required
+// table (e.g. pre-libs #55) must surface as a schema problem rather
+// than as a spurious embedder mismatch.
+func checkStoredMeta(storedMeta Meta, storedSchemaVersion int, wantMeta Meta) error {
+	if storedSchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf("%w: stored=%d current=%d; use a fresh database file and re-scrape until an in-place migration is implemented",
+			ErrSchemaMismatch, storedSchemaVersion, CurrentSchemaVersion)
+	}
+	if storedMeta != wantMeta {
+		return fmt.Errorf("%w: stored=%+v requested=%+v; use a fresh database file or rebuild with the matching embedder",
+			ErrEmbedderMismatch, storedMeta, wantMeta)
+	}
+	return nil
+}
 
 func validateMeta(m Meta) error {
 	if m.EmbedderKind == "" {

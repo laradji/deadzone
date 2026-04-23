@@ -1,11 +1,13 @@
 package db_test
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 
@@ -799,26 +801,148 @@ func TestOpenReader_EmbedderMismatch(t *testing.T) {
 	}
 }
 
-// TestOpenReader_Concurrent is the load-bearing acceptance test for
-// #131: three goroutines call OpenReader against the same file and
-// each issues a SELECT; none of them must hit SQLITE_BUSY. Before the
-// reader/mutator split, three concurrent Open calls could race on the
-// boot-time CREATE TABLE IF NOT EXISTS meta write-intent lock. This
-// test would have caught that by observing a "database is locked"
-// error on at least one goroutine.
-func TestOpenReader_Concurrent(t *testing.T) {
+// listTables returns the names of every user-defined table in the
+// database at path, in lexicographic order. Used by
+// TestOpenReader_DoesNotIssueDDL to snapshot the schema around an
+// OpenReader call.
+func listTables(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := sql.Open("turso", path)
+	if err != nil {
+		t.Fatalf("listTables: open: %v", err)
+	}
+	defer raw.Close()
+	rows, err := raw.Query(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+	if err != nil {
+		t.Fatalf("listTables: query: %v", err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatalf("listTables: scan: %v", err)
+		}
+		names = append(names, n)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("listTables: rows: %v", err)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestOpenReader_DoesNotIssueDDL is the direct structural test for
+// the #131 root-cause fix: OpenReader must not create, alter, or drop
+// any table on the file it opens. Before the reader/mutator split,
+// `deadzone server`'s boot would run `CREATE TABLE IF NOT EXISTS meta`
+// unconditionally (db.go:137, pre-refactor), taking a SQLite
+// write-intent lock on every start and racing other boots on the
+// same file. This test snapshots the full sqlite_master table list
+// before and after OpenReader and fails if the two differ — a much
+// stronger assertion than "N concurrent readers don't time out",
+// because it pins down WHY concurrent readers work rather than
+// verifying the symptom.
+func TestOpenReader_DoesNotIssueDDL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reader.db")
 	seedMainDB(t, path)
 
-	const workers = 3
+	before := listTables(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	// Issue a representative SELECT so any lazy DDL the driver might
+	// defer until first query has a chance to fire before we snapshot.
+	var n int
+	if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+		d.Close()
+		t.Fatalf("SELECT: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	after := listTables(t, path)
+	if len(before) != len(after) {
+		t.Fatalf("OpenReader changed table count: before=%v after=%v", before, after)
+	}
+	for i := range before {
+		if before[i] != after[i] {
+			t.Errorf("OpenReader altered schema: before=%v after=%v", before, after)
+			break
+		}
+	}
+}
+
+// TestOpenReader_CoexistsWithWriterOnSameFile holds a write-intent
+// lock on the main DB via a mutator-opened `BEGIN IMMEDIATE`, then
+// spawns multiple OpenReader calls against the same file. The
+// assertion is that every reader opens and answers its SELECT without
+// a SQLITE_BUSY, proving the reader path is safe under the exact
+// condition the old Open boot race could have hit: a writer actively
+// holding the reserved lock while a would-be reader starts up.
+//
+// Tursogo enables WAL by default (see the comment at db.go:129), so
+// in WAL mode readers and a writer coexist by design — this test
+// documents that we rely on that property and that OpenReader does
+// nothing to break it. Combined with TestOpenReader_DoesNotIssueDDL
+// (no boot-time DDL), the two together pin down the whole contract:
+// zero writes on boot, plus WAL concurrency, equals N readers safe
+// against 1 writer.
+func TestOpenReader_CoexistsWithWriterOnSameFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	mutator, err := db.Open(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("mutator Open: %v", err)
+	}
+	defer mutator.Close()
+
+	// Pin a connection and hold a reserved lock via BEGIN IMMEDIATE.
+	// SetMaxOpenConns(1) on the mutator side means there is a single
+	// conn; Conn() returns it, and the BEGIN IMMEDIATE sticks on that
+	// conn for the life of the test. Rollback on defer so we never
+	// leak a half-open tx into the pool.
+	ctx := context.Background()
+	writerConn, err := mutator.Conn(ctx)
+	if err != nil {
+		t.Fatalf("mutator Conn: %v", err)
+	}
+	defer writerConn.Close()
+
+	if _, err := writerConn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("BEGIN IMMEDIATE: %v", err)
+	}
+	defer func() {
+		if _, err := writerConn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+			t.Logf("ROLLBACK: %v", err)
+		}
+	}()
+
+	// Force real acquisition of the reserved lock by issuing a write
+	// on the pinned tx. BEGIN IMMEDIATE alone is intended to grab it,
+	// but writing a row removes any ambiguity about driver behaviour.
+	if _, err := writerConn.ExecContext(ctx,
+		`UPDATE docs SET title = 'held-' || title WHERE lib_id = '/a/one'`); err != nil {
+		t.Fatalf("writer UPDATE: %v", err)
+	}
+
+	// Now spawn N OpenReader calls. None of them should block
+	// indefinitely or fail with SQLITE_BUSY. A 5-second implicit
+	// timeout via the test runner's default would catch a hang; we
+	// assert success inline.
+	const readers = 3
 	var (
 		wg     sync.WaitGroup
 		mu     sync.Mutex
 		counts []int
 		errs   []error
 	)
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
+	wg.Add(readers)
+	for i := 0; i < readers; i++ {
 		go func() {
 			defer wg.Done()
 			d, err := db.OpenReader(path, metaFor(testEmbedder))
@@ -845,26 +969,57 @@ func TestOpenReader_Concurrent(t *testing.T) {
 
 	if len(errs) > 0 {
 		for _, e := range errs {
-			t.Errorf("concurrent reader: %v", e)
+			t.Errorf("reader vs held writer: %v", e)
 		}
 		t.FailNow()
 	}
-	if len(counts) != workers {
-		t.Fatalf("got %d counts, want %d", len(counts), workers)
+	if len(counts) != readers {
+		t.Fatalf("got %d reader results, want %d", len(counts), readers)
 	}
+	// Sanity: readers all see the pre-writer state (writer's tx is
+	// uncommitted, so its UPDATE is invisible). Seed inserts 2 rows.
 	for i, n := range counts {
-		if n != counts[0] {
-			t.Errorf("worker %d: count=%d, worker 0: count=%d; readers must see identical state", i, n, counts[0])
+		if n != 2 {
+			t.Errorf("reader %d: count=%d, want 2 (uncommitted writer must be invisible)", i, n)
 		}
 	}
 }
 
-// TestOpenReader_Uninitialized checks the "DB file exists but was
-// never populated" case. A bare SQLite file with no meta table must
-// surface as ErrReaderNotInitialized — not as a silent success with
-// zero rows — so a misconfigured -db path fails loudly instead of
-// answering every query with "no match" forever.
-func TestOpenReader_Uninitialized(t *testing.T) {
+// TestOpenReader_PinsSingleConnection freezes the pool-posture
+// invariant that the read-only contract relies on. PRAGMA query_only
+// is per-connection, not per-DB — if a future change raises
+// SetMaxOpenConns past 1 (e.g. to parallelize reads under #45), the
+// database/sql pool can spawn a second, un-pragma'd connection and
+// silently accept writes on it. Pinning the cap at 1 at Stats() level
+// catches that regression before it can hit prod.
+func TestOpenReader_PinsSingleConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reader.db")
+	seedMainDB(t, path)
+
+	d, err := db.OpenReader(path, metaFor(testEmbedder))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	defer d.Close()
+
+	stats := d.Stats()
+	if stats.MaxOpenConnections != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1; raising the cap requires re-establishing PRAGMA query_only per-connection (see #131 — query_only is not a DB-level pragma)",
+			stats.MaxOpenConnections)
+	}
+}
+
+// TestOpenReader_RejectsForeignSqliteFile covers the case where the
+// path points at a SQLite file the mutator path never touched — e.g.
+// a user pointed -db at somebody else's database by mistake, or a
+// half-failed bootstrap produced a file with an unrelated schema.
+// A readable file with no meta table must surface as
+// ErrReaderNotInitialized (actionable: "run consolidate") rather
+// than as a raw "no such table: meta" driver error (which looks like
+// corruption). A fresh deadzone.db created by a mutator always has
+// the meta table, so this branch does not fire on in-tree workflows
+// — it guards against pointing OpenReader at foreign files.
+func TestOpenReader_RejectsForeignSqliteFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.db")
 
 	// Create the file via the driver without any schema. This is what
