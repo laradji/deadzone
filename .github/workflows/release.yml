@@ -55,7 +55,7 @@ jobs:
       # mise supplies the Go + just versions pinned in .mise.toml, so
       # CI builds with the same toolchain as a dev laptop running
       # `just build-release`.
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
 
       - name: Install native deps
         uses: ./.github/actions/install-native-deps
@@ -107,7 +107,7 @@ jobs:
           tar -czf "${name}.tar.gz" "${name}"
           echo "archive=${name}.tar.gz" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deadzone-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ steps.pkg.outputs.archive }}
@@ -148,7 +148,7 @@ jobs:
     steps:
       # Deliberately no actions/checkout — the whole point of this job is
       # to prove the tarball works without any project files on disk.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: deadzone-${{ matrix.goos }}-${{ matrix.goarch }}
 
@@ -214,7 +214,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: deadzone-linux-${{ matrix.goarch }}
 
@@ -249,7 +249,7 @@ jobs:
             -artifacts ./empty-artifacts \
             -db /tmp/deadzone-appimage-smoke.db
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deadzone-linux-${{ matrix.goarch }}-appimage
           path: ${{ steps.build.outputs.appimage }}
@@ -267,7 +267,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: deadzone-*
           merge-multiple: true

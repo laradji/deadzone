@@ -150,7 +150,7 @@ jobs:
         #      consolidate's summary falls back to "failed" on a
         #      missing .run_status file.
         #
-        #   2. artifacts/.pack-root anchors upload-artifact@v4's LCA
+        #   2. artifacts/.pack-root anchors upload-artifact@v7's LCA
         #      calculation at `artifacts/`. Without it, matching only
         #      `artifacts/<slug>/...` would collapse the LCA to
         #      `artifacts/<slug>/`, stripping the slug prefix from the
@@ -169,7 +169,7 @@ jobs:
             echo scraped > "artifacts/${{ matrix.entry.slug }}/.run_status"
           fi
       - name: Stage artifact for consolidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # Pattern B fan-in staging — see research doc §4 for why
           # Pattern C (REST cache API) is not buildable today. Retention
@@ -220,7 +220,7 @@ jobs:
           restore-keys: |
             ort-lib-${{ runner.os }}-
       - name: Fetch staged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           # Each scrape slot uploaded with LCA = artifacts/, so every
           # archive carries `<slug>/...` at its root. Extracting under
