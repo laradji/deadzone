@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/knights-analytics/hugot v0.7.0
 	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
 	turso.tech/database/tursogo v0.5.3
@@ -24,10 +25,12 @@ require (
 	github.com/gomlx/onnx-gomlx v0.4.2-0.20260327164137-4e2832549fc1 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/knights-analytics/ortgenai v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tursodatabase/turso-go-platform-libs v0.5.3 // indirect
 	github.com/viant/afs v1.30.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

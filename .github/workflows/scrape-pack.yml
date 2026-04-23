@@ -69,9 +69,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(scrape -list -config libraries_sources.yaml)
+          args=(scrape --list --config libraries_sources.yaml)
           if [ -n "${{ inputs.lib }}" ]; then
-            args+=(-lib "${{ inputs.lib }}")
+            args+=(--lib "${{ inputs.lib }}")
           fi
           libs="$(go run -tags ORT ./cmd/deadzone "${args[@]}")"
           echo "resolved: $libs"
@@ -133,9 +133,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(scrape -artifacts ./artifacts -lib "${{ matrix.entry.lib_id }}")
+          args=(scrape --artifacts ./artifacts --lib "${{ matrix.entry.lib_id }}")
           if [ -n "${{ matrix.entry.version }}" ]; then
-            args+=(-version "${{ matrix.entry.version }}")
+            args+=(--version "${{ matrix.entry.version }}")
           fi
           go run -tags ORT ./cmd/deadzone "${args[@]}"
       - name: Record slot status + anchor upload LCA
@@ -226,17 +226,17 @@ jobs:
           # archive carries `<slug>/...` at its root. Extracting under
           # `path: artifacts/` with merge-multiple therefore rebuilds
           # `artifacts/<slug>/...` per slot without collisions — the
-          # shape `deadzone consolidate -artifacts ./artifacts` expects.
+          # shape `deadzone consolidate --artifacts ./artifacts` expects.
           pattern: scrape-pack-*
           merge-multiple: true
           path: artifacts/
       - name: Consolidate
-        run: go run -tags ORT ./cmd/deadzone consolidate -db deadzone.db -artifacts ./artifacts
+        run: go run -tags ORT ./cmd/deadzone consolidate --db deadzone.db --artifacts ./artifacts
       - name: Release (if tag)
         if: inputs.tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: go run -tags ORT ./cmd/deadzone dbrelease -db deadzone.db -tag "${{ inputs.tag }}"
+        run: go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag "${{ inputs.tag }}"
       - name: Summary
         if: always()
         shell: bash

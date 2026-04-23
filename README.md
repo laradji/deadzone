@@ -291,7 +291,7 @@ Structured JSON on **stderr** via `log/slog`. Stdout is reserved for MCP JSON-RP
 | `dbrelease`     | `dbrelease.start`, `packs.dbrelease.uploaded` (per asset), `dbrelease.done` with `sha256`, `size`, `lib_count`, `doc_count`.    |
 | `server`        | `server.start` (embedder + `doc_count`), one `search_docs` per call (`lib_id`, `tokens`, `results`, `latency_ms`). Boot may emit `server.db_upgraded`, `server.db_version_dev_fallback` WARN, `server.db_tag_sidecar_write_failed` WARN. |
 
-`-verbose` on any subcommand adds debug-level detail. On `server` it logs the raw `query` (off by default — queries may carry user data). On `scrape` it adds per-doc `scraper.doc_indexed`.
+`--verbose` on any subcommand adds debug-level detail. On `server` it logs the raw `query` (off by default — queries may carry user data). On `scrape` it adds per-doc `scraper.doc_indexed`.
 
 MCP client log paths: Claude Code on macOS writes to `~/Library/Logs/Claude/mcp-server-deadzone.log`; other clients vary.
 

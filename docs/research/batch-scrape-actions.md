@@ -58,7 +58,7 @@ Hot path:
 1. `expand-libs` calls the scraper's config resolver (`scraper.LoadConfig` + `Resolve` in `internal/scraper/config.go`) to emit the matrix.
 2. Each scrape slot checks its cache key before invoking `just scrape lib=<id>`. Cache hit → noop. Cache miss → run scrape, write to `artifacts/<slug>/`, let `actions/cache/save` persist it.
 3. `consolidate` restores all N lib caches into a unified `artifacts/`, runs `just consolidate`, produces `deadzone.db`.
-4. If `inputs.tag` provided, invoke `deadzone dbrelease -db deadzone.db -tag <tag>`. Otherwise exit 0 with `deadzone.db` in the final cache (not uploaded anywhere public).
+4. If `inputs.tag` provided, invoke `deadzone dbrelease --db deadzone.db --tag <tag>`. Otherwise exit 0 with `deadzone.db` in the final cache (not uploaded anywhere public).
 
 ---
 
@@ -138,14 +138,14 @@ Single `consolidate` job runs a bash step that:
 
 | Workflow step | Invokes | Reuses |
 |---|---|---|
-| `expand-libs` | New `deadzone scrape -list` flag (minimal JSON emitter wrapping `scraper.Resolve`) | `internal/scraper/config.go`: `LoadConfig`, `Resolve` |
-| scrape slot (cache miss) | `just scrape lib=<id>` (currently `mise exec -- go run -tags ORT ./cmd/deadzone scrape -artifacts ./artifacts -lib <id>`) | `cmd/deadzone/scrape.go` flag surface (`-lib`, `-version`, `-config`, `-artifacts`, `-parallel-*`) |
+| `expand-libs` | New `deadzone scrape --list` flag (minimal JSON emitter wrapping `scraper.Resolve`) | `internal/scraper/config.go`: `LoadConfig`, `Resolve` |
+| scrape slot (cache miss) | `just scrape lib=<id>` (currently `mise exec -- go run -tags ORT ./cmd/deadzone scrape --artifacts ./artifacts --lib <id>`) | `cmd/deadzone/scrape.go` flag surface (`--lib`, `--version`, `--config`, `--artifacts`, `--parallel-*`) |
 | cache key path | `artifacts/<slug>/` | `internal/packs/paths.go`: `packs.Slug`, `packs.ArtifactDir` |
 | hugot/ORT cache | Cache keys verbatim from `ci.yml` L114–130 | No change |
-| consolidate | `just consolidate db=deadzone.db` | `cmd/deadzone/consolidate.go` flag surface (`-db`, `-artifacts`) |
-| publish (if `inputs.tag`) | `mise exec -- go run -tags ORT ./cmd/deadzone dbrelease -db deadzone.db -tag <tag>` (equivalent to `just dbrelease <tag>`) | `cmd/deadzone/dbrelease.go`, `internal/packs/releaser.go` (`GHReleaser`) |
+| consolidate | `just consolidate db=deadzone.db` | `cmd/deadzone/consolidate.go` flag surface (`--db`, `--artifacts`) |
+| publish (if `inputs.tag`) | `mise exec -- go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag <tag>` (equivalent to `just dbrelease <tag>`) | `cmd/deadzone/dbrelease.go`, `internal/packs/releaser.go` (`GHReleaser`) |
 
-The workflow does **not** introduce new Go code except the minimal `-list` emitter. Everything else is orchestration of flags and recipes that already ship.
+The workflow does **not** introduce new Go code except the minimal `--list` emitter. Everything else is orchestration of flags and recipes that already ship.
 
 ---
 

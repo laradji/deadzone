@@ -89,11 +89,11 @@ jobs:
           DEADZONE_TOKENIZERS_LIB: /tmp/deadzone-deps/tokenizers
         run: just build-release
 
-      # Smoke test: the -version flag short-circuits embedder and DB
+      # Smoke test: the --version flag short-circuits embedder and DB
       # load, so it runs on any machine without a model cache. This
       # also proves ldflags injection actually landed.
-      - name: Smoke test -version
-        run: ./deadzone -version
+      - name: Smoke test --version
+        run: ./deadzone --version
 
       - name: Package archive
         id: pkg
@@ -117,7 +117,7 @@ jobs:
   # Clean-runner smoke test — re-downloads each platform's tarball onto a
   # fresh runner with no source checkout, no Go toolchain, no libtokenizers,
   # no model cache. Catches runtime issues the inline build-runner smoke
-  # (step "Smoke test -version" above) can't see because that runner carries
+  # (step "Smoke test --version" above) can't see because that runner carries
   # every build-time dep on PATH already:
   #   - `@rpath` references that point at a build-host-local directory
   #   - libonnxruntime auto-download (#73) failing on a truly fresh machine
@@ -142,7 +142,7 @@ jobs:
             goarch: arm64
     runs-on: ${{ matrix.runner }}
     # 2-minute ceiling per runner matches #78's AC — if ORT bootstrap or
-    # a `-version` call takes longer than this, something is wrong and
+    # a `--version` call takes longer than this, something is wrong and
     # we want the job to fail loudly rather than hang the release.
     timeout-minutes: 2
     steps:
@@ -160,17 +160,17 @@ jobs:
           tar -xzf deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
           ls -l deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}/
 
-      - name: Verify binary launches (-version)
+      - name: Verify binary launches (--version)
         shell: bash
         run: |
           set -euo pipefail
           cd deadzone_*_${{ matrix.goos }}_${{ matrix.goarch }}
-          # -version short-circuits before embedder/DB load, so this
+          # --version short-circuits before embedder/DB load, so this
           # runs with no model cache and no DB on disk. It proves:
           # dylib linkage resolves, @rpath is clean, ldflags injected a
           # real version string, and the binary actually boots on a
           # machine that never saw the build toolchain.
-          ./deadzone -version
+          ./deadzone --version
 
       - name: Exercise ORT bootstrap (#73)
         shell: bash
@@ -186,8 +186,8 @@ jobs:
           # on each target platform's real ORT asset URL.
           mkdir -p empty-artifacts
           ./deadzone consolidate \
-            -artifacts ./empty-artifacts \
-            -db /tmp/deadzone-smoke.db
+            --artifacts ./empty-artifacts \
+            --db /tmp/deadzone-smoke.db
 
   # Repackages each Linux tarball into an AppImage via the
   # .github/actions/build-appimage composite. Runs after `smoke` so a
@@ -226,19 +226,19 @@ jobs:
           arch: ${{ matrix.goarch }}
 
       # Mirrors the tarball smoke's contract (see the `smoke` job
-      # above): -version proves the AppImage launches and dylib linkage
+      # above): --version proves the AppImage launches and dylib linkage
       # resolves inside the SquashFS mount, then `consolidate` with an
       # empty artifacts dir exercises the ORT bootstrap (#73) from a
       # read-only payload into $XDG_CACHE_HOME. If AppRun's
       # DEADZONE_ORT_CACHE override regresses, this step is where it
       # surfaces — the bootstrap would try to write inside the mount
       # and fail.
-      - name: Smoke AppImage -version
+      - name: Smoke AppImage --version
         shell: bash
         run: |
           set -euo pipefail
           chmod +x "${{ steps.build.outputs.appimage }}"
-          "./${{ steps.build.outputs.appimage }}" -version
+          "./${{ steps.build.outputs.appimage }}" --version
 
       - name: Smoke AppImage consolidate (ORT bootstrap)
         shell: bash
@@ -246,8 +246,8 @@ jobs:
           set -euo pipefail
           mkdir -p empty-artifacts
           "./${{ steps.build.outputs.appimage }}" consolidate \
-            -artifacts ./empty-artifacts \
-            -db /tmp/deadzone-appimage-smoke.db
+            --artifacts ./empty-artifacts \
+            --db /tmp/deadzone-appimage-smoke.db
 
       - uses: actions/upload-artifact@v7
         with:
