@@ -477,3 +477,126 @@ libraries:
     ref: d312c677c588
     urls:
       - https://raw.githubusercontent.com/anomalyco/opencode/{ref}/README.md
+
+  # tursodatabase/turso-go — Go driver for Turso/Limbo. No releases yet
+  # (`gh api repos/tursodatabase/turso-go/releases/latest` → "no releases"
+  # as of 2026-04-23), so we pin to `main` with a bare URL list. README
+  # only — CONTRIBUTING/LICENSE are project meta, not library docs. See #132.
+  - lib_id: /tursodatabase/turso-go
+    kind: github-md
+    urls:
+      - https://raw.githubusercontent.com/tursodatabase/turso-go/main/README.md
+
+  # tursodatabase/turso — SQLite-compatible engine (formerly Limbo). The
+  # upstream has no stable tag yet; latest prerelease on 2026-04-23 is
+  # v0.6.0-pre.22. URL list walks docs/ + subdirs (sql-reference, internals,
+  # agent-guides, contributing). sql-reference/ is authored as .mdx
+  # (Mintlify source); ParseMarkdown handles them as markdown with minor
+  # JSX noise — acceptable tradeoff to keep the SQL reference indexed.
+  # docs/language-reference/ is skipped (it only ships compiled mdBook HTML,
+  # not markdown source). See #132.
+  - lib_id: /tursodatabase/turso
+    kind: github-md
+    versions:
+      "0.6": { ref: v0.6.0-pre.22 }
+    urls:
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/fts.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/manual.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/testing.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/javascript-api-reference.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/README.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/compatibility.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/data-types.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/experimental-features.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/expressions.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/extensions.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/multiprocess-access.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/pragmas.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/cli/command-line-options.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/cli/getting-started.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/cli/shell-commands.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/aggregate.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/array.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/date-time.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/fts.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/json.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/math.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/scalar.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/vector.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/functions/window.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/alter-table.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/analyze.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/attach-database.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-domain.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-index.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-materialized-view.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-table.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-trigger.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-type.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-view.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/create-virtual-table.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/delete.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/detach-database.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/drop-domain.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/drop-index.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/drop-table.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/drop-trigger.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/drop-type.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/drop-view.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/explain.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/insert.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/replace.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/select.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/transactions.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/update.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/sql-reference/statements/upsert.mdx
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/internals/mvcc/DESIGN.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/internals/mvcc/GC.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/internals/mvcc/RECOVERY_SEMANTICS.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/async-io-model.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/code-quality.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/debugging.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/mvcc.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/pr-workflow.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/storage-format.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/testing.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/agent-guides/transaction-correctness.md
+      - https://raw.githubusercontent.com/tursodatabase/turso/{ref}/docs/contributing/contributing_functions.md
+
+  # tursodatabase/turso-docs — the hosted Turso platform docs at
+  # docs.turso.tech. Mintlify serves raw markdown when '.md' is appended
+  # to any doc path. kind is github-md because scraper.FetchOne is
+  # host-agnostic — see #132. Curated subset (not full sitemap) covering
+  # /introduction, /sdk/*, /cli/*, /features/*. docs.turso.tech is
+  # unversioned (always current), so no `versions:` block and no ref pin.
+  - lib_id: /tursodatabase/turso-docs
+    kind: github-md
+    urls:
+      - https://docs.turso.tech/introduction.md
+      - https://docs.turso.tech/local-development.md
+      - https://docs.turso.tech/sdk/introduction.md
+      - https://docs.turso.tech/sdk/authentication.md
+      - https://docs.turso.tech/sdk/authorization.md
+      - https://docs.turso.tech/sdk/go/quickstart.md
+      - https://docs.turso.tech/sdk/go/reference.md
+      - https://docs.turso.tech/sdk/ts/quickstart.md
+      - https://docs.turso.tech/sdk/ts/reference.md
+      - https://docs.turso.tech/sdk/python/quickstart.md
+      - https://docs.turso.tech/sdk/python/reference.md
+      - https://docs.turso.tech/sdk/rust/quickstart.md
+      - https://docs.turso.tech/sdk/rust/reference.md
+      - https://docs.turso.tech/sdk/http/quickstart.md
+      - https://docs.turso.tech/sdk/http/reference.md
+      - https://docs.turso.tech/cli/introduction.md
+      - https://docs.turso.tech/cli/installation.md
+      - https://docs.turso.tech/cli/authentication.md
+      - https://docs.turso.tech/cli/db/create.md
+      - https://docs.turso.tech/cli/db/list.md
+      - https://docs.turso.tech/cli/db/shell.md
+      - https://docs.turso.tech/features/ai-and-embeddings.md
+      - https://docs.turso.tech/features/attach-database.md
+      - https://docs.turso.tech/features/branching.md
+      - https://docs.turso.tech/features/embedded-replicas/introduction.md
+      - https://docs.turso.tech/features/multi-db-schemas.md
+      - https://docs.turso.tech/features/point-in-time-recovery.md
+      - https://docs.turso.tech/features/sqlite-extensions.md
