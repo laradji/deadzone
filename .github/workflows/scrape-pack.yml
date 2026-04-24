@@ -237,6 +237,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag "${{ inputs.tag }}"
+      - name: Commit manifest (if tag and diff)
+        # dbrelease rewrites artifacts/manifest.yaml as its last action (see
+        # #101 decision 5 and cmd/deadzone/dbrelease.go). In the laptop path
+        # the operator commits that diff; in CI nothing does, so the audit
+        # trace on `main` goes stale (issue #145). The `inputs.tag != ''`
+        # gate duplicates the Release step's gate on purpose — without it,
+        # `git diff --quiet` would run on the empty-tag path where the file
+        # was never rewritten, wasting a step.
+        #
+        # `HEAD:${{ github.ref_name }}` pushes the detached-HEAD commit back
+        # to the dispatch ref (typically main) — actions/checkout@v6 leaves
+        # us in detached HEAD, so `git push` alone has no upstream.
+        if: inputs.tag != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet artifacts/manifest.yaml; then
+            echo "manifest.yaml unchanged — skipping commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/manifest.yaml
+          git commit -m "chore(release): update manifest for ${{ inputs.tag }}"
+          git push origin "HEAD:${{ github.ref_name }}"
       - name: Summary
         if: always()
         shell: bash
