@@ -307,8 +307,12 @@ jobs:
       - name: Create GitHub release
         # Tag-push only; workflow_dispatch stops after the checksums step.
         if: github.event_name == 'push' && github.ref_type == 'tag'
+        # Fine-grained PAT (Contents: Read and write, this repo only) so the
+        # `release.published` event spawns downstream workflows. The default
+        # GITHUB_TOKEN is anti-recursion-gated and would not fire
+        # update-package-channels.yml — see #130.
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
           VERSION: ${{ steps.meta.outputs.version }}
         shell: bash
         run: |
