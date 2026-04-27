@@ -23,6 +23,18 @@ on:
 permissions:
   contents: read # no writes anywhere — keepalive never publishes
 
+# Mirror scrape-pack.yml's CGO env: `go run -tags ORT ./cmd/deadzone` in
+# expand-libs builds the full binary even though `--list` short-circuits
+# before the embedder at runtime — build tags select files to compile,
+# not symbols to link, so CGO_LDFLAGS is mandatory or `ld` can't find
+# libtokenizers.a that install-native-deps unpacked into /tmp/deadzone-deps.
+# TOKENIZERS_VERSION must also stay defined here even when the deps cache
+# is warm — on a cold cache the composite action fails fast without it.
+env:
+  TOKENIZERS_VERSION: v1.26.0
+  CGO_ENABLED: "1"
+  CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+
 concurrency:
   # Serial by design: overlapping dispatches would race on the same
   # restore keys. A miss is not a failure, so cancel-in-progress: false
