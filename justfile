@@ -131,6 +131,13 @@ dbrelease tag:
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag {{tag}}
 
+# Render docs/coverage.md from the consolidated DB (#152). No embedder
+# load — runs against a freshly fetched deadzone.db with no ORT setup.
+# Override `db=` and `output=` for ad-hoc runs against alternate paths.
+coverage db="deadzone.db" output="docs/coverage.md":
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go run -tags ORT ./cmd/deadzone coverage --db {{db}} --output {{output}}
+
 # Download / refresh the cached deadzone.db from the latest GH Release (#108).
 # Set force=true to re-fetch even when the cached tag matches the latest release.
 fetch-db force="":
