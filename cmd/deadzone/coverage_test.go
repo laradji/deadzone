@@ -23,8 +23,6 @@ func TestRenderCoverage_Golden(t *testing.T) {
 	data := coverageData{
 		ReleaseTag:  "v0.3.0",
 		GeneratedAt: fixed,
-		PairCount:   3,
-		DocTotal:    598,
 		Rows: []coverageRow{
 			{LibID: "/anomalyco/opencode", Version: "", DocCount: 203},
 			{LibID: "/opentofu/opentofu", Version: "1.10", DocCount: 200},
@@ -59,8 +57,6 @@ func TestRenderCoverage_Unreleased(t *testing.T) {
 	data := coverageData{
 		ReleaseTag:  "",
 		GeneratedAt: time.Date(2026, 4, 30, 11, 24, 0, 0, time.UTC),
-		PairCount:   0,
-		DocTotal:    0,
 		Rows:        nil,
 	}
 	got := renderCoverage(data)
@@ -79,8 +75,6 @@ func TestRenderCoverage_TrailingNewline(t *testing.T) {
 	data := coverageData{
 		ReleaseTag:  "v0.3.0",
 		GeneratedAt: time.Date(2026, 4, 30, 11, 24, 0, 0, time.UTC),
-		PairCount:   1,
-		DocTotal:    1,
 		Rows:        []coverageRow{{LibID: "/a/b", Version: "", DocCount: 1}},
 	}
 	got := renderCoverage(data)

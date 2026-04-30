@@ -1,11 +1,11 @@
 package main
 
-// coverage is the `deadzone coverage` subcommand introduced in #152.
-// It renders a public-facing markdown view of what (lib_id, version)
-// pairs are indexed in the consolidated deadzone.db, together with
-// each pair's doc count. The output is committed to docs/coverage.md
-// alongside artifacts/manifest.yaml so contributors can audit
-// coverage on the repo browser without sqlite3 in hand.
+// coverage renders a public-facing markdown view of what
+// (lib_id, version) pairs are indexed in the consolidated
+// deadzone.db, together with each pair's doc count. The output is
+// committed to docs/coverage.md alongside artifacts/manifest.yaml so
+// contributors can audit coverage on the repo browser without
+// sqlite3 in hand.
 //
 // The command:
 //   - opens the DB via a bare sql.Open (no embedder load) — same
@@ -88,8 +88,6 @@ type coverageRow struct {
 type coverageData struct {
 	ReleaseTag  string
 	GeneratedAt time.Time
-	PairCount   int
-	DocTotal    int
 	Rows        []coverageRow
 }
 
@@ -107,16 +105,9 @@ func runCoverage() error {
 		return fmt.Errorf("coverage: %w", err)
 	}
 
-	docTotal := 0
-	for _, r := range rows {
-		docTotal += r.DocCount
-	}
-
 	data := coverageData{
 		ReleaseTag:  releaseTag,
 		GeneratedAt: time.Now().UTC(),
-		PairCount:   len(rows),
-		DocTotal:    docTotal,
 		Rows:        rows,
 	}
 
@@ -129,10 +120,18 @@ func runCoverage() error {
 		"db_path", coverageDBPath,
 		"output_path", coverageOutputPath,
 		"release_tag", releaseTag,
-		"pair_count", data.PairCount,
-		"doc_total", data.DocTotal,
+		"pair_count", len(rows),
+		"doc_total", sumDocCount(rows),
 	)
 	return nil
+}
+
+func sumDocCount(rows []coverageRow) int {
+	total := 0
+	for _, r := range rows {
+		total += r.DocCount
+	}
+	return total
 }
 
 // readReleaseTag is best-effort: a missing or zero-value manifest is
@@ -206,14 +205,19 @@ const coverageTemplate = "# Library coverage\n" +
 	"|---|---|---|\n" +
 	"{{range .Rows}}| {{.LibID}} | {{.Version}} | {{.DocCount}} |\n{{end}}"
 
-// renderCoverage produces the final markdown bytes. Pure function
-// over coverageData so the golden-file test can exercise it without
-// touching disk or the DB.
+// coverageTpl is parsed once at package init so a malformed template
+// surfaces at startup rather than on first render.
+var coverageTpl = template.Must(template.New("coverage").Parse(coverageTemplate))
+
+// renderCoverage is a pure function over coverageData so the
+// golden-file test can exercise it without touching disk or the DB.
 func renderCoverage(d coverageData) string {
 	type view struct {
 		coverageData
 		ReleaseDisplay   string
 		GeneratedDisplay string
+		PairCount        int
+		DocTotal         int
 	}
 	rel := strings.TrimSpace(d.ReleaseTag)
 	if rel == "" {
@@ -223,13 +227,14 @@ func renderCoverage(d coverageData) string {
 		coverageData:     d,
 		ReleaseDisplay:   rel,
 		GeneratedDisplay: d.GeneratedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		PairCount:        len(d.Rows),
+		DocTotal:         sumDocCount(d.Rows),
 	}
-	tpl := template.Must(template.New("coverage").Parse(coverageTemplate))
 	var sb strings.Builder
-	if err := tpl.Execute(&sb, v); err != nil {
-		// The template is a package-level constant; a runtime Execute
-		// error here means the data struct disagrees with the template
-		// — which is a programmer bug, not a user-facing failure.
+	if err := coverageTpl.Execute(&sb, v); err != nil {
+		// Template is a package-level constant; a runtime Execute
+		// error means the data struct disagrees with the template —
+		// a programmer bug, not a user-facing failure.
 		panic(fmt.Sprintf("coverage: render: %v", err))
 	}
 	return sb.String()
