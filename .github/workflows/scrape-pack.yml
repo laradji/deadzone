@@ -238,14 +238,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag "${{ inputs.tag }}"
-      - name: Commit manifest (if tag and diff)
+      - name: Coverage (if tag)
+        # Re-render docs/coverage.md from the just-released deadzone.db so
+        # the bot commit below carries both the manifest and the coverage
+        # map in one diff (#152). Runs after dbrelease so the manifest's
+        # release.tag (read for the markdown header) reflects the tag we
+        # just shipped, not the previous release.
+        #
+        # `-tags ORT` is build-only here — coverage does not load the
+        # embedder at runtime — but the cmd/deadzone package transitively
+        # imports embed/hugot, so omitting the tag would break the build.
+        # The job already paid for libtokenizers.a + ORT cache in
+        # install-native-deps for consolidate, so this step adds nothing.
+        # If coverage is ever split into a dedicated lighter job, the new
+        # job still needs the CGO/tokenizers chain to compile.
+        if: inputs.tag != ''
+        run: go run -tags ORT ./cmd/deadzone coverage --db deadzone.db --output docs/coverage.md
+      - name: Commit manifest + coverage (if tag and diff)
         # dbrelease rewrites artifacts/manifest.yaml as its last action (see
-        # #101 decision 5 and cmd/deadzone/dbrelease.go). In the laptop path
-        # the operator commits that diff; in CI nothing does, so the audit
-        # trace on `main` goes stale (issue #145). The `inputs.tag != ''`
-        # gate duplicates the Release step's gate on purpose — without it,
-        # `git diff --quiet` would run on the empty-tag path where the file
-        # was never rewritten, wasting a step.
+        # #101 decision 5 and cmd/deadzone/dbrelease.go); the Coverage step
+        # above rewrites docs/coverage.md from the same release. In the
+        # laptop path the operator commits both diffs; in CI nothing does,
+        # so the audit trace on `main` goes stale (#145, #152). The
+        # `inputs.tag != ''` gate duplicates the Release step's gate on
+        # purpose — without it, `git diff --quiet` would run on the
+        # empty-tag path where neither file was rewritten, wasting a step.
         #
         # `HEAD:${{ github.ref_name }}` pushes the detached-HEAD commit back
         # to the dispatch ref (typically main) — actions/checkout@v6 leaves
@@ -254,13 +271,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet artifacts/manifest.yaml; then
-            echo "manifest.yaml unchanged — skipping commit"
+          if git diff --quiet artifacts/manifest.yaml docs/coverage.md; then
+            echo "manifest.yaml + coverage.md unchanged — skipping commit"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/manifest.yaml
+          git add artifacts/manifest.yaml docs/coverage.md
           git commit -m "chore(release): update manifest for ${{ inputs.tag }}"
           git push origin "HEAD:${{ github.ref_name }}"
       - name: Summary
