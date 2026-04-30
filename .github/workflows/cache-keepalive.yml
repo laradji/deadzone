@@ -5,8 +5,10 @@
 # keepalive" and #128:
 #   - keepalive is cache-access only: NO `deadzone scrape` / consolidate /
 #     dbrelease invocation, NO upload-artifact, NO embedder/ORT touch
-#   - the artifact cache key is mirrored verbatim from scrape-pack.yml
-#     L129-130; drift = different cache entry = no refresh
+#   - the artifact cache key shape is mirrored from scrape-pack.yml's
+#     per-lib cache step; drift = different cache entry = no refresh.
+#     Per-entry hash since #153 — both workflows pull cache_hash from
+#     the same `deadzone scrape --list` output.
 #   - Mon + Thu at 04:00 UTC gives a max gap of 4 days, well under the
 #     7-day GHA eviction ceiling with margin for cron lag / runner
 #     queueing
@@ -49,11 +51,13 @@ jobs:
     outputs:
       libs: ${{ steps.list.outputs.libs }}
       # Exposed so the `report` job can reconstruct the full cache key
-      # (artifact-<slug>-<version>-<libs_yaml_hash>-<hugot_hash>) to look
-      # up post-run hit/miss via the caches REST endpoint. hashFiles() is
-      # a GHA expression function and cannot be computed in bash, so we
-      # snapshot it here once (workspace is populated by checkout above).
-      key_suffix: ${{ steps.key.outputs.suffix }}
+      # (artifact-<slug>-<version>-<entry_cache_hash>-<hugot_hash>) to
+      # look up post-run hit/miss via the caches REST endpoint. The
+      # entry-level segment is per-row in `libs` (see #153); only the
+      # global trailing embedder hash is snapshotted here, since
+      # hashFiles() is a GHA expression function and cannot be computed
+      # in bash.
+      embedder_hash: ${{ steps.key.outputs.embedder_hash }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -71,11 +75,11 @@ jobs:
           libs="$(go run -tags ORT ./cmd/deadzone scrape --list --config libraries_sources.yaml)"
           echo "resolved: $libs"
           echo "libs=$libs" >> "$GITHUB_OUTPUT"
-      - name: Compute cache key suffix
+      - name: Snapshot embedder hash
         id: key
         shell: bash
         run: |
-          echo "suffix=${{ hashFiles('libraries_sources.yaml') }}-${{ hashFiles('internal/embed/hugot.go') }}" >> "$GITHUB_OUTPUT"
+          echo "embedder_hash=${{ hashFiles('internal/embed/hugot.go') }}" >> "$GITHUB_OUTPUT"
 
   refresh:
     name: refresh (${{ matrix.entry.slug }})
@@ -92,12 +96,14 @@ jobs:
       - uses: actions/checkout@v6
       - name: Touch artifact cache
         id: touch
-        # Mirror of scrape-pack.yml L129-130 — drift breaks the keepalive
-        # (different key = different cache entry = no refresh).
+        # Mirror of scrape-pack.yml's per-lib cache key — drift breaks
+        # the keepalive (different key = different cache entry = no
+        # refresh, LRU evicts the live entry instead). Per-entry hash
+        # since #153.
         uses: actions/cache/restore@v5
         with:
           path: artifacts/${{ matrix.entry.slug }}
-          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ hashFiles('libraries_sources.yaml') }}-${{ hashFiles('internal/embed/hugot.go') }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-${{ hashFiles('internal/embed/hugot.go') }}
       - name: Record hit/miss
         # Per-slot summary row — satisfies the per-slot markdown
         # requirement from #128. The aggregated table + totals live in
@@ -135,7 +141,7 @@ jobs:
       - name: Aggregate hit/miss
         env:
           LIBS_JSON: ${{ needs.expand-libs.outputs.libs }}
-          KEY_SUFFIX: ${{ needs.expand-libs.outputs.key_suffix }}
+          EMBEDDER_HASH: ${{ needs.expand-libs.outputs.embedder_hash }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         shell: bash
@@ -156,15 +162,19 @@ jobs:
             echo "| lib | version | status |"
             echo "| --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
-          while IFS=$'\t' read -r lib_id version slug; do
-            expected="artifact-${slug}-${version}-${KEY_SUFFIX}"
+          # cache_hash comes from the per-entry JSON (#153) — must match
+          # exactly what scrape-pack.yml's cache step writes, otherwise
+          # this job reports phantom misses on entries that are actually
+          # alive in the cache.
+          while IFS=$'\t' read -r lib_id version slug cache_hash; do
+            expected="artifact-${slug}-${version}-${cache_hash}-${EMBEDDER_HASH}"
             if printf '%s\n' "$caches" | grep -Fxq -- "$expected"; then
               status="hit"; hit=$((hit + 1))
             else
               status="miss"; miss=$((miss + 1))
             fi
             echo "| \`$lib_id\` | \`$version\` | $status |" >> "$GITHUB_STEP_SUMMARY"
-          done < <(printf '%s' "$LIBS_JSON" | jq -r '.[] | [.lib_id, .version, .slug] | @tsv')
+          done < <(printf '%s' "$LIBS_JSON" | jq -r '.[] | [.lib_id, .version, .slug, .cache_hash] | @tsv')
           {
             echo ""
             echo "**Totals:** $hit hit, $miss miss"

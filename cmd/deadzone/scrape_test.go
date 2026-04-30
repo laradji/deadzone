@@ -449,6 +449,108 @@ func TestScraper_LibCountReflectsDocsOnMidLoopAbort(t *testing.T) {
 	}
 }
 
+// TestEntryCacheHash_Stable pins the hash to a known constant so an
+// unintended change to the input layout (struct field order, JSON
+// canonicalization, sort behavior) trips a test instead of silently
+// re-keying every cache entry on the next CI run. The expected digest
+// was computed from the literal canonical JSON
+// `{"kind":"github-md","ref":"v1.0.0","urls":["https://a","https://b"]}`.
+func TestEntryCacheHash_Stable(t *testing.T) {
+	t.Parallel()
+	got := entryCacheHash(scraper.ResolvedSource{
+		Kind: scraper.KindGithubMD,
+		Ref:  "v1.0.0",
+		URLs: []string{"https://a", "https://b"},
+	})
+	const want = "4561969c0363221249729928a390738ce684d47b8dd8e3339e6faa8acac6edc6"
+	if got != want {
+		t.Errorf("digest drift: got %s, want %s — input layout changed; bump want or revert", got, want)
+	}
+}
+
+// TestEntryCacheHash_URLOrderInvariant locks in the sort-before-hash
+// invariant: reordering URLs in libraries_sources.yaml without changing
+// the set must not invalidate the cache. This is the whole point of
+// hashing the per-entry inputs rather than the raw YAML bytes.
+func TestEntryCacheHash_URLOrderInvariant(t *testing.T) {
+	t.Parallel()
+	a := entryCacheHash(scraper.ResolvedSource{
+		Kind: scraper.KindGithubMD,
+		Ref:  "v1.0.0",
+		URLs: []string{"https://a", "https://b", "https://c"},
+	})
+	b := entryCacheHash(scraper.ResolvedSource{
+		Kind: scraper.KindGithubMD,
+		Ref:  "v1.0.0",
+		URLs: []string{"https://c", "https://a", "https://b"},
+	})
+	if a != b {
+		t.Errorf("hash sensitive to URL order: %s != %s", a, b)
+	}
+}
+
+// TestEntryCacheHash_Sensitivity ensures each input field actually
+// participates in the digest — otherwise a bumped ref or a swapped kind
+// would silently reuse a stale cache.
+func TestEntryCacheHash_Sensitivity(t *testing.T) {
+	t.Parallel()
+	base := scraper.ResolvedSource{
+		Kind: scraper.KindGithubMD,
+		Ref:  "v1.0.0",
+		URLs: []string{"https://a"},
+	}
+	baseHash := entryCacheHash(base)
+
+	cases := []struct {
+		name string
+		mut  func(*scraper.ResolvedSource)
+	}{
+		{"kind change", func(r *scraper.ResolvedSource) { r.Kind = scraper.KindScrapeViaAgent }},
+		{"ref bump", func(r *scraper.ResolvedSource) { r.Ref = "v1.0.1" }},
+		{"url add", func(r *scraper.ResolvedSource) { r.URLs = append(r.URLs, "https://b") }},
+		{"url replace", func(r *scraper.ResolvedSource) { r.URLs = []string{"https://z"} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := base
+			r.URLs = append([]string{}, base.URLs...) // defensive copy
+			tc.mut(&r)
+			if got := entryCacheHash(r); got == baseHash {
+				t.Errorf("%s did not change the digest (got %s)", tc.name, got)
+			}
+		})
+	}
+}
+
+// TestEntryCacheHash_LibIDVersionNotInHash documents the deliberate
+// omission: lib_id and version are already discriminated by the slug
+// prefix in the artifact cache key, so including them in the hash
+// would be redundant. If a future refactor moves to using the hash as
+// the full bucket discriminator, this test will flip and that's the
+// signal to revisit the key construction in scrape-pack.yml.
+func TestEntryCacheHash_LibIDVersionNotInHash(t *testing.T) {
+	t.Parallel()
+	a := entryCacheHash(scraper.ResolvedSource{
+		LibID:     "/foo/bar",
+		BaseLibID: "/foo/bar",
+		Version:   "v1",
+		Kind:      scraper.KindGithubMD,
+		Ref:       "v1.0.0",
+		URLs:      []string{"https://a"},
+	})
+	b := entryCacheHash(scraper.ResolvedSource{
+		LibID:     "/totally/different",
+		BaseLibID: "/totally/different",
+		Version:   "v999",
+		Kind:      scraper.KindGithubMD,
+		Ref:       "v1.0.0",
+		URLs:      []string{"https://a"},
+	})
+	if a != b {
+		t.Errorf("lib_id/version leaked into hash: %s != %s — slug prefix already discriminates", a, b)
+	}
+}
+
 // TestEnvIntOr covers the three branches the flag defaults depend on:
 // unset, bad, and good values. Silent fallback on a bad value is by
 // design (see envIntOr's comment).
