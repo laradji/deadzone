@@ -120,14 +120,15 @@ jobs:
         id: artifact-cache
         uses: actions/cache@v5
         with:
-          # libraries_sources.yaml hash gates every resolved entry, so a
-          # URL edit anywhere in the registry invalidates every lib's
-          # cache — intentional over-invalidation vs per-section hashing
-          # that would be fragile to YAML reordering. Embedder hash is
-          # included so a vector-space change forces a rescrape in
+          # matrix.entry.cache_hash is a sha256 over (kind, ref, sorted
+          # urls) for THIS entry only — emitted by `deadzone scrape --list`
+          # in expand-libs above. Replaces the old hashFiles() over the
+          # whole registry (#153): a URL edit on one lib now invalidates
+          # only that lib's cache instead of all 40+. Embedder hash stays
+          # global so a vector-space change still forces a rescrape in
           # lockstep with the embedding model cache above.
           path: artifacts/${{ matrix.entry.slug }}
-          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ hashFiles('libraries_sources.yaml') }}-${{ hashFiles('internal/embed/hugot.go') }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-${{ hashFiles('internal/embed/hugot.go') }}
       - name: Scrape (cache miss)
         if: steps.artifact-cache.outputs.cache-hit != 'true'
         shell: bash

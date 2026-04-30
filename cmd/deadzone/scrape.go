@@ -21,12 +21,15 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -732,24 +735,29 @@ func setupAgent(ctx context.Context, sources []scraper.ResolvedSource) (*scraper
 	return agent, nil
 }
 
-// emitResolvedList writes the resolved (lib_id, version, slug) matrix
-// to stdout as a JSON array, one object per ResolvedSource. Consumed by
-// .github/workflows/scrape-pack.yml's expand-libs step, which pipes the
-// value into a `matrix:` via `fromJSON`. slug matches packs.Slug so the
-// cache-key path in each scrape matrix slot is trivially reconstructible
-// from the JSON alone.
+// emitResolvedList writes the resolved (lib_id, version, slug, cache_hash)
+// matrix to stdout as a JSON array, one object per ResolvedSource.
+// Consumed by .github/workflows/scrape-pack.yml's expand-libs step, which
+// pipes the value into a `matrix:` via `fromJSON`. slug matches packs.Slug
+// so the cache-key path in each scrape matrix slot is trivially
+// reconstructible from the JSON alone. cache_hash is the per-entry hash
+// (see entryCacheHash) — it replaces the global hashFiles(libraries_sources.yaml)
+// segment of the per-lib artifact cache key so an edit to one entry no
+// longer invalidates every other entry's cache (#153).
 func emitResolvedList(sources []scraper.ResolvedSource) error {
 	type libEntry struct {
-		LibID   string `json:"lib_id"`
-		Version string `json:"version"`
-		Slug    string `json:"slug"`
+		LibID     string `json:"lib_id"`
+		Version   string `json:"version"`
+		Slug      string `json:"slug"`
+		CacheHash string `json:"cache_hash"`
 	}
 	entries := make([]libEntry, 0, len(sources))
 	for _, s := range sources {
 		entries = append(entries, libEntry{
-			LibID:   s.LibID,
-			Version: s.Version,
-			Slug:    packs.Slug(s.LibID, s.Version),
+			LibID:     s.LibID,
+			Version:   s.Version,
+			Slug:      packs.Slug(s.LibID, s.Version),
+			CacheHash: entryCacheHash(s),
 		})
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -757,6 +765,33 @@ func emitResolvedList(sources []scraper.ResolvedSource) error {
 	// breaks on embedded newlines unless the multi-line heredoc form is
 	// used, and the expand-libs job uses the single-line form.
 	return enc.Encode(entries)
+}
+
+// entryCacheHash returns a deterministic sha256 hex digest used as the
+// per-entry segment of the GHA artifact cache key (#153). It is a
+// cross-workflow contract — scrape-pack.yml writes keys with this hash
+// and cache-keepalive.yml refreshes them, so any drift here orphans
+// every cache entry on the next run. lib_id and version are NOT
+// hashed: they already discriminate the cache bucket via the slug
+// prefix in the key, so hashing them again would double-invalidate a
+// rename. URLs are sorted so a YAML reorder that doesn't change the
+// set of effective URLs doesn't invalidate the cache. The struct
+// (rather than a map) ensures JSON output is order-stable.
+func entryCacheHash(s scraper.ResolvedSource) string {
+	urls := append([]string{}, s.URLs...)
+	sort.Strings(urls)
+	in := struct {
+		Kind string   `json:"kind"`
+		Ref  string   `json:"ref"`
+		URLs []string `json:"urls"`
+	}{
+		Kind: s.Kind,
+		Ref:  s.Ref,
+		URLs: urls,
+	}
+	b, _ := json.Marshal(in) // safe: concrete struct of strings only
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // envIntOr reads an integer from env var name, falling back to def if
