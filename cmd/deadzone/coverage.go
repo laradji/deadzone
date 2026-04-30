@@ -18,6 +18,19 @@ package main
 //   - GROUPs docs by (lib_id, version), ORDERed by doc_count desc;
 //   - renders via text/template into a stable shape the bot commit
 //     can diff cleanly.
+//
+// Deviation from the locked spec: the table has 3 columns
+// (lib_id, version, doc_count), not 4. The spec asked for a
+// last_indexed column derived from MAX(docs.updated_at), but that
+// column does not exist in the docs schema and adding it would
+// require a schema_version bump that invalidates every shipped DB.
+// Per-lib scrape timestamps live only in artifacts/<slug>/state.yaml
+// sidecars, which consolidate intentionally does not carry into
+// deadzone.db (the consolidated DB is the artifact users download —
+// state.yaml stays on the build machine). The header's Generated
+// stamp already pins the release-time horizon, and the file's diff
+// stays small across runs because identical content does not
+// re-emit row-level timestamps.
 
 import (
 	"database/sql"
