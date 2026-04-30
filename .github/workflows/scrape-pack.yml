@@ -244,6 +244,14 @@ jobs:
         # map in one diff (#152). Runs after dbrelease so the manifest's
         # release.tag (read for the markdown header) reflects the tag we
         # just shipped, not the previous release.
+        #
+        # `-tags ORT` is build-only here — coverage does not load the
+        # embedder at runtime — but the cmd/deadzone package transitively
+        # imports embed/hugot, so omitting the tag would break the build.
+        # The job already paid for libtokenizers.a + ORT cache in
+        # install-native-deps for consolidate, so this step adds nothing.
+        # If coverage is ever split into a dedicated lighter job, the new
+        # job still needs the CGO/tokenizers chain to compile.
         if: inputs.tag != ''
         run: go run -tags ORT ./cmd/deadzone coverage --db deadzone.db --output docs/coverage.md
       - name: Commit manifest + coverage (if tag and diff)
