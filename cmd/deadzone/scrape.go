@@ -767,19 +767,16 @@ func emitResolvedList(sources []scraper.ResolvedSource) error {
 	return enc.Encode(entries)
 }
 
-// entryCacheHash returns a deterministic sha256 hex digest of the inputs
-// that should invalidate exactly this resolved entry's per-lib artifact
-// cache (#153). Inputs are kind, the post-substitution ref, and the
-// post-substitution URLs sorted lexicographically. lib_id and version
-// are intentionally NOT in the hash — they already discriminate the
-// cache bucket via the slug prefix in the key, so hashing them again
-// would be redundant noise that turns a base lib_id rename into a
-// double invalidation.
-//
-// URLs are sorted to make the hash insensitive to YAML reordering that
-// doesn't change semantics. The struct is JSON-marshaled before hashing
-// to fix the field order across Go versions (struct field order in the
-// source determines marshal order, which is stable but not lexicographic).
+// entryCacheHash returns a deterministic sha256 hex digest used as the
+// per-entry segment of the GHA artifact cache key (#153). It is a
+// cross-workflow contract — scrape-pack.yml writes keys with this hash
+// and cache-keepalive.yml refreshes them, so any drift here orphans
+// every cache entry on the next run. lib_id and version are NOT
+// hashed: they already discriminate the cache bucket via the slug
+// prefix in the key, so hashing them again would double-invalidate a
+// rename. URLs are sorted so a YAML reorder that doesn't change the
+// set of effective URLs doesn't invalidate the cache. The struct
+// (rather than a map) ensures JSON output is order-stable.
 func entryCacheHash(s scraper.ResolvedSource) string {
 	urls := append([]string{}, s.URLs...)
 	sort.Strings(urls)
@@ -792,9 +789,7 @@ func entryCacheHash(s scraper.ResolvedSource) string {
 		Ref:  s.Ref,
 		URLs: urls,
 	}
-	// json.Marshal cannot fail for this concrete struct (no unsupported
-	// types, no NaN/Inf), so the error is impossible in practice.
-	b, _ := json.Marshal(in)
+	b, _ := json.Marshal(in) // safe: concrete struct of strings only
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

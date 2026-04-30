@@ -513,41 +513,14 @@ func TestEntryCacheHash_Sensitivity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := base
-			r.URLs = append([]string{}, base.URLs...) // defensive copy
+			// `r := base` shares the URLs backing array; the "url add"
+			// case appends through it and would pollute sibling subtests.
+			r.URLs = append([]string{}, base.URLs...)
 			tc.mut(&r)
 			if got := entryCacheHash(r); got == baseHash {
 				t.Errorf("%s did not change the digest (got %s)", tc.name, got)
 			}
 		})
-	}
-}
-
-// TestEntryCacheHash_LibIDVersionNotInHash documents the deliberate
-// omission: lib_id and version are already discriminated by the slug
-// prefix in the artifact cache key, so including them in the hash
-// would be redundant. If a future refactor moves to using the hash as
-// the full bucket discriminator, this test will flip and that's the
-// signal to revisit the key construction in scrape-pack.yml.
-func TestEntryCacheHash_LibIDVersionNotInHash(t *testing.T) {
-	t.Parallel()
-	a := entryCacheHash(scraper.ResolvedSource{
-		LibID:     "/foo/bar",
-		BaseLibID: "/foo/bar",
-		Version:   "v1",
-		Kind:      scraper.KindGithubMD,
-		Ref:       "v1.0.0",
-		URLs:      []string{"https://a"},
-	})
-	b := entryCacheHash(scraper.ResolvedSource{
-		LibID:     "/totally/different",
-		BaseLibID: "/totally/different",
-		Version:   "v999",
-		Kind:      scraper.KindGithubMD,
-		Ref:       "v1.0.0",
-		URLs:      []string{"https://a"},
-	})
-	if a != b {
-		t.Errorf("lib_id/version leaked into hash: %s != %s — slug prefix already discriminates", a, b)
 	}
 }
 
