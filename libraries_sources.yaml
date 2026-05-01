@@ -82,6 +82,9 @@
 # run to one library with `--lib /org/project` (matches all versions) or
 # pin to one version with `--lib /org/project --version <tag>` (#113).
 
+# Ref policy: prefer git tags; fall back to full 40-char SHAs.
+# Short SHAs are forbidden — they are not collision-resistant on
+# large repos and are subject to upstream GC.
 libraries:
   - lib_id: /modelcontextprotocol/go-sdk
     kind: github-md
@@ -260,7 +263,7 @@ libraries:
   # to keep the vocab one-placeholder-wide.
   - lib_id: /hashicorp/terraform
     kind: github-md
-    ref: 9c479db1ab97
+    ref: 9c479db1ab97a2f175e049c0d5bbf31c24959c7e
     versions:
       "1.13":
         urls:
@@ -476,7 +479,7 @@ libraries:
   # subdirs (bs/, ar/, fr/, etc.) are intentionally excluded. See #149.
   - lib_id: /anomalyco/opencode
     kind: github-md
-    ref: 908e28175f9e
+    ref: 908e28175f9e5c46206c8884bdd9a7dbb31d0f0b
     urls:
       - https://raw.githubusercontent.com/anomalyco/opencode/{ref}/packages/web/src/content/docs/acp.mdx
       - https://raw.githubusercontent.com/anomalyco/opencode/{ref}/packages/web/src/content/docs/agents.mdx
