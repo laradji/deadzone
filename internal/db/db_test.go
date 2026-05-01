@@ -1,15 +1,20 @@
 package db_test
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/embed"
@@ -22,6 +27,15 @@ import (
 var testEmbedder *embed.Hugot
 
 func TestMain(m *testing.M) {
+	// Multi-process helper short-circuit: when the parent test re-execs
+	// us with this env var set, run the DB-holder loop and exit without
+	// touching the Hugot embedder or calling m.Run(). See
+	// TestOpenReader_MultiProcess for the parent side.
+	if path := os.Getenv("DEADZONE_TEST_HOLD_DB_PATH"); path != "" {
+		runHoldDBHelper(path)
+		return
+	}
+
 	e, err := embed.NewHugot(embed.DefaultHugotModel, hugotTestCacheDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TestMain: NewHugot: %v\n", err)
@@ -31,6 +45,40 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = e.Close()
 	os.Exit(code)
+}
+
+// runHoldDBHelper opens path through the same code path OpenReader
+// uses (sql.Open + PRAGMA query_only on a pinned connection),
+// announces readiness on stdout, and blocks until the parent closes
+// stdin. Direct sql.Open is on purpose — calling db.OpenReader would
+// require the embedder meta to validate, which would force this child
+// process to load Hugot (multi-second startup). The lock acquired by
+// PRAGMA query_only is byte-identical to what OpenReader takes, so
+// the parent's lock-conflict assertion still pins the same code path.
+func runHoldDBHelper(path string) {
+	d, err := sql.Open("turso", path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hold helper: sql.Open: %v\n", err)
+		os.Exit(1)
+	}
+	d.SetMaxOpenConns(1)
+	d.SetMaxIdleConns(1)
+	d.SetConnMaxLifetime(0)
+	d.SetConnMaxIdleTime(0)
+	if _, err := d.Exec(`PRAGMA query_only = 1`); err != nil {
+		fmt.Fprintf(os.Stderr, "hold helper: PRAGMA query_only: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := fmt.Println("ready"); err != nil {
+		os.Exit(1)
+	}
+	// Block on stdin EOF — parent closes its end of the pipe to signal
+	// "you can release the lock and exit". Deliberately avoids signals
+	// so a Ctrl-C in the parent test runner naturally tears the child
+	// down via SIGPIPE on its next write attempt.
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	_ = d.Close()
+	os.Exit(0)
 }
 
 // hugotTestCacheDir picks a cache directory for tests. Honors
@@ -876,22 +924,17 @@ func TestOpenReader_DoesNotIssueDDL(t *testing.T) {
 	}
 }
 
-// TestOpenReader_CoexistsWithWriterOnSameFile holds a write-intent
-// lock on the main DB via a mutator-opened `BEGIN IMMEDIATE`, then
-// spawns multiple OpenReader calls against the same file. The
-// assertion is that every reader opens and answers its SELECT without
-// a SQLITE_BUSY, proving the reader path is safe under the exact
-// condition the old Open boot race could have hit: a writer actively
-// holding the reserved lock while a would-be reader starts up.
+// TestOpenReader_CoexistsInProcess holds a write-intent lock on the
+// main DB via a mutator-opened `BEGIN IMMEDIATE`, then spawns
+// multiple OpenReader calls against the same file. Asserts every
+// reader opens and answers its SELECT without SQLITE_BUSY, proving
+// the reader path is safe against an active in-process writer (#131
+// boot-race). Combined with TestOpenReader_DoesNotIssueDDL.
 //
-// Tursogo enables WAL by default (see the comment at db.go:129), so
-// in WAL mode readers and a writer coexist by design — this test
-// documents that we rely on that property and that OpenReader does
-// nothing to break it. Combined with TestOpenReader_DoesNotIssueDDL
-// (no boot-time DDL), the two together pin down the whole contract:
-// zero writes on boot, plus WAL concurrency, equals N readers safe
-// against 1 writer.
-func TestOpenReader_CoexistsWithWriterOnSameFile(t *testing.T) {
+// SCOPE — single process only: every goroutine shares the same
+// tursogo driver instance and the same fcntl FD. The cross-process
+// contract is pinned by TestOpenReader_MultiProcess (#172).
+func TestOpenReader_CoexistsInProcess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reader.db")
 	seedMainDB(t, path)
 
@@ -982,6 +1025,150 @@ func TestOpenReader_CoexistsWithWriterOnSameFile(t *testing.T) {
 		if n != 2 {
 			t.Errorf("reader %d: count=%d, want 2 (uncommitted writer must be invisible)", i, n)
 		}
+	}
+}
+
+// TestOpenReader_MultiProcess pins the user-visible cross-process
+// behavior of issue #172. Two sub-tests cover the two paths the
+// production code can take:
+//
+//   - CoexistsWithEnvVar — the primary path: cmd/deadzone/server.go
+//     sets LIMBO_DISABLE_FILE_LOCK=1 so tursogo skips the OS-level
+//     fcntl lock on the database file. With both processes running
+//     under that env var, db.OpenReader succeeds in both — restoring
+//     the #131 contract that N concurrent `deadzone server` processes
+//     can share the same deadzone.db.
+//
+//   - FallbackErrReaderBusyWithoutEnvVar — defense-in-depth: if a
+//     wrapper strips the env var (sandbox, env scrubber, future
+//     tursogo bump renaming the var), the second process must still
+//     fail with db.ErrReaderBusy and a message naming the file —
+//     never the raw tursogo "Locking error: Failed locking file"
+//     string the user originally reported.
+//
+// Mechanics: each sub-test re-execs its own test binary in a "hold"
+// mode (TestMain short-circuits on the DEADZONE_TEST_HOLD_DB_PATH env
+// var, runs runHoldDBHelper, and exits without loading Hugot). The
+// helper takes the lock via the same sql.Open + PRAGMA query_only
+// call sequence OpenReader uses, prints "ready" on stdout, and
+// blocks on stdin EOF. Re-execing the test binary instead of the
+// real `deadzone` binary keeps `go test` self-contained — the OS
+// lock is what matters and the helper acquires it through
+// byte-identical driver calls.
+//
+// Not gated on `-short`: the contract this validates is the user-
+// visible failure mode and CI must catch a regression unconditionally.
+func TestOpenReader_MultiProcess(t *testing.T) {
+	t.Run("CoexistsWithEnvVar", func(t *testing.T) {
+		// Children inherit os.Environ(); t.Setenv restores the prior
+		// state on exit so sibling tests are not affected.
+		t.Setenv(db.EnvDisableFileLock, "1")
+
+		path := filepath.Join(t.TempDir(), "reader.db")
+		seedMainDB(t, path)
+		startHoldHelper(t, path)
+
+		d, err := db.OpenReader(path, metaFor(testEmbedder))
+		if err != nil {
+			t.Fatalf("OpenReader against held file: got %v, want success (env-var bypass should let processes coexist)", err)
+		}
+		defer d.Close()
+
+		var n int
+		if err := d.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+			t.Fatalf("parent SELECT count(*): %v", err)
+		}
+		if n < 1 {
+			t.Errorf("docs count = %d, want >= 1 (seedMainDB should populate)", n)
+		}
+	})
+
+	t.Run("FallbackErrReaderBusyWithoutEnvVar", func(t *testing.T) {
+		// Register restore BEFORE mutating the env so a panic between
+		// the two lines cannot leak state to sibling tests.
+		old, present := os.LookupEnv(db.EnvDisableFileLock)
+		t.Cleanup(func() {
+			if present {
+				os.Setenv(db.EnvDisableFileLock, old)
+			} else {
+				os.Unsetenv(db.EnvDisableFileLock)
+			}
+		})
+		os.Unsetenv(db.EnvDisableFileLock)
+
+		path := filepath.Join(t.TempDir(), "reader.db")
+		seedMainDB(t, path)
+		startHoldHelper(t, path)
+
+		d, err := db.OpenReader(path, metaFor(testEmbedder))
+		if err == nil {
+			_ = d.Close()
+			t.Fatal("OpenReader unexpectedly succeeded against a held file with the env var unset; tursogo should have rejected the open")
+		}
+		if !errors.Is(err, db.ErrReaderBusy) {
+			t.Fatalf("OpenReader error = %v; want errors.Is(_, db.ErrReaderBusy)", err)
+		}
+		if !strings.Contains(err.Error(), path) {
+			t.Errorf("OpenReader error = %q; want it to mention the DB path %q", err.Error(), path)
+		}
+	})
+}
+
+// startHoldHelper re-execs the test binary in DB-holder mode against
+// path and registers its own cleanup so the child cannot be orphaned
+// even if the caller t.Fatals before its own cleanup line. The
+// helper inherits the parent's environment, so each sub-test
+// controls the LIMBO_DISABLE_FILE_LOCK policy by setting it before
+// the call.
+func startHoldHelper(t *testing.T, path string) {
+	t.Helper()
+
+	cmd := exec.Command(os.Args[0], "-test.run", "^$")
+	cmd.Env = append(os.Environ(), "DEADZONE_TEST_HOLD_DB_PATH="+path)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start hold helper: %v", err)
+	}
+	// Register cleanup the moment the child is alive — Kill + Wait
+	// regardless of how the readiness check below resolves.
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	readyCh := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		if scanner.Scan() {
+			if scanner.Text() != "ready" {
+				readyCh <- fmt.Errorf("hold helper: unexpected line %q", scanner.Text())
+				return
+			}
+			readyCh <- nil
+			return
+		}
+		if err := scanner.Err(); err != nil {
+			readyCh <- err
+			return
+		}
+		readyCh <- io.EOF
+	}()
+	select {
+	case err := <-readyCh:
+		if err != nil {
+			t.Fatalf("hold helper never became ready: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("hold helper readiness timeout")
 	}
 }
 
