@@ -260,14 +260,18 @@ func fileSHA256(path string) (string, error) {
 // when --repo is unset, giving the operator a sensible default on a
 // typical clone. On any failure we drop to packs.DefaultRepo — the
 // GHReleaser call will surface a clearer error if the ultimate target
-// is wrong.
+// is wrong. The Debug log on the fallback path names the underlying
+// error so an operator running `--verbose` can tell apart "no gh on
+// PATH" from "not in a git checkout" from "gh auth missing".
 func resolveRepoFromGit(_ string) string {
 	out, err := exec.Command("gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").Output()
 	if err != nil {
+		slog.Debug("dbrelease.resolve_repo_fallback", "default", packs.DefaultRepo, "err", err)
 		return packs.DefaultRepo
 	}
 	repo := strings.TrimSpace(string(out))
 	if repo == "" {
+		slog.Debug("dbrelease.resolve_repo_fallback", "default", packs.DefaultRepo, "reason", "empty gh output")
 		return packs.DefaultRepo
 	}
 	return repo
