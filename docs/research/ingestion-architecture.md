@@ -26,7 +26,7 @@ Two earlier decisions in deadzone's history (the original "list_libraries flat e
 
 ## 1. A small, bounded set of source kinds (#27)
 
-> **2026-04-13 update (#95).** This decision originally read "Two source kinds, never more". The "two" was a v0 framing — the principle was always **bounded by source shapes, not by source families**, with `json-api` already flagged as a possible third in #1. #95 makes it three by adding `github-rst` for projects that ship reStructuredText in the source repo (cpython, Django, NumPy, the scientific-Python stack). The pipeline-shape rule is unchanged: each kind is HTTP fetch → kind-specific parser → the same `db.Doc{Title, Content}` shape into the same embed/store path.
+> **2026-04-13 update (#95).** This decision originally read "Two source kinds, never more". The "two" was a v0 framing — the principle was always **bounded by source shapes, not by source families**, with `json-api` already flagged as a possible third in #1. #95 made it three by adding `github-rst` for projects that ship reStructuredText in the source repo (cpython, Django, NumPy, the scientific-Python stack). The pipeline-shape rule is unchanged: each kind is HTTP fetch → kind-specific parser → the same `db.Doc{Title, Content}` shape into the same embed/store path.
 
 ### Context
 
@@ -157,7 +157,7 @@ MCP clients (Claude Code, Cursor, …) need to discover what's indexed in the lo
 
 ### Decision
 
-A **dedicated `libs` vector table** in the database, one row per library, holding the lib_id text embedded with the same hugot pipeline used at index time (`/hashicorp/terraform-provider-aws` → `embed("hashicorp terraform provider aws")`), plus a `doc_count` column.
+A **dedicated `libs` vector table** in the database, one row per library, holding the lib_id text embedded with the same hugot pipeline used at index time (`/hashicorp/terraform-provider-aws` → `embed("hashicorp terraform provider aws")`), plus a `doc_count` column. The lib_id is embedded via `EmbedDocument` (not `EmbedQuery`) so the `search_document: ` prefix is applied at index time and `search_libraries` queries — embedded via `EmbedQuery` with the matching `search_query: ` prefix — land in the asymmetric retrieval space nomic-embed-text-v1.5 was trained for; see decision 8 for the prefix split rationale.
 
 Resolution is a `vector_distance_cos` query — the **same primitive** as `search_docs`, just on a different table. The MCP tool `search_libraries(name, limit)` returns top-K hits with `lib_id`, `doc_count`, and a true query-dependent `match_score` (`1 - cosine_distance`).
 
@@ -294,19 +294,20 @@ Three subcommands shipped under `deadzone packs` (originally `cmd/packs`, consol
 
 - Designed in #30, merged in #59
 - Per-artifact distribution paused by #101 (2026-04-13) — see v2 below
+- The disabled per-artifact upload/download/list code was removed wholesale in #139 (commit `b50ac79`, "refactor(packs): remove disabled subcommand + orphan internals") — when the flow returns it will be a deliberate add, not a comment-uncomment
 - The first-time clone flow is now: `git clone → curl -L deadzone.db → deadzone server` (the tagged release carries the consolidated DB as a single asset)
 
 ### Holds at scale
 
 ✅ At 3,000 libs the manifest is ~3,000 lines (manageable as a YAML diff in PR review), and selective download means the typical user pulls a small subset rather than the full corpus. Git LFS or git-native tracking wouldn't have scaled here. The rolling tag is bounded by GitHub's per-release asset limit (~hundreds of GB before friction), which is far above the projected corpus size.
 
-### v2 (2026-04-13, #101): manual operator-driven `deadzone.db` release, per-artifact paused
+### v2 (2026-04-13, #101): manual operator-driven `deadzone.db` release, per-artifact retired
 
-Per-artifact distribution via the rolling `packs` release hasn't shipped a real 0.1 yet. Trying to ship it in 0.1 adds risk to the milestone for no operator-facing benefit, and v0.1.0 has exactly one operator (the maintainer) — the complexity of the per-artifact upload/download/list + manifest-diffing flow is strictly premature until there are multiple contributors each refreshing different libs.
+Per-artifact distribution via the rolling `packs` release never shipped a real 0.1. Trying to ship it in 0.1 added risk to the milestone for no operator-facing benefit, and v0.1.0 had exactly one operator (the maintainer) — the complexity of the per-artifact upload/download/list + manifest-diffing flow was strictly premature until there are multiple contributors each refreshing different libs.
 
 **Decision:** pause the per-artifact path; ship **only** the consolidated `deadzone.db` on each tagged release, uploaded manually from the operator's laptop by a new `deadzone dbrelease` subcommand (and `just dbrelease v0.1.0` recipe). CI no longer runs `packs download` + `consolidate`; `release.yml` publishes per-platform binary tarballs + their checksum file and stops. `deadzone.db` + `deadzone.db.sha256` are attached to the same release object by `dbrelease`.
 
-The per-artifact upload/download/list code is **commented out, not deleted**. The design and the tests are preserved for the eventual revival when CI takes over distribution at scale. The manifest schema is rewritten: `artifacts/manifest.yaml` now records the most recent `deadzone.db` release (tag, asset, sha256, size, indexed_at, embedder, lib_count, doc_count) as a release-history trace rather than a list of pack assets. When per-artifact distribution returns, the schema is expected to grow a sibling `packs:` block.
+The per-artifact upload/download/list code initially landed disabled-in-place after #101, on the theory that the design and tests should be preserved for the eventual revival. That theory was abandoned in #139 (commit `b50ac79`, "refactor(packs): remove disabled subcommand + orphan internals"), which deleted the disabled subcommand and its orphan internals outright — keeping dead code in `cmd/packs` was just churn for code-readers and CI without protecting anything reviving the flow would actually want to reuse. When per-artifact distribution returns, it will be a deliberate add against the current code, not a comment-uncomment. The manifest schema is rewritten: `artifacts/manifest.yaml` now records the most recent `deadzone.db` release (tag, asset, sha256, size, indexed_at, embedder, lib_count, doc_count) as a release-history trace rather than a list of pack assets. When per-artifact distribution returns, the schema is expected to grow a sibling `packs:` block.
 
 The folder-per-lib layout (addendum to decision 2) is orthogonal to this v2 — it landed in the same PR as part of #101 to unblock #64 but stays useful regardless of the distribution pipeline.
 
@@ -405,7 +406,7 @@ The strict-by-default test (`TestVerifyCodeBlocks_StrictWhitespace`) intentional
 ### Trace
 
 - Designed in #27, merged in #57
-- **Empirically over-strict**: smoke test #58 measured ~66% verification failure rate on FastAPI (mkdocs-material) tutorial pages
+- **Empirically over-strict**: smoke test #58 surfaced a high verification rejection rate on FastAPI (mkdocs-material) tutorial pages — the LLM was emitting blocks that matched the source semantically but differed in whitespace/HTML-syntax-highlighting unwrap, which the strict byte-substring check rejected. The exact rate is not reproducible from the current code (the smoke test logs were not captured) so the figure is left out; the qualitative point — strict-by-default rejects too many valid extractions on real doc sites — stands and is the basis for #64
 - Revisit tracked in #64 (research issue, post-mvp)
 
 ### Holds at scale
