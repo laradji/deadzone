@@ -41,11 +41,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Mirror ci.yml verbatim — same pinned tokenizer static archive, same
-  # model + ORT cache roots. Bumping TOKENIZERS_VERSION in ci.yml
-  # invalidates the composite action's cache key via its own hashFiles
-  # rule; this workflow piggybacks on that invalidation.
-  TOKENIZERS_VERSION: v1.26.0
+  # Pinned tokenizers release lives in
+  # .github/actions/install-native-deps/action.yml as the
+  # `tokenizers-version` input default — single source of truth (#158).
   DEADZONE_HUGOT_CACHE: ${{ github.workspace }}/.deadzone-cache/models
   DEADZONE_ORT_CACHE: ${{ github.workspace }}/.deadzone-cache/ort
   CGO_ENABLED: "1"

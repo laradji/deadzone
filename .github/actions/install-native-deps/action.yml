@@ -6,10 +6,20 @@ description: |
   SHA256-verifies, and caches it at first use (see #73).
 
   Runs on Linux amd64/arm64 and macOS arm64. The asset is picked from
-  the daulet/tokenizers release matching `$TOKENIZERS_VERSION` (set in
-  the caller workflow env). Output lives at
-  /tmp/deadzone-deps/tokenizers/libtokenizers.a — point CGO_LDFLAGS or
-  DEADZONE_TOKENIZERS_LIB at that directory.
+  the daulet/tokenizers release matching the `tokenizers-version`
+  input. Output lives at /tmp/deadzone-deps/tokenizers/libtokenizers.a
+  — point CGO_LDFLAGS or DEADZONE_TOKENIZERS_LIB at that directory.
+
+inputs:
+  tokenizers-version:
+    description: |
+      daulet/tokenizers release tag — single source of truth for the
+      pinned version (#158). Callers should not override; the default
+      is what ships. Override exists only for ad-hoc bump testing in a
+      PR without touching the action default.
+    default: 'v1.26.0'
+    required: false
+
 runs:
   using: composite
   steps:
@@ -18,19 +28,23 @@ runs:
       uses: actions/cache@v5
       with:
         path: /tmp/deadzone-deps
-        # Composite actions cannot read ${{ env.* }} from the caller,
-        # so we key on the caller workflow file — bumping the pinned
-        # TOKENIZERS_VERSION there naturally invalidates the cache.
-        # runner.arch is in the key because ubuntu-24.04 and
-        # ubuntu-24.04-arm both report runner.os=Linux but need
-        # different .a archives.
-        key: deadzone-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml', '.github/workflows/release.yml') }}
+        # Cache identity = (os, arch, tokenizers version). The version
+        # appears as a string literal in the key — bumping the input
+        # default (or any caller override) auto-invalidates without
+        # needing hashFiles. runner.arch is in the key because
+        # ubuntu-24.04 and ubuntu-24.04-arm both report runner.os=Linux
+        # but need different .a archives.
+        key: deadzone-deps-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tokenizers-version }}
     - name: Download libtokenizers.a
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        # Surface the input as the same env name the shell logic
+        # historically read — minimal diff inside the script.
+        TOKENIZERS_VERSION: ${{ inputs.tokenizers-version }}
       run: |
         set -euo pipefail
-        tok_version="${TOKENIZERS_VERSION:?TOKENIZERS_VERSION must be set in the caller workflow env}"
+        tok_version="${TOKENIZERS_VERSION:?TOKENIZERS_VERSION must be set}"
 
         case "$(uname -sm)" in
           "Darwin arm64")           asset="libtokenizers.darwin-arm64.tar.gz" ;;
