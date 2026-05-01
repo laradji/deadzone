@@ -11,17 +11,15 @@ on:
 # — bumping is a conscious step, not a passive upgrade from an upstream
 # "latest" tag.
 #
-# TOKENIZERS_VERSION tracks the daulet/tokenizers Go module version in
-# go.mod; the release tag for the prebuilt libtokenizers.a archive uses
-# the same scheme (see hugot's scripts/download-tokenizers.sh).
+# The pinned tokenizers release lives in
+# .github/actions/install-native-deps/action.yml as the
+# `tokenizers-version` input default — single source of truth (#158).
 #
 # The libonnxruntime shared library is NOT installed here. It is
 # fetched at first use by internal/ort.Bootstrap, SHA256-verified
 # against a pinned digest, and cached at DEADZONE_ORT_CACHE (below) so
 # actions/cache can persist it across jobs. Bumping the pinned version
 # is a one-line change in internal/ort/ort.go.
-env:
-  TOKENIZERS_VERSION: v1.26.0
 
 jobs:
   lint:

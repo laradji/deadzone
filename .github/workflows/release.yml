@@ -39,11 +39,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# TOKENIZERS_VERSION is the daulet/tokenizers release tag; bumping is
-# a conscious step — the composite action keys its cache on this file
-# so a bump invalidates cached archives on all three runners.
-env:
-  TOKENIZERS_VERSION: v1.26.0
+# Pinned tokenizers release lives in
+# .github/actions/install-native-deps/action.yml as the
+# `tokenizers-version` input default — single source of truth (#158).
 
 jobs:
   build:

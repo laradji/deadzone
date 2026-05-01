@@ -6,9 +6,10 @@ description: |
 
   `AppImage/appimagetool` release `1.9.1` is pinned here instead of
   the `continuous` tag; bumping it is a conscious step (same philosophy
-  as TOKENIZERS_VERSION in release.yml). The older `AppImage/AppImageKit`
-  repo is archived and all its release-13 assets have been renamed
-  `obsolete-*` — don't use them.
+  as the `tokenizers-version` input default in
+  `.github/actions/install-native-deps/action.yml`). The older
+  `AppImage/AppImageKit` repo is archived and all its release-13 assets
+  have been renamed `obsolete-*` — don't use them.
 
 inputs:
   tarball:
