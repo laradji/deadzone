@@ -311,12 +311,9 @@ func scrapeSources(
 	sources []scraper.ResolvedSource,
 	parallelByKind map[string]int,
 ) []libResult {
-	// Buffered channels used as counting semaphores: a send acquires a
-	// slot, a receive (in defer) releases it. Not closed on exit — every
-	// in-flight goroutine pairs its acquire with a defer-release, so by
-	// the time group.Wait() returns the channel is empty and the GC
-	// reclaims it. Close() would only matter if a reader was blocked on
-	// drain after the producer stopped, which never happens here.
+	// Counting-semaphore channels are intentionally not closed: every
+	// acquire is paired with a defer-release, so Wait() drains them
+	// before the map drops out of scope.
 	sems := make(map[string]chan struct{}, len(parallelByKind))
 	for kind, n := range parallelByKind {
 		if n < 1 {
@@ -350,10 +347,8 @@ func scrapeSources(
 			return nil
 		})
 	}
-	// Every goroutine above returns nil unconditionally — per-lib errors
-	// are aggregated into results[i].err so a single failure does not
-	// cancel the whole errgroup via gctx and abort sibling libs. Wait()
-	// therefore cannot produce a non-nil error; the discard is deliberate.
+	// Discard is deliberate: goroutines never propagate errors (see
+	// the inline comment above) so Wait() cannot return non-nil.
 	_ = group.Wait()
 	return results
 }

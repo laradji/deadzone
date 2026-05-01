@@ -16,8 +16,8 @@
 # By default recipes pass -L./lib to cgo. Set DEADZONE_TOKENIZERS_LIB to
 # point `go build` at a different directory (e.g. /opt/homebrew/lib);
 # the tokenizers_lib variable below resolves the env var at recipe
-# expansion time so the override propagates to every recipe in one place
-# (audit #39). The library itself is a static archive from
+# expansion time so the override propagates to every recipe in one
+# place. The library itself is a static archive from
 # https://github.com/daulet/tokenizers/releases — run `just
 # fetch-tokenizers` once after cloning to drop the right prebuilt into
 # ./lib/ for your platform (or hand-place one and override the env var).
@@ -31,19 +31,18 @@
 # This is harmless — daulet/tokenizers' build script and Go's cgo runtime
 # both pass `-ldl` and `ld` deduplicates with a warning instead of an
 # error. Silencing via `-Wl,-no_warn_duplicate_libraries` would mask
-# unrelated duplicates if they appear later, so we live with the warning
-# (audit #41).
+# unrelated duplicates if they appear later, so we live with the warning.
 #
 # Worktree onboarding: after cloning OR creating a fresh git worktree,
 # run `mise trust` once at the worktree root before any other recipe.
 # Without it `mise exec --` refuses to read .mise.toml and every Go
-# recipe fails with a "config file is not trusted" error (audit #40).
+# recipe fails with a "config file is not trusted" error.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # Tokenizers static-archive directory. Resolved at recipe-expansion time
 # from DEADZONE_TOKENIZERS_LIB with a `./lib` default — single source of
-# truth for every recipe below (audit #39).
+# truth for every recipe below.
 tokenizers_lib := env_var_or_default('DEADZONE_TOKENIZERS_LIB', './lib')
 
 # List available recipes
@@ -111,7 +110,7 @@ build: _check-tokenizers
 # .github/workflows/release.yml — the per-OS matrix runs `just
 # build-release` on macOS arm64 / Linux amd64 / Linux arm64 against
 # pinned tokenizers + ORT, so any platform-specific drift is caught at
-# release-cut time, not by an end user (audit #43).
+# release-cut time, not by an end user.
 #
 # -trimpath strips absolute source paths from the binary (no $PWD leak),
 # -s -w strips debug info (keeps the CGO binary small).

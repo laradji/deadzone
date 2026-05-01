@@ -64,8 +64,6 @@ jobs:
         uses: ./.github/actions/install-native-deps
       - name: Emit resolved libs as JSON
         id: list
-        # Shared with cache-keepalive.yml via the composite action so a
-        # future flag/output edit lands in one place (audit #13).
         uses: ./.github/actions/list-libs
         with:
           lib: ${{ inputs.lib }}

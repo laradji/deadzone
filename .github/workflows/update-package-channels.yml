@@ -30,14 +30,16 @@ jobs:
   update-homebrew:
     name: Bump Homebrew tap
     runs-on: ubuntu-latest
-    # Per-channel concurrency (audit #5): the lock guards the tap repo,
-    # not the whole workflow, so a second channel added by #106 (AUR,
-    # AppImage, …) can run in parallel without queuing behind Homebrew.
-    # When #106 lands and converts this job to a matrix, replace the
-    # literal `homebrew` segment with `${{ matrix.channel }}` so each
-    # matrix slot acquires its own group.
+    # Channel-scoped, ref-agnostic: the lock guards the single Homebrew
+    # tap repo against concurrent Formula rewrites, regardless of which
+    # release ref triggered the bump (release: published vs
+    # workflow_dispatch on a different tag would otherwise race against
+    # the same Formula/deadzone.rb). Sibling channels (AUR, AppImage)
+    # added later acquire their own group and run in parallel; replace
+    # the literal `homebrew` with `${{ matrix.channel }}` once the job
+    # fans out to a matrix.
     concurrency:
-      group: update-channels-homebrew-${{ github.ref }}
+      group: update-channels-homebrew
       cancel-in-progress: false
     # Skip pre-releases (rc/beta/alpha) — Homebrew users expect stable.
     # On workflow_dispatch the operator is on the hook for picking a

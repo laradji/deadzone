@@ -20,11 +20,10 @@ name: cache-keepalive
 on:
   schedule:
     # Mon + Thu 04:00 UTC — max gap 4d vs 7d GHA eviction.
-    # Telemetry-first tuning policy (audit #35): the cadence is set
-    # against the hit-rate signal in the `report` job, not adjusted on
-    # gut feel. Tighten only if the report logs surface persistent
-    # near-eviction misses; widen only after a sustained hit-rate >0
-    # demonstrates we have headroom.
+    # Cadence is tuned against the hit-rate signal in the `report` job,
+    # not adjusted on gut feel: tighten only if the report logs surface
+    # persistent near-eviction misses; widen only after a sustained
+    # hit-rate >0 demonstrates we have headroom.
     - cron: '0 4 * * 1,4'
   workflow_dispatch: {}
 
@@ -72,9 +71,8 @@ jobs:
         uses: ./.github/actions/install-native-deps
       - name: Emit resolved libs as JSON
         id: list
-        # Shared with scrape-pack.yml via the composite action so a future
-        # flag/output edit lands in one place (audit #13). No --lib input:
-        # keepalive always touches every resolved (lib, version) pair.
+        # No --lib input: keepalive always touches every resolved
+        # (lib, version) pair.
         uses: ./.github/actions/list-libs
       - name: Snapshot embedder hash
         id: key
