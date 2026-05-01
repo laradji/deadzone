@@ -64,16 +64,11 @@ jobs:
         uses: ./.github/actions/install-native-deps
       - name: Emit resolved libs as JSON
         id: list
-        shell: bash
-        run: |
-          set -euo pipefail
-          args=(scrape --list --config libraries_sources.yaml)
-          if [ -n "${{ inputs.lib }}" ]; then
-            args+=(--lib "${{ inputs.lib }}")
-          fi
-          libs="$(go run -tags ORT ./cmd/deadzone "${args[@]}")"
-          echo "resolved: $libs"
-          echo "libs=$libs" >> "$GITHUB_OUTPUT"
+        # Shared with cache-keepalive.yml via the composite action so a
+        # future flag/output edit lands in one place (audit #13).
+        uses: ./.github/actions/list-libs
+        with:
+          lib: ${{ inputs.lib }}
 
   scrape:
     name: scrape (${{ matrix.entry.slug }})

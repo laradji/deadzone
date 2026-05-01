@@ -26,18 +26,19 @@ on:
         required: true
         type: string
 
-# Prevent a rapid second release from racing an earlier bump against the
-# same tap repo. Channel-scoped (concurrency per job, not per workflow)
-# would be ideal but isn't expressible here — a whole-workflow lock is
-# fine at 0.1.x cadence.
-concurrency:
-  group: update-package-channels
-  cancel-in-progress: false
-
 jobs:
   update-homebrew:
     name: Bump Homebrew tap
     runs-on: ubuntu-latest
+    # Per-channel concurrency (audit #5): the lock guards the tap repo,
+    # not the whole workflow, so a second channel added by #106 (AUR,
+    # AppImage, …) can run in parallel without queuing behind Homebrew.
+    # When #106 lands and converts this job to a matrix, replace the
+    # literal `homebrew` segment with `${{ matrix.channel }}` so each
+    # matrix slot acquires its own group.
+    concurrency:
+      group: update-channels-homebrew-${{ github.ref }}
+      cancel-in-progress: false
     # Skip pre-releases (rc/beta/alpha) — Homebrew users expect stable.
     # On workflow_dispatch the operator is on the hook for picking a
     # stable tag, so the gate short-circuits to true.
