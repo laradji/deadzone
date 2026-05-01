@@ -62,8 +62,17 @@ fetch-tokenizers:
     rm "${target}/tok.tgz"
     echo "libtokenizers.a → ${target}/libtokenizers.a"
 
+# Verify libtokenizers.a is on disk before any CGO recipe attempts to
+# link. Saves 5+ seconds of compile before the linker emits a cryptic
+# "library 'tokenizers' not found" error.
+_check-tokenizers:
+    @[ -f "${DEADZONE_TOKENIZERS_LIB:-./lib}/libtokenizers.a" ] || { \
+        echo "error: libtokenizers.a missing — run \`just fetch-tokenizers\`" >&2; \
+        exit 1; \
+    }
+
 # Compile every package. Fast sanity check; produces no binaries.
-build:
+build: _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go build -tags ORT ./...
 
@@ -80,7 +89,7 @@ build:
 #
 # -trimpath strips absolute source paths from the binary (no $PWD leak),
 # -s -w strips debug info (keeps the CGO binary small).
-build-release:
+build-release: _check-tokenizers
     #!/usr/bin/env bash
     set -euo pipefail
     ver="${VERSION:-$(git describe --tags --dirty --always 2>/dev/null || echo dev)}"
@@ -93,7 +102,7 @@ build-release:
     echo "built ./deadzone ${ver} (${sha}, built ${built})"
 
 # Run the full test suite
-test:
+test: _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go test -tags ORT ./...
 
@@ -102,7 +111,7 @@ fmt:
     mise exec -- go fmt ./...
 
 # Run `go vet` over every package
-vet:
+vet: _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go vet -tags ORT ./...
 
@@ -111,36 +120,36 @@ tidy:
     mise exec -- go mod tidy
 
 # Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry; pass version=X to pin to one expanded version)
-scrape lib="" version="":
+scrape lib="" version="": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone scrape --artifacts ./artifacts {{ if lib != "" { "--lib " + lib } else { "" } }} {{ if version != "" { "--version " + version } else { "" } }}
 
 # Merge per-lib artifacts in ./artifacts/ into the main deadzone DB
-consolidate db="deadzone.db":
+consolidate db="deadzone.db": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone consolidate --db {{db}} --artifacts ./artifacts
 
 # Run the MCP server against the given DB file (must already be consolidated)
-serve db="deadzone.db":
+serve db="deadzone.db": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone server --db {{db}}
 
 # Upload ./deadzone.db to the GH Release at the given tag (operator-driven release, see #101).
 # Assumes the tag already exists on origin and CI's release.yml has created the release object.
-dbrelease tag:
+dbrelease tag: _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag {{tag}}
 
 # Render docs/coverage.md from the consolidated DB (#152). No embedder
 # load — runs against a freshly fetched deadzone.db with no ORT setup.
 # Override `db=` and `output=` for ad-hoc runs against alternate paths.
-coverage db="deadzone.db" output="docs/coverage.md":
+coverage db="deadzone.db" output="docs/coverage.md": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone coverage --db {{db}} --output {{output}}
 
 # Download / refresh the cached deadzone.db from the latest GH Release (#108).
 # Set force=true to re-fetch even when the cached tag matches the latest release.
-fetch-db force="":
+fetch-db force="": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go run -tags ORT ./cmd/deadzone fetch-db {{ if force != "" { "--force" } else { "" } }}
 
