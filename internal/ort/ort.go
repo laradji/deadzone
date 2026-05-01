@@ -40,7 +40,7 @@ import (
 // version. Bumping it is a deliberate step — re-measure on a
 // representative corpus before merging, and refresh the hashes from
 // `gh api repos/microsoft/onnxruntime/releases/tags/v<N>`.
-const Version = "1.24.4"
+const Version = "1.25.1"
 
 // EnvLibPath names the env var that points at a directory containing a
 // pre-positioned libonnxruntime shared library. When set, Bootstrap
@@ -92,25 +92,25 @@ type release struct {
 var pinnedReleases = map[string]release{
 	"darwin/arm64": {
 		Archive:     "onnxruntime-osx-arm64-{version}.tgz",
-		SHA256:      "93787795f47e1eee369182e43ed51b9e5da0878ab0346aecf4258979b8bba989",
+		SHA256:      "18987ec3187b5f29ba798109750f6135060560ad4e0a52678fcc753ee8fb3091",
 		LibName:     "libonnxruntime.dylib",
 		archiveKind: "tgz",
 	},
 	"linux/amd64": {
 		Archive:     "onnxruntime-linux-x64-{version}.tgz",
-		SHA256:      "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747",
+		SHA256:      "eb566a49cfc49ef0642f809b69340b5bb656c7c4905ba873526d226f2c005816",
 		LibName:     "libonnxruntime.so",
 		archiveKind: "tgz",
 	},
 	"linux/arm64": {
 		Archive:     "onnxruntime-linux-aarch64-{version}.tgz",
-		SHA256:      "866109a9248d057671a039b9d725be4bd86888e3754140e6701ec621be9d4d7e",
+		SHA256:      "daa71b56b00c4ab34798a3d96ca41a32ece4d3e302dc2386d3cca83fd4491214",
 		LibName:     "libonnxruntime.so",
 		archiveKind: "tgz",
 	},
 	"windows/amd64": {
 		Archive:     "onnxruntime-win-x64-{version}.zip",
-		SHA256:      "d2319fddfb6ea4db99ccc4b60c85c517bcd855721f5daa6a06d40d7cb2ee2357",
+		SHA256:      "33f2e8a63774811f99a5fc224cac32f4eed8c27643d46c6cc685319fa8f18019",
 		LibName:     "onnxruntime.dll",
 		archiveKind: "zip",
 	},
@@ -365,7 +365,7 @@ func extractZip(archivePath, libName, destDir string) error {
 
 // isLibArtifact recognizes the library filename itself and every
 // versioned sibling / symlink alias that sits next to it. We keep
-// "libonnxruntime.1.24.4.dylib" (the real Mach-O), "libonnxruntime.dylib"
+// "libonnxruntime.1.25.1.dylib" (the real Mach-O), "libonnxruntime.dylib"
 // (the symlink), and the corresponding Linux ".so.<version>" forms —
 // dropping one of these would leave the other with a dangling link
 // target.
@@ -373,11 +373,11 @@ func isLibArtifact(name, libName string) bool {
 	if name == libName {
 		return true
 	}
-	// Linux: libonnxruntime.so.1.24.4 alongside libonnxruntime.so.
+	// Linux: libonnxruntime.so.1.25.1 alongside libonnxruntime.so.
 	if strings.HasPrefix(name, libName+".") {
 		return true
 	}
-	// Darwin: libonnxruntime.1.24.4.dylib alongside libonnxruntime.dylib.
+	// Darwin: libonnxruntime.1.25.1.dylib alongside libonnxruntime.dylib.
 	if strings.HasPrefix(libName, "libonnxruntime.") && strings.HasSuffix(libName, ".dylib") {
 		if strings.HasPrefix(name, "libonnxruntime.") && strings.HasSuffix(name, ".dylib") {
 			return true

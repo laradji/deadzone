@@ -17,7 +17,7 @@ inputs:
       pinned version (#158). Callers should not override; the default
       is what ships. Override exists only for ad-hoc bump testing in a
       PR without touching the action default.
-    default: 'v1.26.0'
+    default: 'v1.27.0'
     required: false
 
 runs:

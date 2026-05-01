@@ -230,9 +230,9 @@ func buildFakeArchive(t *testing.T, rel release) ([]byte, string) {
 		// symlink alias that most callers open by name.
 		var versioned string
 		if strings.HasSuffix(rel.LibName, ".dylib") {
-			versioned = strings.TrimSuffix(rel.LibName, ".dylib") + ".1.24.4.dylib"
+			versioned = strings.TrimSuffix(rel.LibName, ".dylib") + "." + Version + ".dylib"
 		} else {
-			versioned = rel.LibName + ".1.24.4"
+			versioned = rel.LibName + "." + Version
 		}
 		write(versioned, dummy)
 		if err := tw.WriteHeader(&tar.Header{

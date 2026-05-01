@@ -1,6 +1,7 @@
 package embed
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -99,7 +100,7 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 		// .onnx file" validation error. The downloader copies the file
 		// to modelDir/<basename> regardless of its source path.
 		opts.OnnxFilePath = "onnx/" + onnxFilename
-		if _, err := hugot.DownloadModel(modelName, cacheDir, opts); err != nil {
+		if _, err := hugot.DownloadModel(context.Background(), modelName, cacheDir, opts); err != nil {
 			return nil, fmt.Errorf("hugot: download %s: %w", modelName, err)
 		}
 	} else if err != nil {
@@ -110,7 +111,7 @@ func NewHugot(modelName, cacheDir string) (*Hugot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hugot: bootstrap onnxruntime: %w", err)
 	}
-	session, err := hugot.NewORTSession(options.WithOnnxLibraryPath(libDir))
+	session, err := hugot.NewORTSession(context.Background(), options.WithOnnxLibraryPath(libDir))
 	if err != nil {
 		return nil, fmt.Errorf("hugot: new ORT session: %w", err)
 	}
@@ -174,7 +175,7 @@ func (h *Hugot) EmbedDocument(text string) ([]float32, error) {
 // vector space and formed a synthetic attractor for any query aligned
 // with that dimension.
 func (h *Hugot) embed(text string) ([]float32, error) {
-	out, err := h.pipeline.RunPipeline([]string{text})
+	out, err := h.pipeline.RunPipeline(context.Background(), []string{text})
 	if err != nil {
 		return nil, fmt.Errorf("hugot: run pipeline (text len=%d): %w", len(text), err)
 	}

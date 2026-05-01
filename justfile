@@ -36,13 +36,13 @@ bootstrap:
 
 # Idempotent: skips the download if the file already exists at the
 # expected path. Set TOKENIZERS_VERSION to override the pinned version
-# (default must match .github/workflows/ci.yml).
+# (default must match .github/actions/install-native-deps/action.yml).
 #
 # Download libtokenizers.a for the current platform into ./lib/.
 fetch-tokenizers:
     #!/usr/bin/env bash
     set -euo pipefail
-    ver="${TOKENIZERS_VERSION:-v1.26.0}"
+    ver="${TOKENIZERS_VERSION:-v1.27.0}"
     target="${DEADZONE_TOKENIZERS_LIB:-./lib}"
     if [ -f "${target}/libtokenizers.a" ]; then
         echo "libtokenizers.a already present at ${target}/"
