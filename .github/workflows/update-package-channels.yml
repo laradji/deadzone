@@ -54,6 +54,17 @@ jobs:
       # `inputs.tag`. Fallback short-circuits on the first non-empty.
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
+      # Fail fast: a missing/rotated PAT otherwise surfaces as a 401
+      # from the tap-repo checkout below. See #161.
+      - name: Validate secrets
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN missing or empty — required fine-grained PAT (Contents: read+write on laradji/homebrew-deadzone). See repo settings → secrets and #161."
+            exit 1
+          fi
+
       - name: Checkout caller repo
         uses: actions/checkout@v6
 
@@ -68,6 +79,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: laradji/homebrew-deadzone
+          # HOMEBREW_TAP_TOKEN is a fine-grained PAT scoped to:
+          #   - Repository: laradji/homebrew-deadzone (only this repo)
+          #   - Permissions: Contents = read+write (push the formula bump commit)
+          # Owner: maintainer-only secret, rotated via repo settings → secrets.
+          # Rotation cadence: renew when GitHub's "Last used" age exceeds
+          # 180 days, or sooner if a leak is suspected. The Validate
+          # secrets step above catches an empty/missing value; a
+          # wrong-scope value surfaces as a 401 here.
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
 
