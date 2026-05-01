@@ -84,9 +84,10 @@ jobs:
     name: refresh (${{ matrix.entry.slug }})
     needs: expand-libs
     runs-on: ubuntu-latest
+    # Per-slot failures are masked; the report job's 0% hit-rate guard
+    # is the sole workflow gate (#163).
+    continue-on-error: true
     strategy:
-      # A miss on one lib is not a failure and must not short-circuit the
-      # rest — matches scrape-pack.yml's stance on matrix tolerance.
       fail-fast: false
       max-parallel: 20
       matrix:
@@ -153,7 +154,14 @@ jobs:
           # dispatch will fully rescrape the lib). This is the honest
           # post-run signal; per-slot summaries have the authoritative
           # cache-hit output from actions/cache/restore itself.
-          caches="$(gh api --paginate "/repos/$GH_REPO/actions/caches?per_page=100" --jq '.actions_caches[].key' || true)"
+          # Fail loudly on API failure rather than swallowing it: an
+          # empty `caches` would otherwise produce an all-miss summary
+          # and trip the 0% hit-rate guard below with a misleading
+          # cache-key-drift message (#163).
+          if ! caches="$(gh api --paginate "/repos/$GH_REPO/actions/caches?per_page=100" --jq '.actions_caches[].key')"; then
+            echo "::error::cache-keepalive: gh api caches lookup failed — cannot compute hit-rate"
+            exit 1
+          fi
           hit=0; miss=0
           {
             echo "## cache-keepalive summary"
@@ -180,3 +188,18 @@ jobs:
             echo ""
             echo "_A \`miss\` is not a failure — the lib's cache has aged out (or never existed) and will be fully rescraped on the next \`scrape-pack\` operator dispatch._"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # 0% hit-rate guard (#163): a single hit proves the keepalive
+          # plumbing works, so the threshold is exact-zero rather than
+          # "<50%". Protects against #153-class cache key drift where
+          # every slot silently misses and the workflow used to report
+          # success despite refreshing nothing.
+          total=$((hit + miss))
+          if [ "$total" -eq 0 ]; then
+            echo "::error::cache-keepalive: matrix expansion produced 0 entries — check expand-libs"
+            exit 1
+          fi
+          if [ "$hit" -eq 0 ]; then
+            echo "::error::cache-keepalive: 0/$total slots hit — cache key drift suspected (see #153 for past pattern)"
+            exit 1
+          fi
