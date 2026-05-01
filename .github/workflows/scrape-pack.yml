@@ -265,6 +265,19 @@ jobs:
         # `HEAD:${{ github.ref_name }}` pushes the detached-HEAD commit back
         # to the dispatch ref (typically main) — actions/checkout@v6 leaves
         # us in detached HEAD, so `git push` alone has no upstream.
+        #
+        # Cross-workflow push race guard (#160 follow-up to #156): the
+        # `concurrency: scrape-pack` group at the top of this file only
+        # serializes scrape-pack against itself. A tag-triggered
+        # release.yml run (or any future workflow that commits to the
+        # default branch) can land a commit on `${{ github.ref_name }}`
+        # between our checkout and our push, which would reject the push
+        # as non-fast-forward and waste a full scrape run. We rebase the
+        # bot commit onto the latest remote tip before pushing so the
+        # parallel commit is integrated. manifest.yaml + coverage.md are
+        # auto-generated and should never legitimately conflict — if the
+        # rebase still fails, we abort and exit so an operator can triage
+        # rather than risk a corrupted manifest from auto-resolution.
         if: inputs.tag != ''
         shell: bash
         run: |
@@ -277,6 +290,24 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add artifacts/manifest.yaml docs/coverage.md
           git commit -m "chore(release): update manifest for ${{ inputs.tag }}"
+
+          git fetch origin "${{ github.ref_name }}"
+          if ! git rebase "origin/${{ github.ref_name }}"; then
+            git rebase --abort || true
+            echo "::error::rebase onto origin/${{ github.ref_name }} failed — manifest.yaml or coverage.md conflict requires manual triage (see #160)"
+            exit 1
+          fi
+
+          # Paranoia guard: if the rebase pulled in a sibling manifest
+          # commit (e.g. another scrape-pack re-dispatch racing us), the
+          # release.tag field on disk may now belong to that commit, not
+          # ours. Refuse to push if so.
+          actual_tag="$(grep -E '^[[:space:]]*tag:' artifacts/manifest.yaml | head -1 | awk '{print $2}')"
+          if [ "$actual_tag" != "${{ inputs.tag }}" ]; then
+            echo "::error::manifest.yaml release.tag is '$actual_tag' after rebase, expected '${{ inputs.tag }}' — refusing to push (see #160)"
+            exit 1
+          fi
+
           git push origin "HEAD:${{ github.ref_name }}"
       - name: Summary
         if: always()
