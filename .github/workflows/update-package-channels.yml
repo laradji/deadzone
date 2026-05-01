@@ -55,7 +55,7 @@ jobs:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - name: Checkout caller repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Extract platform sha256
         id: sha
@@ -65,7 +65,7 @@ jobs:
           asset-suffix: ${{ env.ASSET_SUFFIX }}
 
       - name: Checkout tap repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: laradji/homebrew-deadzone
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
