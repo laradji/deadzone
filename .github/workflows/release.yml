@@ -280,6 +280,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Fail fast: a missing/rotated PAT otherwise surfaces as a 401
+      # deep in `gh release create`. Gated like the publish step so
+      # dry-run dispatches skip it. See #161.
+      - name: Validate secrets
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_PUBLISH_TOKEN" ]; then
+            echo "::error::RELEASE_PUBLISH_TOKEN missing or empty — required PAT (Contents: read+write on this repo) so release.published spawns update-package-channels.yml. See repo settings → secrets and #161."
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v8
         with:
           pattern: deadzone-*

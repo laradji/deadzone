@@ -76,6 +76,9 @@ func init() {
 		"manifest to update")
 	dbreleaseCmd.Flags().BoolVar(&dbreleaseVerbose, "verbose", false,
 		"enable Debug-level slog output")
+	// Cobra's required check fires on flag.Changed, so the runtime
+	// TrimSpace guard in runDBRelease still has to catch `--tag ""`.
+	_ = dbreleaseCmd.MarkFlagRequired("tag")
 	rootCmd.AddCommand(dbreleaseCmd)
 }
 
