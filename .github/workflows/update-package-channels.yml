@@ -26,18 +26,21 @@ on:
         required: true
         type: string
 
-# Prevent a rapid second release from racing an earlier bump against the
-# same tap repo. Channel-scoped (concurrency per job, not per workflow)
-# would be ideal but isn't expressible here — a whole-workflow lock is
-# fine at 0.1.x cadence.
-concurrency:
-  group: update-package-channels
-  cancel-in-progress: false
-
 jobs:
   update-homebrew:
     name: Bump Homebrew tap
     runs-on: ubuntu-latest
+    # Channel-scoped, ref-agnostic: the lock guards the single Homebrew
+    # tap repo against concurrent Formula rewrites, regardless of which
+    # release ref triggered the bump (release: published vs
+    # workflow_dispatch on a different tag would otherwise race against
+    # the same Formula/deadzone.rb). Sibling channels (AUR, AppImage)
+    # added later acquire their own group and run in parallel; replace
+    # the literal `homebrew` with `${{ matrix.channel }}` once the job
+    # fans out to a matrix.
+    concurrency:
+      group: update-channels-homebrew
+      cancel-in-progress: false
     # Skip pre-releases (rc/beta/alpha) — Homebrew users expect stable.
     # On workflow_dispatch the operator is on the hook for picking a
     # stable tag, so the gate short-circuits to true.

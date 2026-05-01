@@ -1,0 +1,32 @@
+name: list-libs
+description: >-
+  Run `deadzone scrape --list` against libraries_sources.yaml and emit
+  the resolved (lib, version, slug, cache_hash, …) JSON array as a step
+  output. Shared by scrape-pack.yml and cache-keepalive.yml so a future
+  flag/output addition lands in one place. Caller is responsible for
+  setup-go + install-native-deps + CGO env (CGO_ENABLED + CGO_LDFLAGS).
+inputs:
+  lib:
+    description: >-
+      Optional filter base lib_id (e.g. /hashicorp/terraform). Empty =
+      every resolved lib in the config (cache-keepalive's pattern).
+    required: false
+    default: ""
+outputs:
+  libs:
+    description: JSON array of resolved entries — see cmd/deadzone scrape --list output schema.
+    value: ${{ steps.list.outputs.libs }}
+runs:
+  using: composite
+  steps:
+    - id: list
+      shell: bash
+      run: |
+        set -euo pipefail
+        args=(scrape --list --config libraries_sources.yaml)
+        if [ -n "${{ inputs.lib }}" ]; then
+          args+=(--lib "${{ inputs.lib }}")
+        fi
+        libs="$(go run -tags ORT ./cmd/deadzone "${args[@]}")"
+        echo "resolved: $libs"
+        echo "libs=$libs" >> "$GITHUB_OUTPUT"

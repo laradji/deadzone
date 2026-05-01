@@ -264,10 +264,12 @@ func fileSHA256(path string) (string, error) {
 func resolveRepoFromGit(_ string) string {
 	out, err := exec.Command("gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").Output()
 	if err != nil {
+		slog.Debug("dbrelease.resolve_repo_fallback", "fallback_repo", packs.DefaultRepo, "err", err.Error())
 		return packs.DefaultRepo
 	}
 	repo := strings.TrimSpace(string(out))
 	if repo == "" {
+		slog.Debug("dbrelease.resolve_repo_fallback", "fallback_repo", packs.DefaultRepo, "reason", "empty gh output")
 		return packs.DefaultRepo
 	}
 	return repo

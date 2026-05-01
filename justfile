@@ -14,8 +14,10 @@
 #   libtokenizers.a available at link time
 #
 # By default recipes pass -L./lib to cgo. Set DEADZONE_TOKENIZERS_LIB to
-# point `go build` at a different directory (e.g. /opt/homebrew/lib). The
-# library itself is a static archive from
+# point `go build` at a different directory (e.g. /opt/homebrew/lib);
+# the tokenizers_lib variable below resolves the env var at recipe
+# expansion time so the override propagates to every recipe in one
+# place. The library itself is a static archive from
 # https://github.com/daulet/tokenizers/releases — run `just
 # fetch-tokenizers` once after cloning to drop the right prebuilt into
 # ./lib/ for your platform (or hand-place one and override the env var).
@@ -23,14 +25,31 @@
 # SHA256-verified + cached on first run by internal/ort.Bootstrap; set
 # DEADZONE_ORT_LIB_PATH to bypass the download and point at a
 # hand-positioned library (air-gapped installs).
+#
+# CGO link warning: on macOS arm64 the linker may emit
+#   ld: warning: ignoring duplicate libraries: '-ldl'
+# This is harmless — daulet/tokenizers' build script and Go's cgo runtime
+# both pass `-ldl` and `ld` deduplicates with a warning instead of an
+# error. Silencing via `-Wl,-no_warn_duplicate_libraries` would mask
+# unrelated duplicates if they appear later, so we live with the warning.
+#
+# Worktree onboarding: after cloning OR creating a fresh git worktree,
+# run `mise trust` once at the worktree root before any other recipe.
+# Without it `mise exec --` refuses to read .mise.toml and every Go
+# recipe fails with a "config file is not trusted" error.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Tokenizers static-archive directory. Resolved at recipe-expansion time
+# from DEADZONE_TOKENIZERS_LIB with a `./lib` default — single source of
+# truth for every recipe below.
+tokenizers_lib := env_var_or_default('DEADZONE_TOKENIZERS_LIB', './lib')
 
 # List available recipes
 default:
     @just --list --unsorted
 
-# Install the pinned toolchain (Go + just) via mise — one-time bootstrap
+# Install the pinned toolchain (Go + just) via mise — one-time bootstrap (also run `mise trust` once per worktree, see file header).
 bootstrap:
     mise install
 
@@ -43,7 +62,7 @@ fetch-tokenizers:
     #!/usr/bin/env bash
     set -euo pipefail
     ver="${TOKENIZERS_VERSION:-v1.27.0}"
-    target="${DEADZONE_TOKENIZERS_LIB:-./lib}"
+    target="{{tokenizers_lib}}"
     if [ -f "${target}/libtokenizers.a" ]; then
         echo "libtokenizers.a already present at ${target}/"
         exit 0
@@ -66,14 +85,14 @@ fetch-tokenizers:
 # link. Saves 5+ seconds of compile before the linker emits a cryptic
 # "library 'tokenizers' not found" error.
 _check-tokenizers:
-    @[ -f "${DEADZONE_TOKENIZERS_LIB:-./lib}/libtokenizers.a" ] || { \
+    @[ -f "{{tokenizers_lib}}/libtokenizers.a" ] || { \
         echo "error: libtokenizers.a missing — run \`just fetch-tokenizers\`" >&2; \
         exit 1; \
     }
 
 # Compile every package. Fast sanity check; produces no binaries.
 build: _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go build -tags ORT ./...
 
 # Build the single `deadzone` CLI with version/commit/date injected via ldflags.
@@ -87,6 +106,12 @@ build: _check-tokenizers
 # `git rev-parse --short HEAD`, and the current UTC timestamp so local dev
 # binaries are self-labelling too.
 #
+# Cross-platform smoke coverage for this recipe lives in
+# .github/workflows/release.yml — the per-OS matrix runs `just
+# build-release` on macOS arm64 / Linux amd64 / Linux arm64 against
+# pinned tokenizers + ORT, so any platform-specific drift is caught at
+# release-cut time, not by an end user.
+#
 # -trimpath strips absolute source paths from the binary (no $PWD leak),
 # -s -w strips debug info (keeps the CGO binary small).
 build-release: _check-tokenizers
@@ -97,64 +122,64 @@ build-release: _check-tokenizers
     built="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
     ldflags="-s -w -X main.version=${ver} -X main.commit=${sha} -X main.date=${built}"
     export CGO_ENABLED=1
-    export CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}"
+    export CGO_LDFLAGS="-L{{tokenizers_lib}}"
     mise exec -- go build -tags ORT -trimpath -ldflags "${ldflags}" -o ./deadzone ./cmd/deadzone
     echo "built ./deadzone ${ver} (${sha}, built ${built})"
 
 # Run the full test suite
 test: _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go test -tags ORT ./...
 
 # Format all Go sources
 fmt:
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go fmt ./...
 
 # Run `go vet` over every package
 vet: _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go vet -tags ORT ./...
 
 # Sync go.mod / go.sum. `go mod tidy` has no -tags flag, so we pass it
 # via GOFLAGS to keep ORT-only imports (internal/embed/hugot.go) in graph.
 tidy:
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
     GOFLAGS="-tags=ORT" \
         mise exec -- go mod tidy
 
 # Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry; pass version=X to pin to one expanded version)
 scrape lib="" version="": _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone scrape --artifacts ./artifacts {{ if lib != "" { "--lib " + lib } else { "" } }} {{ if version != "" { "--version " + version } else { "" } }}
 
 # Merge per-lib artifacts in ./artifacts/ into the main deadzone DB
 consolidate db="deadzone.db": _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone consolidate --db {{db}} --artifacts ./artifacts
 
 # Run the MCP server against the given DB file (must already be consolidated)
 serve db="deadzone.db": _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone server --db {{db}}
 
 # Upload ./deadzone.db to the GH Release at the given tag (operator-driven release, see #101).
 # Assumes the tag already exists on origin and CI's release.yml has created the release object.
 dbrelease tag: _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone dbrelease --db deadzone.db --tag {{tag}}
 
 # Render docs/coverage.md from the consolidated DB (#152). No embedder
 # load — runs against a freshly fetched deadzone.db with no ORT setup.
 # Override `db=` and `output=` for ad-hoc runs against alternate paths.
 coverage db="deadzone.db" output="docs/coverage.md": _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone coverage --db {{db}} --output {{output}}
 
 # Download / refresh the cached deadzone.db from the latest GH Release (#108).
 # Set force=true to re-fetch even when the cached tag matches the latest release.
 fetch-db force="": _check-tokenizers
-    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone fetch-db {{ if force != "" { "--force" } else { "" } }}
 
 # Remove the built binary, per-lib artifact folders, and the local DB files (preserves artifacts/manifest.yaml)

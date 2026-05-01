@@ -311,6 +311,9 @@ func scrapeSources(
 	sources []scraper.ResolvedSource,
 	parallelByKind map[string]int,
 ) []libResult {
+	// Counting-semaphore channels are intentionally not closed: every
+	// acquire is paired with a defer-release, so Wait() drains them
+	// before the map drops out of scope.
 	sems := make(map[string]chan struct{}, len(parallelByKind))
 	for kind, n := range parallelByKind {
 		if n < 1 {
@@ -344,6 +347,8 @@ func scrapeSources(
 			return nil
 		})
 	}
+	// Discard is deliberate: goroutines never propagate errors (see
+	// the inline comment above) so Wait() cannot return non-nil.
 	_ = group.Wait()
 	return results
 }
