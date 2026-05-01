@@ -316,14 +316,17 @@ func runServer() error {
 		return fmt.Errorf("stat db %s: %w", dbPath, err)
 	}
 
-	// db.OpenReader validates the embedder's reported meta against
-	// whatever the database was created with; a mismatch fails fast
-	// and tells the user to rebuild against a fresh file. Unlike
-	// db.Open (used by mutator subcommands like consolidate / scrape /
-	// dbrelease) it does NOT run any DDL and sets PRAGMA query_only on
-	// the connection, so N concurrent `deadzone server` processes can
-	// share the same deadzone.db file without racing each other on
-	// SQLite write-intent locks (#131).
+	// Opt this server process into the multi-process reader bypass so
+	// a second `deadzone server` against the same DB file does not
+	// fail on tursogo's fcntl lock (#172). Server-only — mutator
+	// subcommands run in their own process and keep the lock.
+	db.EnableMultiProcessReaders()
+
+	// db.OpenReader pins the connection to PRAGMA query_only and runs
+	// no DDL, so combined with the lock bypass above N concurrent
+	// `deadzone server` processes share the same deadzone.db (#131,
+	// #172). On embedder/schema mismatch the call fails fast with the
+	// stored vs requested values so the user knows what to rebuild.
 	e, err := embed.New(embedderKind)
 	if err != nil {
 		return fmt.Errorf("embedder: %w", err)
@@ -340,6 +343,9 @@ func runServer() error {
 		ModelVersion: e.ModelVersion(),
 	})
 	if err != nil {
+		if errors.Is(err, db.ErrReaderBusy) {
+			return fmt.Errorf("open db: another `deadzone server` process is already using %s — stop it (or pass a different --db path) before starting a new one", dbPath)
+		}
 		return fmt.Errorf("open db: %w", err)
 	}
 	defer d.Close()

@@ -213,6 +213,15 @@ func Open(path string, meta Meta) (*DB, error) {
 // errors.Is to detect.
 var ErrReaderNotInitialized = errors.New("database was never initialized by a mutator")
 
+// ErrReaderBusy is returned by OpenReader when another process already
+// holds the OS-level file lock on the database file. Surfaces the
+// otherwise-cryptic tursogo "Locking error: Failed locking file" with
+// a typed sentinel so callers (e.g. cmd/deadzone/server.go) can print
+// a human-readable message naming the offending file. See
+// docs/research/multi-process-lock.md for why this is needed and what
+// it costs to detect. Wrap with errors.Is.
+var ErrReaderBusy = errors.New("another process is using this database file")
+
 // OpenReader opens an existing deadzone database in read-only mode. It
 // is the entry point used by `deadzone server` and any other caller
 // that issues only SELECTs. Unlike Open it does NOT run any DDL and
@@ -274,8 +283,20 @@ func OpenReader(path string, meta Meta) (*DB, error) {
 	// issue a write. The tursogo DSN is a bare path and does not
 	// support a ?mode=ro query string (documented at db.go:117), so
 	// this pragma is the portable way to enforce the read-only contract.
+	//
+	// This is also the first real query against the file, which forces
+	// tursogo to actually open a connection and acquire its OS-level
+	// file lock. Tursogo v0.5.3 does not support cross-process readers
+	// — a second process trying to open the same file fails here with a
+	// generic "Locking error: Failed locking file" surfaced as
+	// turso.ErrTursoGeneric. Translate that into ErrReaderBusy so
+	// callers can print a useful message instead of the raw driver
+	// string. See docs/research/multi-process-lock.md.
 	if _, err := raw.Exec(`PRAGMA query_only = 1`); err != nil {
 		raw.Close()
+		if isTursoLockError(err) {
+			return nil, fmt.Errorf("%w: %s", ErrReaderBusy, path)
+		}
 		return nil, fmt.Errorf("open db reader %s: set query_only: %w", path, err)
 	}
 
@@ -864,6 +885,49 @@ func writeMeta(raw *sql.DB, m Meta) error {
 		}
 	}
 	return nil
+}
+
+// EnvDisableFileLock is the tursogo (Limbo) escape hatch that makes
+// every IO backend skip the OS-level fcntl lock at file-open time.
+// Set to any non-empty value before the first OpenReader call.
+// Defined in tursogo's core/io/common.rs as ENV_DISABLE_FILE_LOCK.
+const EnvDisableFileLock = "LIMBO_DISABLE_FILE_LOCK"
+
+// EnableMultiProcessReaders opts the current process into the lock
+// bypass so multiple readers can coexist on the same database file.
+// Safe to call repeatedly. Intended for callers (e.g. deadzone server)
+// that only ever use OpenReader: the bypass weakens cross-process
+// protection against concurrent writers, so processes that take the
+// mutator path (Open, OpenArtifact) must NOT call this.
+//
+// Why an env var rather than an open flag: tursogo v0.5.3 does not
+// expose OpenFlags::ReadOnly through its DSN or config struct, so the
+// env-var escape hatch is the only Go-reachable lever. See
+// docs/research/multi-process-lock.md for the full audit and the
+// migration plan once tursogo ships native multi-process support.
+func EnableMultiProcessReaders() {
+	os.Setenv(EnvDisableFileLock, "1")
+}
+
+// tursoLockErrorSubstring is the message tursogo v0.5.3 emits when a
+// second process tries to open a database file the first process has
+// already opened. The full driver error is
+// "turso: error: Locking error: Failed locking file. File is locked by
+// another process" — wrapping turso.ErrTursoGeneric. Until tursogo
+// exposes a typed sentinel for this case, substring matching is the
+// only reliable signal. Re-validate against tursogo on every version
+// bump in go.mod; a message change reverts behavior to "raw driver
+// error surfaces", never to a silent false negative.
+const tursoLockErrorSubstring = "Locking error: Failed locking file"
+
+// isTursoLockError reports whether err is the cross-process file-lock
+// failure tursogo surfaces from a second-process open. Centralised so
+// the brittle substring check has one home; see
+// docs/research/multi-process-lock.md for why we cannot use
+// errors.Is(err, turso.ErrTursoBusy) here (lock conflicts wrap
+// ErrTursoGeneric, not ErrTursoBusy).
+func isTursoLockError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), tursoLockErrorSubstring)
 }
 
 func keysOf(m map[string]string) []string {
