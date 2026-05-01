@@ -24,6 +24,21 @@ on:
   # there is no tag to attach assets to.
   workflow_dispatch:
 
+# Serialize releases on the same ref so two concurrent runs (tag push
+# racing a manual workflow_dispatch on the same tag, or two near-
+# simultaneous tag pushes) don't upload artifacts to the same GH
+# Release in parallel. Group key includes github.ref so different
+# tags don't queue behind each other unnecessarily.
+#
+# cancel-in-progress: false because aborting a half-uploaded release
+# is strictly worse than serializing — a killed run leaves a partial
+# Release on GitHub (some assets present, others missing), and the
+# replacement run has no clean signal to detect/repair that state.
+# Queueing waits, but the eventual state is consistent. See #157.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 # TOKENIZERS_VERSION is the daulet/tokenizers release tag; bumping is
 # a conscious step — the composite action keys its cache on this file
 # so a bump invalidates cached archives on all three runners.
