@@ -402,9 +402,9 @@ func TestVerifyCodeBlocks_MultipleBlocksAllChecked(t *testing.T) {
 
 func TestContentTypeHint_VariesByType(t *testing.T) {
 	cases := map[string]string{
-		"text/html":               "raw HTML",
-		"text/markdown":           "Markdown",
-		"text/plain":              "plain text",
+		"text/html":                "raw HTML",
+		"text/markdown":            "Markdown",
+		"text/plain":               "plain text",
 		"application/octet-stream": "documentation content", // fallback
 	}
 	for ct, fragment := range cases {

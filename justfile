@@ -108,16 +108,20 @@ test: _check-tokenizers
 
 # Format all Go sources
 fmt:
-    mise exec -- go fmt ./...
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+        mise exec -- go fmt ./...
 
 # Run `go vet` over every package
 vet: _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
         mise exec -- go vet -tags ORT ./...
 
-# Sync go.mod / go.sum with the source
+# Sync go.mod / go.sum. `go mod tidy` has no -tags flag, so we pass it
+# via GOFLAGS to keep ORT-only imports (internal/embed/hugot.go) in graph.
 tidy:
-    mise exec -- go mod tidy
+    CGO_ENABLED=1 CGO_LDFLAGS="-L${DEADZONE_TOKENIZERS_LIB:-./lib}" \
+    GOFLAGS="-tags=ORT" \
+        mise exec -- go mod tidy
 
 # Run the scraper, writing one artifact per lib to ./artifacts/ (pass lib=/org/project to refresh only that entry; pass version=X to pin to one expanded version)
 scrape lib="" version="": _check-tokenizers

@@ -165,4 +165,3 @@ func TestWriteAtomic_CreatesParentDir(t *testing.T) {
 		t.Errorf("content = %q, want %q", got, "ok\n")
 	}
 }
-

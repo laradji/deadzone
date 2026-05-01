@@ -235,15 +235,12 @@ Then add a `kind: scrape-via-agent` entry to `libraries_sources.yaml` with a lis
 
 ## Local pipeline (contributors)
 
+Two-step bootstrap: toolchain first, then the CGO native dep — kept separate so air-gapped / CI runners with vendored `libtokenizers.a` can skip step 2 by overriding `DEADZONE_TOKENIZERS_LIB`.
+
 ```sh
-# 1. Install the pinned toolchain (Go 1.26.2 + just)
-mise install
-
-# 2. Fetch libtokenizers.a for your platform into ./lib/
-just fetch-tokenizers
-
-# 3. Build, scrape, consolidate, serve
-just build
+just bootstrap            # Go 1.26.2 + just toolchain (mise install)
+just fetch-tokenizers     # libtokenizers.a — one-shot CGO setup
+just build                # CGO + ORT, all packages
 just scrape                       # all libs — one artifact folder per lib
 just scrape /hashicorp/terraform  # one base lib, every version
 just scrape /hashicorp/terraform/1.14   # one exact version
