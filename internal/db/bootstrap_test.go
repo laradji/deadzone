@@ -553,3 +553,176 @@ func TestDefaultCacheDir_HonorsEnv(t *testing.T) {
 		t.Errorf("DefaultCacheDir = %q, want /tmp/deadzone-test-cache", got)
 	}
 }
+
+// TestBootstrap_Matrix is the table-driven view of the
+// cache × offline × dev-version axis. The fake server registers two
+// releases (v1.0.0, v1.1.0); v1.1.0 is last-added so
+// latestTag()=="v1.1.0" — the dev fallback resolves to it. Cache
+// states: "" = empty cache, "v1.0.0" = matching tag, "v0.9.0" = stale
+// tag (no such release on the server, so a fetch path keyed on
+// appVersion still works for the binary-upgrade case).
+//
+// Each subtest's name maps to a specific branch in bootstrap.go:
+//
+//	hit-online-release    fast path: cached tag matches AppVersion
+//	hit-offline-release   fast path short-circuits before the offline guard
+//	miss-online-release   fetchReleaseByTag + fetchAndInstall (first fetch)
+//	miss-offline-release  offline guard, no-cache branch
+//	hit-online-dev        fast path via isDev clause (any cached tag)
+//	miss-online-dev       isDev → fetchLatestRelease + install
+//	stale-online-release  fast path miss → fetchReleaseByTag (binary upgrade refresh)
+//	stale-offline-release offline guard, mismatched-cache branch (must fail loud)
+//
+// Note on "stale-offline-release": the issue body suggests this case
+// should "serve stale", but the production contract (and the existing
+// TestBootstrap_OfflineMismatchedCacheFails) deliberately fails loud —
+// serving a stale DB across binary versions risks schema/embedder
+// drift. The matrix asserts the actual contract.
+func TestBootstrap_Matrix(t *testing.T) {
+	cases := []struct {
+		name string
+
+		appVersion string // "v1.0.0" | "v1.1.0" | "dev"
+		cachedTag  string // "" = no cache; otherwise sidecar value
+		offline    bool
+
+		wantErrSubstr string // "" = expect success
+		wantBody      string // expected installed DB body when success
+		wantAPIHits   int32  // expected GitHub API endpoint hits
+		wantDBHits    int32  // expected db-asset download hits
+		wantUpgraded  bool   // bootstrap's "upgraded" return value
+	}{
+		{
+			name:        "hit-online-release",
+			appVersion:  "v1.0.0",
+			cachedTag:   "v1.0.0",
+			wantBody:    "cached-bytes",
+			wantAPIHits: 0,
+			wantDBHits:  0,
+		},
+		{
+			name:        "hit-offline-release",
+			appVersion:  "v1.0.0",
+			cachedTag:   "v1.0.0",
+			offline:     true,
+			wantBody:    "cached-bytes",
+			wantAPIHits: 0,
+			wantDBHits:  0,
+		},
+		{
+			name:        "miss-online-release",
+			appVersion:  "v1.0.0",
+			cachedTag:   "",
+			wantBody:    "v1.0.0-content",
+			wantAPIHits: 1,
+			wantDBHits:  1,
+		},
+		{
+			name:          "miss-offline-release",
+			appVersion:    "v1.0.0",
+			cachedTag:     "",
+			offline:       true,
+			wantErrSubstr: "no cached",
+		},
+		{
+			name:        "hit-online-dev",
+			appVersion:  "dev",
+			cachedTag:   "v0.9.0",
+			wantBody:    "cached-bytes",
+			wantAPIHits: 0,
+			wantDBHits:  0,
+		},
+		{
+			name:        "miss-online-dev",
+			appVersion:  "dev",
+			cachedTag:   "",
+			wantBody:    "v1.1.0-content",
+			wantAPIHits: 1,
+			wantDBHits:  1,
+		},
+		{
+			name:         "stale-online-release",
+			appVersion:   "v1.0.0",
+			cachedTag:    "v0.9.0",
+			wantBody:     "v1.0.0-content",
+			wantAPIHits:  1,
+			wantDBHits:   1,
+			wantUpgraded: true,
+		},
+		{
+			name:          "stale-offline-release",
+			appVersion:    "v1.0.0",
+			cachedTag:     "v0.9.0",
+			offline:       true,
+			wantErrSubstr: EnvOffline,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearBootstrapEnv(t)
+			if tc.offline {
+				t.Setenv(EnvOffline, "1")
+			}
+
+			// Fresh fixture per case so apiCalls / dbCalls counters
+			// are isolated. Releases are added in tag order so
+			// latestTag()==v1.1.0 (the dev fallback target).
+			rel100 := newFakeRelease(t, "v1.0.0", "v1.0.0-content")
+			rel110 := newFakeRelease(t, "v1.1.0", "v1.1.0-content")
+			fix := newFixtureServer(t, rel100, rel110)
+			withAPIBase(t, fix.srv.URL)
+
+			cacheDir := t.TempDir()
+			if tc.cachedTag != "" {
+				seedCache(t, cacheDir, "cached-bytes", tc.cachedTag)
+			}
+
+			path, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+				CacheDir:   cacheDir,
+				AppVersion: tc.appVersion,
+			})
+
+			if tc.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Errorf("error %q missing substring %q", err, tc.wantErrSubstr)
+				}
+				if got := fix.apiCalls.Load(); got != tc.wantAPIHits {
+					t.Errorf("apiCalls = %d, want %d", got, tc.wantAPIHits)
+				}
+				if got := fix.dbCalls.Load(); got != tc.wantDBHits {
+					t.Errorf("dbCalls = %d, want %d", got, tc.wantDBHits)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Bootstrap: %v", err)
+			}
+			if path != filepath.Join(cacheDir, dbAssetName) {
+				t.Errorf("path = %q, want %q", path, filepath.Join(cacheDir, dbAssetName))
+			}
+			if upgraded != tc.wantUpgraded {
+				t.Errorf("upgraded = %v, want %v", upgraded, tc.wantUpgraded)
+			}
+			if tc.wantBody != "" {
+				body, readErr := os.ReadFile(path)
+				if readErr != nil {
+					t.Fatalf("read installed db: %v", readErr)
+				}
+				if string(body) != tc.wantBody {
+					t.Errorf("body = %q, want %q", body, tc.wantBody)
+				}
+			}
+			if got := fix.apiCalls.Load(); got != tc.wantAPIHits {
+				t.Errorf("apiCalls = %d, want %d", got, tc.wantAPIHits)
+			}
+			if got := fix.dbCalls.Load(); got != tc.wantDBHits {
+				t.Errorf("dbCalls = %d, want %d", got, tc.wantDBHits)
+			}
+		})
+	}
+}

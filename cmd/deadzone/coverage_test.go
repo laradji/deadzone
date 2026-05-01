@@ -13,39 +13,88 @@ import (
 )
 
 // TestRenderCoverage_Golden pins the exact byte shape of the
-// rendered markdown against a checked-in golden file. The test data
+// rendered markdown against checked-in golden files. The test data
 // is stable (no time.Now, no DB) so a diff in the output must
 // originate from a template change — at which point set
-// UPDATE_GOLDEN=1 to refresh testdata/coverage.golden.md and review
-// the diff in code review.
+// UPDATE_GOLDEN=1 to refresh every testdata/coverage.*.golden.md in
+// one run and review the diff in code review.
+//
+// Three cases are pinned:
+//
+//   - populated: the canonical release-time output (3 rows, mix of
+//     versioned + unversioned), exercising row formatting.
+//   - empty:     a release tag set but zero indexed pairs — guards the
+//     edge where dbrelease bumps the manifest before the
+//     first scrape lands. Output truncates after the
+//     header separator line.
+//   - mixed:     both unversioned-only ("") and versioned ("0.1", "0.2")
+//     rows for the same lib_id, plus rows ordered across the
+//     doc_count DESC tiebreak so a regression in ORDER BY or
+//     in the empty-version cell would be caught here.
 func TestRenderCoverage_Golden(t *testing.T) {
 	fixed := time.Date(2026, 4, 30, 11, 24, 0, 0, time.UTC)
-	data := coverageData{
-		ReleaseTag:  "v0.3.0",
-		GeneratedAt: fixed,
-		Rows: []coverageRow{
-			{LibID: "/anomalyco/opencode", Version: "", DocCount: 203},
-			{LibID: "/opentofu/opentofu", Version: "1.10", DocCount: 200},
-			{LibID: "/opentofu/opentofu", Version: "1.11", DocCount: 195},
+	cases := []struct {
+		name   string
+		data   coverageData
+		golden string
+	}{
+		{
+			name: "populated",
+			data: coverageData{
+				ReleaseTag:  "v0.3.0",
+				GeneratedAt: fixed,
+				Rows: []coverageRow{
+					{LibID: "/anomalyco/opencode", Version: "", DocCount: 203},
+					{LibID: "/opentofu/opentofu", Version: "1.10", DocCount: 200},
+					{LibID: "/opentofu/opentofu", Version: "1.11", DocCount: 195},
+				},
+			},
+			golden: "coverage.golden.md",
+		},
+		{
+			name: "empty",
+			data: coverageData{
+				ReleaseTag:  "v0.3.0",
+				GeneratedAt: fixed,
+				Rows:        nil,
+			},
+			golden: "coverage.empty.golden.md",
+		},
+		{
+			name: "mixed",
+			data: coverageData{
+				ReleaseTag:  "v0.3.0",
+				GeneratedAt: fixed,
+				Rows: []coverageRow{
+					{LibID: "/golang/go", Version: "", DocCount: 500},
+					{LibID: "/laradji/turso", Version: "0.1", DocCount: 320},
+					{LibID: "/anthropics/sdk", Version: "", DocCount: 145},
+					{LibID: "/laradji/turso", Version: "0.2", DocCount: 80},
+				},
+			},
+			golden: "coverage.mixed.golden.md",
 		},
 	}
-	got := renderCoverage(data)
-
-	golden := filepath.Join("testdata", "coverage.golden.md")
-	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
-			t.Fatalf("mkdir testdata: %v", err)
-		}
-		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
-			t.Fatalf("write golden: %v", err)
-		}
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("read golden %s: %v (run with UPDATE_GOLDEN=1 to (re)create it)", golden, err)
-	}
-	if got != string(want) {
-		t.Errorf("render mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := renderCoverage(tc.data)
+			golden := filepath.Join("testdata", tc.golden)
+			if os.Getenv("UPDATE_GOLDEN") == "1" {
+				if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
+					t.Fatalf("mkdir testdata: %v", err)
+				}
+				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+					t.Fatalf("write golden: %v", err)
+				}
+			}
+			want, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatalf("read golden %s: %v (run with UPDATE_GOLDEN=1 to (re)create it)", golden, err)
+			}
+			if got != string(want) {
+				t.Errorf("render mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
+			}
+		})
 	}
 }
 
