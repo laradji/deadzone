@@ -50,6 +50,36 @@
 #             parse time — use `{"1.4": {...}, "1.5": {...}}` instead
 #             (see #117).
 #
+# lib_id vs docs source repo:
+#   `lib_id` is the canonical identifier — it matches `db.docs.lib_id`
+#   and is what users query through the MCP surface. It is NOT
+#   guaranteed to match the GitHub org/project that hosts the doc URLs.
+#
+#   When upstream splits code and docs into sibling repos (a common JS/
+#   TS pattern, but also seen on Rust + Go ORMs + DBs), the lib_id stays
+#   on the canonical "lib home" repo while the URLs target the docs
+#   sibling. Inspect the URL host to see which repo a scrape actually
+#   reads from.
+#
+#   Sidecar docs repos currently in use (10 of 48 entries):
+#     /uptrace/bun           → uptrace/bun-docs
+#     /honojs/hono           → honojs/website
+#     /expressjs/express     → expressjs/expressjs.com
+#     /nestjs/nest           → nestjs/docs.nestjs.com
+#     /vuejs/vue             → vuejs/docs
+#     /withastro/astro       → withastro/docs
+#     /tokio-rs/tokio        → tokio-rs/website
+#     /serde-rs/serde        → serde-rs/serde-rs.github.io
+#     /dragonflydb/dragonfly → dragonflydb/documentation
+#     /grafana/k6            → grafana/k6-docs
+#
+#   The remaining 38 entries are in-repo (lib_id's repo IS the docs
+#   source). The Grafana stack ships docs in-repo under `docs/sources/`
+#   monorepo-style; most other ecosystems split them out.
+#
+#   Patch is mechanical when needed: bump `ref:` to a new commit on the
+#   docs sibling, not on the lib repo.
+#
 # Version-pinning conventions in this file (#120):
 #   - `versions:` keys are the user-facing IDENTIFIER surfaced by the
 #     MCP surface (`search_libraries`, `search_docs`). They are always
