@@ -1340,3 +1340,283 @@ libraries:
       - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/interceptors.md
       - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/pipes.md
 
+  # vuejs/vue — progressive frontend framework. Docs ship in a sibling
+  # repo `vuejs/docs` (VitePress, no tags — pinned by commit SHA). Markdown
+  # is mostly clean prose with VitePress directives (`:::tip`, conditional
+  # `<div class="options-api">` / `<div class="composition-api">` blocks
+  # for dual-API content); both surface as text in chunks. lib_id stays
+  # /vuejs/vue. examples/ (Vue code), about/, error-reference/ (auto-gen),
+  # ecosystem/ skipped — out of learning scope. mouse.js in reusability/
+  # is a code file, not docs.
+  - lib_id: /vuejs/vue
+    kind: github-md
+    ref: 037a76daf60b0638e2837e8daa3174262e37af65
+    urls:
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/glossary/index.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/introduction.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/quick-start.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/application.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/class-and-style.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/component-basics.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/computed.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/conditional.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/event-handling.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/forms.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/lifecycle.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/list.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/reactivity-fundamentals.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/template-refs.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/template-syntax.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/essentials/watchers.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/async.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/attrs.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/events.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/props.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/provide-inject.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/registration.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/slots.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/components/v-model.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/built-ins/keep-alive.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/built-ins/suspense.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/built-ins/teleport.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/built-ins/transition-group.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/built-ins/transition.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/reusability/composables.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/reusability/custom-directives.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/reusability/plugins.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/scaling-up/routing.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/scaling-up/sfc.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/scaling-up/ssr.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/scaling-up/state-management.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/scaling-up/testing.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/scaling-up/tooling.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/best-practices/accessibility.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/best-practices/performance.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/best-practices/production-deployment.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/best-practices/security.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/typescript/composition-api.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/typescript/options-api.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/typescript/overview.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/animation.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/composition-api-faq.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/reactivity-in-depth.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/reactivity-transform.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/render-function.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/rendering-mechanism.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/ways-of-using-vue.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/guide/extras/web-components.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/application.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/built-in-components.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/built-in-directives.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/built-in-special-attributes.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/built-in-special-elements.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/compile-time-flags.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/component-instance.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/composition-api-dependency-injection.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/composition-api-helpers.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/composition-api-lifecycle.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/composition-api-setup.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/custom-elements.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/custom-renderer.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/general.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/index.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/options-composition.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/options-lifecycle.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/options-misc.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/options-rendering.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/options-state.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/reactivity-advanced.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/reactivity-core.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/reactivity-utilities.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/render-function.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/sfc-css-features.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/sfc-script-setup.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/sfc-spec.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/ssr.md
+      - https://raw.githubusercontent.com/vuejs/docs/{ref}/src/api/utility-types.md
+
+  # sveltejs/svelte — frontend framework with compiled output. Docs live
+  # in-repo under `documentation/docs/` (no per-package tag corresponds
+  # to the docs at v5+, so pinned by commit SHA on the main monorepo).
+  # Markdown is exceptionally clean: pure prose + code blocks, no MDX
+  # components, no preprocessor markers. 99-legacy/ skipped — covers
+  # Svelte 3/4 patterns historical only; 99-faq.md kept. index.md per
+  # subdir skipped (TOC-only stubs).
+  - lib_id: /sveltejs/svelte
+    kind: github-md
+    ref: dc5bd887b50c593033408b7faa079d56f38e74b9
+    urls:
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/01-introduction/01-overview.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/01-introduction/02-getting-started.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/01-introduction/03-svelte-files.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/01-introduction/04-svelte-js-files.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/01-what-are-runes.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/02-$state.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/03-$derived.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/04-$effect.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/05-$props.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/06-$bindable.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/07-$inspect.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/02-runes/08-$host.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/01-basic-markup.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/02-if.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/03-each.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/04-key.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/05-await.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/06-snippet.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/07-@render.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/08-@html.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/09-@attach.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/10-@const.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/11-@debug.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/12-bind.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/13-use.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/14-transition.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/15-in-and-out.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/16-animate.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/17-style.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/18-class.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/03-template-syntax/19-await-expressions.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/04-styling/01-scoped-styles.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/04-styling/02-global-styles.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/04-styling/03-custom-properties.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/04-styling/04-nested-style-elements.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/01-svelte-boundary.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/02-svelte-window.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/03-svelte-document.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/04-svelte-body.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/05-svelte-head.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/06-svelte-element.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/05-special-elements/07-svelte-options.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/06-runtime/01-stores.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/06-runtime/02-context.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/06-runtime/03-lifecycle-hooks.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/06-runtime/04-imperative-component-api.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/06-runtime/05-hydratable.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/01-best-practices.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/02-testing.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/03-typescript.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/04-custom-elements.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/06-v4-migration-guide.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/07-v5-migration-guide.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/07-misc/99-faq.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/20-svelte.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-action.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-animate.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-attachments.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-compiler.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-easing.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-events.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-legacy.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-motion.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-reactivity-window.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-reactivity.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-server.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-store.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/21-svelte-transition.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/30-compiler-errors.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/30-compiler-warnings.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/30-runtime-errors.md
+      - https://raw.githubusercontent.com/sveltejs/svelte/{ref}/documentation/docs/98-reference/30-runtime-warnings.md
+
+  # withastro/astro — content-driven web framework. Docs live in sibling
+  # repo `withastro/docs` (Starlight-based, no tags — pinned by commit
+  # SHA), authored as .mdx with light component usage (`:::note`,
+  # `<ReadMore>`); prose-dense and parser-friendly. English subtree only
+  # (en/) — non-en localizations excluded. Top-level pages + basics +
+  # concepts + guides (top-level) + recipes + reference (top-level) only.
+  # tutorial/ subtree (interactive course, 7 sub-modules) excluded —
+  # tutorial-shaped content benefits less from semantic search than from
+  # linear reading. en/guides/ subdirs (cms, deploy, integrations-guide,
+  # migrate-to-astro, etc.) and en/reference/ subdirs (errors,
+  # experimental-flags, modules) skipped to keep PR-3 manageable; can be
+  # promoted later if user-requested.
+  - lib_id: /withastro/astro
+    kind: github-md
+    ref: 6bd56078bfb402e32ed639c507872c2cc91f8d49
+    urls:
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/astro-courses.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/contribute.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/develop-and-build.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/editor-setup.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/getting-started.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/install-and-setup.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/upgrade-astro.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/basics/astro-components.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/basics/astro-pages.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/basics/layouts.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/basics/project-structure.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/concepts/islands.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/concepts/why-astro.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/actions.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/astro-db.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/authentication.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/build-with-ai.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/client-side-scripts.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/configuring-astro.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/content-collections.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/data-fetching.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/dev-toolbar.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/ecommerce.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/endpoints.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/environment-variables.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/fonts.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/framework-components.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/images.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/imports.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/integrations.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/internationalization.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/markdown-content.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/middleware.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/on-demand-rendering.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/prefetch.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/routing.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/server-islands.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/sessions.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/styling.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/syntax-highlighting.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/testing.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/troubleshooting.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/typescript.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/guides/view-transitions.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/add-yaml-support.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/analyze-bundle-size.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/build-custom-img-component.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/build-forms-api.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/build-forms.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/bun.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/call-endpoints.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/captcha.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/customizing-output-filenames.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/docker.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/dynamically-importing-images.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/external-links.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/i18n.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/making-toolbar-apps.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/modified-time.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/reading-time.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/rss.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/sharing-state-islands.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/sharing-state.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/streaming-improve-page-performance.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/recipes/tailwind-rendered-markdown.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/adapter-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/api-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/astro-syntax.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/cli-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/configuration-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/container-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/content-loader-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/dev-toolbar-app-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/directives-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/error-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/font-provider-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/image-service-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/integrations-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/legacy-flags.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/programmatic-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/renderer-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/routing-reference.mdx
+      - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/session-driver-reference.mdx
+
+
