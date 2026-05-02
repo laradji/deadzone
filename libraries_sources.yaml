@@ -1821,5 +1821,235 @@ libraries:
       - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/tests.md
       - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/guidance/_index.md
 
+  # grafana/grafana — observability dashboard platform. Hugo docs live
+  # in-repo at docs/sources/. The product is huge (200+ doc pages); PR-5
+  # keeps ONLY top-level section landings to make the corpus discoverable
+  # without bloating. Deeper subtrees deferred:
+  #   - administration/, breaking-changes/, developer-resources/,
+  #     developers/ (plugin development), as-code/, setup-grafana/
+  #     (install), getting-started/, troubleshooting/
+  # The kept landings (_index.md) capture the hub-and-spoke nav for each
+  # major topic; users follow links from there. Aggressive scope-fence
+  # is deliberate — Grafana docs deserve a dedicated PR when sized
+  # properly.
+  - lib_id: /grafana/grafana
+    kind: github-md
+    ref: 2a9d7c18219e9421c3c9a44cb40df19657ba5dbb
+    urls:
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/introduction/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/introduction/grafana-cloud.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/introduction/grafana-enterprise.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/fundamentals/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/dashboards/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/datasources/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/datasources/troubleshooting.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/explore/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/panels-visualizations/_index.md
+      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/alerting/_index.md
+
+  # grafana/loki — log aggregation system. docs/sources/ Hugo, in-repo.
+  # Coverage: get-started + query (LogQL is the load-bearing query
+  # language; full top-level files included) + send-data + alert
+  # landings. Deferred: setup/, operations/, configure/, reference/,
+  # release-notes/, community/, visualize/. .png files filtered out.
+  - lib_id: /grafana/loki
+    kind: github-md
+    ref: d8f4d0f6668928184dd4aa993a7481101b0ea169
+    urls:
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/_index.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/get-started/_index.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/get-started/architecture.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/get-started/components.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/get-started/deployment-modes.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/get-started/hash-rings.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/_index.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/analyzer.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/bp-query.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/ip.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/metric_queries.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/query_acceleration.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/query_examples.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/query_reference.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/query/template_functions.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/send-data/_index.md
+      - https://raw.githubusercontent.com/grafana/loki/{ref}/docs/sources/alert/_index.md
+
+  # grafana/tempo — distributed tracing backend. docs/sources/tempo/
+  # Hugo, in-repo. Coverage: tempo top-level + introduction (5 files) +
+  # api_docs (3 files, skip .png) + configuration top-level (skip
+  # AGENTS.md, .png). helm-charts subtree deferred.
+  - lib_id: /grafana/tempo
+    kind: github-md
+    ref: 4dc3e5b0d3463a0b67498b662b85a148698b4afd
+    urls:
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/_index.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/docker-example.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/introduction/_index.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/introduction/architecture.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/introduction/glossary.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/introduction/telemetry.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/introduction/trace-structure.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/api_docs/_index.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/api_docs/mcp-server.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/api_docs/pushing-spans-with-http.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/_index.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/anonymous-usage-reporting.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/manifest.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/parquet.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/polling.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/tenant-ids.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/usage-tracker.md
+      - https://raw.githubusercontent.com/grafana/tempo/{ref}/docs/sources/tempo/configuration/use-trace-data.md
+
+  # grafana/mimir — horizontally-scalable Prometheus-compatible TSDB.
+  # docs/sources/mimir/ Hugo, in-repo. Each subdir contains only
+  # `_index.md` at the top level (real content is one level deeper);
+  # PR-5 captures section landings for hub-and-spoke discovery.
+  # Deeper subtrees (manage/, configure/, get-started/, references/)
+  # deferred — they would require their own dedicated PR.
+  - lib_id: /grafana/mimir
+    kind: github-md
+    ref: cc1467ac91ae9358a46277660b20acae000163c5
+    urls:
+      - https://raw.githubusercontent.com/grafana/mimir/{ref}/docs/sources/mimir/_index.md
+      - https://raw.githubusercontent.com/grafana/mimir/{ref}/docs/sources/mimir/introduction/_index.md
+      - https://raw.githubusercontent.com/grafana/mimir/{ref}/docs/sources/mimir/get-started/_index.md
+      - https://raw.githubusercontent.com/grafana/mimir/{ref}/docs/sources/mimir/configure/_index.md
+      - https://raw.githubusercontent.com/grafana/mimir/{ref}/docs/sources/mimir/manage/_index.md
+
+  # grafana/alloy — OpenTelemetry-compatible collector with programmable
+  # pipelines. docs/sources/ Hugo, in-repo. Coverage: introduction (5),
+  # get-started (4), configure (8 OS-specific), tutorials (6),
+  # monitor (8), collect (8). Deferred: reference/ (component reference
+  # is massive — every component gets its own page; deserves own PR),
+  # set-up/, troubleshoot/, assets/, shared/.
+  - lib_id: /grafana/alloy
+    kind: github-md
+    ref: e830b3be28412ab6c5659d8c238c208fffd7354a
+    urls:
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/introduction/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/introduction/how-alloy-works.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/introduction/otel_alloy.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/introduction/requirements.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/introduction/why-alloy.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/get-started/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/get-started/clustering.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/get-started/modules.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/get-started/syntax.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/kubernetes.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/linux.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/load-remote-configuration.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/macos.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/nonroot.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/proxy.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/configure/windows.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/tutorials/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/tutorials/first-components-and-stdlib.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/tutorials/logs-and-relabeling-basics.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/tutorials/processing-logs.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/tutorials/send-logs-to-loki.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/tutorials/send-metrics-to-prometheus.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-docker-containers.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-kubernetes-logs.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-linux.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-logs-from-file.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-logs-over-tcp.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-structured-logs.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/monitor/monitor-syslog-messages.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/_index.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/azure-event-hubs-logs.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/choose-component.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/datadog-traces-metrics.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/ecs-opentelemetry-data.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/logs-in-kubernetes.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/metamonitoring.md
+      - https://raw.githubusercontent.com/grafana/alloy/{ref}/docs/sources/collect/opentelemetry-data.md
+
+  # grafana/k6 — load testing tool. Docs in sibling repo
+  # `grafana/k6-docs`, Hugo, versioned; pinned to v1.7.x (latest stable
+  # k6 series). Coverage: get-started + using-k6 (the canonical usage
+  # surface, 15 files) + testing-guides (10 files). Deferred:
+  #   - examples/, javascript-api/ (generated reference, huge)
+  #   - extensions/, k6-studio/, grafana-cloud-k6/ (hosted-product)
+  #   - reference/, results-output/, set-up/, release-notes/
+  - lib_id: /grafana/k6
+    kind: github-md
+    ref: d257660eb1be0efa1db7d9ddb5e3b54306798388
+    urls:
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/_index.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/get-started/_index.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/get-started/resources.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/get-started/results-output.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/_index.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/assertions.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/checks.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/cookies.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/environment-variables.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/execution-context-variables.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/http-debugging.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/http-requests.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/javascript-typescript-compatibility-mode.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/k6-deps-command.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/modules.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/run-k6-test-script.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/tags-and-groups.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/test-lifecycle.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/using-k6/thresholds.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/_index.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/api-load-testing.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/automated-performance-testing.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/calculate-concurrent-users.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/load-testing-websites.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/performance-testing-grpc-services.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/running-distributed-tests.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/running-large-tests.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/synthetic-monitoring.md
+      - https://raw.githubusercontent.com/grafana/k6-docs/{ref}/docs/sources/k6/v1.7.x/testing-guides/use-chai-with-k6.md
+
+  # grafana/pyroscope — continuous profiling platform. docs/sources/
+  # Hugo, in-repo. Coverage: introduction + get-started + configure-
+  # client + view-and-analyze-profile-data. Deferred: configure-server/,
+  # deploy-kubernetes/, reference-pyroscope-* (architecture refs),
+  # reference-server-api/, release-notes/, upgrade-guide/.
+  - lib_id: /grafana/pyroscope
+    kind: github-md
+    ref: 4813c00d022f506d626e38e806f7bacf432865c5
+    urls:
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/_index.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/introduction/_index.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/introduction/flamegraphs.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/introduction/pyroscope-in-grafana.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/introduction/what-is-profiling.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/get-started/_index.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/get-started/ride-share-tutorial.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/configure-client/_index.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/configure-client/aws-lambda.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/configure-client/memory-overhead.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/configure-client/profile-types.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/_index.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/explore-profiles.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/line-by-line.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/profile-cli.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/pyroscope-ui.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/self-vs-total.md
+      - https://raw.githubusercontent.com/grafana/pyroscope/{ref}/docs/sources/view-and-analyze-profile-data/traces-to-profiles.md
+
+  # grafana/faro-web-sdk — frontend RUM (Real User Monitoring) SDK.
+  # docs/sources/ Hugo, in-repo. Smallest coverage in PR-5 — only the
+  # tutorials directory is user-facing; developer/ is internal release
+  # process, skipped.
+  - lib_id: /grafana/faro-web-sdk
+    kind: github-md
+    ref: c96c565026503972eceae6c47d53fd81eaf9da75
+    urls:
+      - https://raw.githubusercontent.com/grafana/faro-web-sdk/{ref}/docs/sources/tutorials/quick-start-browser.md
+      - https://raw.githubusercontent.com/grafana/faro-web-sdk/{ref}/docs/sources/tutorials/use-angular.md
+      - https://raw.githubusercontent.com/grafana/faro-web-sdk/{ref}/docs/sources/tutorials/use-cdn-library.md
+
+
 
 
