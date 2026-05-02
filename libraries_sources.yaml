@@ -1619,4 +1619,207 @@ libraries:
       - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/routing-reference.mdx
       - https://raw.githubusercontent.com/withastro/docs/{ref}/src/content/docs/en/reference/session-driver-reference.mdx
 
+  # tokio-rs/tokio — async runtime for Rust. Docs live in sibling repo
+  # `tokio-rs/website` (Hugo, no tags — pinned by commit SHA), authored
+  # as plain markdown. Coverage: glossary + index + topics/ (testing,
+  # tracing, shutdown, bridging) + the canonical Tokio tutorial. blog/
+  # excluded.
+  - lib_id: /tokio-rs/tokio
+    kind: github-md
+    ref: 46517ae6c29326df204bb8abd96308012809abba
+    urls:
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/glossary.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/index.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/topics/bridging.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/topics/index.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/topics/shutdown.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/topics/testing.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/topics/tracing-next-steps.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/topics/tracing.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/async.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/channels.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/framing.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/hello-tokio.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/index.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/io.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/select.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/setup.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/shared-state.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/spawning.md
+      - https://raw.githubusercontent.com/tokio-rs/website/{ref}/content/tokio/tutorial/streams.md
+
+  # serde-rs/serde — Rust serialization framework. Docs live in sibling
+  # repo `serde-rs/serde-rs.github.io` (Jekyll on GH Pages, no tags —
+  # pinned by commit SHA). Markdown source under _src/, prose-dense.
+  - lib_id: /serde-rs/serde
+    kind: github-md
+    ref: 811393f8ddf79078d559bc479eb560927534148b
+    urls:
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/README.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/SUMMARY.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/attr-bound.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/attr-default.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/attr-flatten.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/attr-rename.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/attr-skip-serializing.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/attributes.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/container-attrs.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/conventions.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/convert-error.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/custom-date-format.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/custom-serialization.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/data-format.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/data-model.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/derive.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/deserialize-map.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/deserialize-struct.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/enum-number.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/enum-representations.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/error-handling.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/examples.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/feature-flags.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/field-attrs.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/help.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/ignored-any.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/impl-deserialize.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/impl-deserializer.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/impl-serialize.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/impl-serializer.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/json.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/lifetimes.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/no-std.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/remote-derive.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/stream-array.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/string-or-struct.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/transcode.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/unit-testing.md
+      - https://raw.githubusercontent.com/serde-rs/serde-rs.github.io/{ref}/_src/variant-attrs.md
+
+  # redis/docs — official Redis documentation. Hugo-based site under
+  # content/, pinned by commit SHA. PR-4 covers ONLY content/develop/
+  # core OSS dev paths (get-started, data-types top-level, reference).
+  # Heavy subtrees deferred to follow-up PRs:
+  #   - content/develop/clients/ (per-language SDKs, would balloon URL count)
+  #   - content/develop/{programmability,pubsub,ai}/
+  #   - content/develop/data-types/{json,probabilistic,streams,timeseries,vector-sets}/ subdirs
+  #   - content/commands/ (per-command pages, hundreds of files)
+  #   - content/operate/ (Redis Enterprise / Redis Cloud admin)
+  #   - content/apis/, content/embeds/
+  # Hugo `_index.md` files (Hugo section landings) included; gopher.md
+  # in reference/ skipped (historical Gopher protocol).
+  - lib_id: /redis/redis
+    kind: github-md
+    ref: 488b72b3a95c8c90c9fa42deb5c7b9868f002935
+    urls:
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/_index.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/_index.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/data-store.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/document-database.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/faq.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/rag.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/redis-in-ai.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/get-started/vector-database.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/_index.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/bitfields.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/bitmaps.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/compare-data-types.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/geospatial.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/hashes.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/lists.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/sets.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/sorted-sets.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/data-types/strings.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/_index.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/client-side-caching.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/clients.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/command-arguments.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/command-tips.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/key-specs.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/protocol-spec.md
+      - https://raw.githubusercontent.com/redis/docs/{ref}/content/develop/reference/sentinel-clients.md
+
+  # dragonflydb/dragonfly — modern Redis-compatible in-memory DB. Docs
+  # in sibling repo `dragonflydb/documentation` (Docusaurus, no tags —
+  # pinned by commit SHA). _category_.yml files (Docusaurus metadata,
+  # not docs) skipped. command-reference/ subdirs (per-command groups
+  # acl/bloom-filter/cluster-management/etc.) deferred to follow-up if
+  # user-requested — top-level compatibility.md only. cloud/ subdirs
+  # (connect/migrate/sso) similarly deferred.
+  - lib_id: /dragonflydb/dragonfly
+    kind: github-md
+    ref: b6c9fc9ecd8e71f247769722eb5697ec885064b1
+    urls:
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/about/about.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/about/faq.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/about/license.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/benchmark.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/binary.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/cloud.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/docker-compose.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/docker.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/getting-started.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/kubernetes-operator.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/kubernetes.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/getting-started/native-packages.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/development/cli.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/development/sdks.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/command-reference/compatibility.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/backups.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/bandwidth.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/cloud.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/connections.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/data-retention.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/datastores.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/enterprise.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/getting-started.md
+      - https://raw.githubusercontent.com/dragonflydb/documentation/{ref}/docs/cloud/monitoring.md
+
+  # open-telemetry/opentelemetry.io — official OTel website (Hugo).
+  # Pinned by commit SHA. PR-4 covers core concepts + collector +
+  # getting-started + demo + guidance top-level. Heavy subtrees
+  # deferred to follow-up PRs:
+  #   - content/en/docs/languages/ (per-language SDKs: Go, Python, Java,
+  #     Node, .NET, Ruby, etc. — each a deep subtree)
+  #   - content/en/docs/concepts/{context-propagation,instrumentation,
+  #     instrumentation-scope,resources,sampling,signals}/ subdirs
+  #   - content/en/docs/{contributing,compatibility,migration}/
+  #   - content/en/docs/specs/, /security/
+  - lib_id: /open-telemetry/opentelemetry
+    kind: github-md
+    ref: 4f744c5b97228df5a43bd785a32750271803699e
+    urls:
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/_index.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/_index.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/components.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/distributions.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/glossary.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/observability-primer.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/semantic-conventions.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/getting-started/_index.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/getting-started/dev.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/getting-started/ops.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/getting-started/reference-application-specification.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/_index.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/architecture.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/benchmarks.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/configuration.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/distributions.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/internal-telemetry.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/management.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/quick-start.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/registry.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/resiliency.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/scaling.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/transforming-telemetry.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/collector/troubleshooting.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/_index.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/architecture.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/development.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/docker-deployment.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/forking.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/kubernetes-deployment.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/demo/tests.md
+      - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/guidance/_index.md
+
+
 
