@@ -825,3 +825,188 @@ libraries:
       - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/utilities/completion.mdx
       - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/utilities/logging.mdx
       - https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/{ref}/docs/specification/{ref}/server/utilities/pagination.mdx
+
+  # gin-gonic/gin — most popular Go HTTP web framework. Single-file
+  # canonical guide at docs/doc.md (~70KB) plus README as the index.
+  # No separate docs site — the in-repo markdown is the source of truth.
+  - lib_id: /gin-gonic/gin
+    kind: github-md
+    ref: v1.12.0
+    urls:
+      - https://raw.githubusercontent.com/gin-gonic/gin/{ref}/README.md
+      - https://raw.githubusercontent.com/gin-gonic/gin/{ref}/docs/doc.md
+
+  # go-chi/chi — lightweight, idiomatic Go HTTP router. Upstream uses the
+  # README itself as the canonical documentation; there is no docs/ tree.
+  - lib_id: /go-chi/chi
+    kind: github-md
+    ref: v5.2.5
+    urls:
+      - https://raw.githubusercontent.com/go-chi/chi/{ref}/README.md
+
+  # ent/ent — entity framework / ORM for Go (Facebook origin). Docs live
+  # in doc/md/ as a Docusaurus source tree mixing .md and .mdx; the .mdx
+  # files contain `import Tabs from '@theme/Tabs'`-style component imports
+  # that surface as a few lines of stray text in parsed output, but the
+  # underlying content is otherwise clean markdown. community.md (stub),
+  # contributors.md (29KB list), translations.md, writing-docs.md skipped
+  # — project meta, not learning material.
+  - lib_id: /ent/ent
+    kind: github-md
+    ref: v0.14.6
+    urls:
+      - https://raw.githubusercontent.com/ent/ent/{ref}/README.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/aggregate.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/ci.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/code-gen.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/crud.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/data-migrations.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/dialects.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/eager-load.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/extension.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/faq.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/features.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/generating-ent-schemas.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/getting-started.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/globalid.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/graphql.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/hooks.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/interceptors.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/migrate.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/multischema-migrations.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/paging.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/predicates.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/privacy.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-annotations.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-def.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-edges.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-fields.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-indexes.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-mixin.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/schema-view.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/sql-integration.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/templates.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/testing.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/transactions.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/traversals.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-setup.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-intro.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-setting-up.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-generating-proto.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-generating-a-service.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-server-and-client.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-edges.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-ext-service.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-optional-fields.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-grpc-service-generation-options.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-crud.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql.mdx
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-schema-generator.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-mutation-input.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-paginate.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-filter-input.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-field-collection.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-tx-mutation.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/tutorial-todo-gql-node.md
+      - https://raw.githubusercontent.com/ent/ent/{ref}/doc/md/versioned-migrations.mdx
+
+  # sqlc-dev/sqlc — generates type-safe Go code from SQL. docs/ is a
+  # Sphinx-MyST tree (.rst index + mostly .md content), so kind: github-md
+  # works directly — we just skip the two stray .rst files
+  # (reference/language-support.rst, guides/using-go-and-pgx.rst).
+  # Coverage spans overview/install + howto/ + reference/ + tutorials/
+  # + guides/.
+  - lib_id: /sqlc-dev/sqlc
+    kind: github-md
+    ref: v1.31.1
+    urls:
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/README.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/overview/install.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/ci-cd.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/ddl.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/delete.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/embedding.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/generate.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/insert.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/managed-databases.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/named_parameters.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/overrides.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/prepared_query.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/push.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/query_count.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/rename.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/select.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/structs.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/transactions.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/update.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/verify.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/howto/vet.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/changelog.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/cli.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/config.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/datatypes.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/environment-variables.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/macros.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/reference/query-annotations.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/tutorials/getting-started-mysql.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/tutorials/getting-started-postgresql.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/tutorials/getting-started-sqlite.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/guides/development.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/guides/migrating-off-hosted-managed-databases.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/guides/migrating-to-sqlc-gen-kotlin.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/guides/migrating-to-sqlc-gen-python.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/guides/plugins.md
+      - https://raw.githubusercontent.com/sqlc-dev/sqlc/{ref}/docs/guides/privacy.md
+
+  # uptrace/bun — SQL-first Go ORM. Docs live in a separate `bun-docs`
+  # repo (no tags — pinned to commit SHA), VuePress source under
+  # docs/{guide,postgres}/. The postgres/ pages are general-purpose
+  # PostgreSQL operational guides authored by uptrace, not strictly
+  # bun-specific — included because they're load-bearing for users
+  # adopting bun + Postgres. lib_id stays /uptrace/bun (the lib repo)
+  # for canonical naming; URLs target the bun-docs repo.
+  - lib_id: /uptrace/bun
+    kind: github-md
+    ref: 290ada1ee4c46eae2af9394fbfb0d7e1470eb118
+    urls:
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/README.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/complex-queries.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/cursor-pagination.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/custom-types.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/debugging.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/drivers.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/fixtures.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/golang-orm.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/hooks.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/migrations.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/models.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/performance-monitoring.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/pg-migration.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/placeholders.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/queries.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-common-table-expressions.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-create-table.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-delete.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-drop-table.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-insert.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-merge.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-select.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-truncate-table.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-update.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/query-where.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/relations.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/running-bun-in-production.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/soft-deletes.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/starter-kit.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/guide/transactions.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/copy-data.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/faceted-full-text-search-tsvector.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/listen-notify.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/performance-tuning.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/pgbackrest-s3-backups.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/postgres-arrays.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/postgres-data-types.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/postgres-uuid-generate.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/table-partition.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/tuning-zfs-aws-ebs.md
+      - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/zero-downtime-migrations.md
