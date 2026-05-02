@@ -1871,12 +1871,13 @@ libraries:
       - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/introduction/grafana-cloud.md
       - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/introduction/grafana-enterprise.md
       - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/fundamentals/_index.md
-      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/dashboards/_index.md
       - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/datasources/_index.md
       - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/datasources/troubleshooting.md
-      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/explore/_index.md
-      - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/panels-visualizations/_index.md
       - https://raw.githubusercontent.com/grafana/grafana/{ref}/docs/sources/alerting/_index.md
+      # NOTE: dashboards/_index.md, explore/_index.md, and
+      # panels-visualizations/_index.md don't exist as files at the
+      # top level — content is one level deeper. Skipped here; cover
+      # in a follow-up PR if dashboard/panel docs are user-requested.
 
   # grafana/loki — log aggregation system. docs/sources/ Hugo, in-repo.
   # Coverage: get-started + query (LogQL is the load-bearing query
