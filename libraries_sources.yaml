@@ -1010,3 +1010,333 @@ libraries:
       - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/table-partition.md
       - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/tuning-zfs-aws-ebs.md
       - https://raw.githubusercontent.com/uptrace/bun-docs/{ref}/docs/postgres/zero-downtime-migrations.md
+
+  # honojs/hono — small, fast Web Standards-based framework. Docs live in
+  # the sibling `honojs/website` repo (VitePress), pinned to a commit SHA
+  # since the docs repo has no tags. Coverage spans api/, concepts/,
+  # getting-started/ (deployment platform guides), guides/, helpers/, and
+  # middleware/builtin/. lib_id stays /honojs/hono (the lib repo) for
+  # canonical naming; URLs target honojs/website. Same pattern as bun.
+  - lib_id: /honojs/hono
+    kind: github-md
+    ref: 7cca6ae11bd538f8e2cf119ddb8646744becb60f
+    urls:
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/index.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/api/context.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/api/exception.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/api/hono.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/api/presets.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/api/request.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/api/routing.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/benchmarks.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/developer-experience.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/middleware.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/motivation.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/routers.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/stacks.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/concepts/web-standard.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/ali-function-compute.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/aws-lambda.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/azure-functions.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/basic.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/bun.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/cloudflare-pages.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/cloudflare-workers.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/deno.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/fastly.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/google-cloud-run.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/lambda-edge.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/netlify.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/nextjs.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/nodejs.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/service-worker.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/supabase-functions.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/vercel.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/getting-started/webassembly-wasi.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/best-practices.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/create-hono.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/examples.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/faq.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/helpers.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/jsx-dom.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/jsx.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/middleware.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/others.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/rpc.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/testing.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/guides/validation.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/accepts.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/adapter.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/conninfo.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/cookie.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/css.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/dev.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/factory.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/html.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/jwt.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/proxy.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/route.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/ssg.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/streaming.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/testing.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/helpers/websocket.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/basic-auth.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/bearer-auth.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/body-limit.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/cache.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/combine.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/compress.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/context-storage.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/cors.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/csrf.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/etag.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/ip-restriction.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/jsx-renderer.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/jwk.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/jwt.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/language.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/logger.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/method-override.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/pretty-json.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/request-id.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/secure-headers.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/timeout.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/timing.md
+      - https://raw.githubusercontent.com/honojs/website/{ref}/docs/middleware/builtin/trailing-slash.md
+
+  # expressjs/express — venerable Node.js HTTP framework. Docs live in
+  # `expressjs/expressjs.com` (Jekyll on gh-pages branch — pin commit SHA).
+  # Markdown files have Jekyll frontmatter (`---layout: page---`) and
+  # Liquid `{{ page.lang }}` templating in URLs; both surface as text in
+  # chunks but don't break parsing. English subtree only (en/) — non-en
+  # localizations excluded. Versioned API references (en/3x, en/4x, en/5x)
+  # excluded; only the current top-level api.md is indexed. blog/,
+  # changelog/, en/resources/contributing.md skipped (project meta).
+  - lib_id: /expressjs/express
+    kind: github-md
+    ref: 2d4df3f05fbd5d5f211f5938395ae965e8714d60
+    urls:
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/api.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/behind-proxies.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/database-integration.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/debugging.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/error-handling.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/migrating-4.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/migrating-5.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/overriding-express-api.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/routing.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/using-middleware.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/using-template-engines.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/guide/writing-middleware.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/advanced/best-practice-performance.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/advanced/best-practice-security.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/advanced/developing-template-engines.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/advanced/healthcheck-graceful-shutdown.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/advanced/security-updates.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/basic-routing.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/examples.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/faq.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/generator.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/hello-world.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/installing.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/starter/static-files.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/resources/community.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/resources/glossary.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/resources/middleware.md
+      - https://raw.githubusercontent.com/expressjs/expressjs.com/{ref}/en/resources/utils.md
+
+  # fastify/fastify — fast and low-overhead Node.js framework. Docs ship
+  # in-repo at docs/{Guides,Reference}/. Pinned to v5.8.5 (latest stable
+  # 5.x). Contributing.md skipped (project meta). Migration-Guide-V3/V4/V5
+  # kept — load-bearing for users upgrading.
+  - lib_id: /fastify/fastify
+    kind: github-md
+    ref: v5.8.5
+    urls:
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/index.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Benchmarking.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Database.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Delay-Accepting-Requests.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Detecting-When-Clients-Abort.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Ecosystem.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Fluent-Schema.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Getting-Started.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Index.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Migration-Guide-V3.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Migration-Guide-V4.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Migration-Guide-V5.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Plugins-Guide.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Prototype-Poisoning.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Recommendations.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Serverless.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Style-Guide.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Testing.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Write-Plugin.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Guides/Write-Type-Provider.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/ContentTypeParser.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Decorators.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Encapsulation.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Errors.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/HTTP2.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Hooks.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Index.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/LTS.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Lifecycle.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Logging.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Middleware.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Plugins.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Principles.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Reply.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Request.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Routes.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Server.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Type-Providers.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/TypeScript.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Validation-and-Serialization.md
+      - https://raw.githubusercontent.com/fastify/fastify/{ref}/docs/Reference/Warnings.md
+
+  # nestjs/nest — opinionated Node.js framework. Docs live in
+  # `nestjs/docs.nestjs.com` (Angular-driven site, master branch, no tags
+  # — pin commit SHA). Markdown files contain Angular preprocessor markers
+  # like `@@filename(...)` for code-language switching and HTML `<figure>`
+  # tags for images; both surface as text in chunks but don't break the
+  # parser. lib_id stays /nestjs/nest. content/{enterprise,support}.md and
+  # content/discover/who-uses.* skipped (sales/listing meta).
+  - lib_id: /nestjs/nest
+    kind: github-md
+    ref: 239dffa12125337a987128439f08ff884108050c
+    urls:
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/introduction.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/first-steps.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/controllers.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/components.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/modules.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/middlewares.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/exception-filters.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/pipes.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/guards.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/interceptors.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/custom-decorators.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/application-context.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/deployment.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/migration.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/cli/libraries.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/cli/overview.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/cli/scripts.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/cli/usages.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/cli/workspaces.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/devtools/ci-cd.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/devtools/overview.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/errors.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/global-prefix.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/http-adapter.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/hybrid-application.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/keep-alive-connections.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/multiple-servers.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/raw-body.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/request-lifecycle.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/faq/serverless.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/async-components.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/circular-dependency.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/dependency-injection.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/discovery-service.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/dynamic-modules.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/execution-context.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/lazy-loading-modules.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/lifecycle-events.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/module-reference.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/platform-agnosticism.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/provider-scopes.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/fundamentals/unit-testing.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/cli-plugin.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/complexity.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/directives.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/extensions.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/federation.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/field-middleware.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/guards-interceptors.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/interfaces.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/mapped-types.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/mutations.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/plugins.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/quick-start.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/resolvers-map.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/scalars.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/schema-generator.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/sharing-models.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/subscriptions.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/graphql/unions-and-enums.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/basics.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/custom-transport.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/exception-filters.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/grpc.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/guards.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/interceptors.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/kafka.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/mqtt.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/nats.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/pipes.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/rabbitmq.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/microservices/redis.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/cli-plugin.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/decorators.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/introduction.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/mapped-types.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/operations.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/other-features.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/security.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/openapi/types-and-parameters.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/async-local-storage.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/cqrs.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/crud-generator.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/documentation.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/hot-reload.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/mikroorm.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/mongodb.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/necord.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/nest-commander.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/passport.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/prisma.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/repl.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/router-module.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/sentry.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/serve-static.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/sql-sequelize.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/sql-typeorm.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/suites.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/swc.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/recipes/terminus.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/authentication.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/authorization.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/cors.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/csrf.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/encryption-hashing.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/helmet.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/security/rate-limiting.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/caching.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/compression.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/configuration.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/cookies.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/events.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/file-upload.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/http-module.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/logger.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/mongo.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/mvc.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/performance.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/queues.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/serialization.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/server-sent-events.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/sessions.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/sql.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/streaming-files.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/task-scheduling.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/validation.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/techniques/versioning.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/adapter.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/exception-filters.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/gateways.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/guards.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/interceptors.md
+      - https://raw.githubusercontent.com/nestjs/docs.nestjs.com/{ref}/content/websockets/pipes.md
+
