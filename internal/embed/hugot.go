@@ -2,6 +2,8 @@ package embed
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +17,36 @@ import (
 
 	"github.com/laradji/deadzone/internal/ort"
 )
+
+// HugotSignature returns a deterministic sha256-hex digest over every
+// hugot.go constant that affects the vector space the Hugot embedder
+// produces. Used as a CI cache-invalidation signal in scrape-pack.yml
+// so that bumping any one of these constants forces a corpus rescrape
+// in lockstep — independently of pure-refactor edits to hugot.go that
+// don't change the vector space (which a `hashFiles(hugot.go)` cache
+// key would have over-invalidated on).
+//
+// The function is package-level (no Embedder instance) so CI can call
+// it via `deadzone cache-signals` BEFORE the model download / ORT
+// init steps. Loading the actual model just to compute its identity
+// would defeat the cache layer's whole purpose.
+//
+// Adding a new vector-space-affecting constant later (e.g. a pooling
+// mode) means appending it to the parts slice here. The pinned
+// snapshot in TestHugotSignature_Stable fails on any digest change,
+// forcing the contributor to either confirm the cache invalidation is
+// intended or to roll back the change.
+func HugotSignature() string {
+	parts := []string{
+		KindHugot,
+		DefaultHugotModel,
+		onnxFilename,
+		queryPrefix,
+		documentPrefix,
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
 
 // KindHugot is the Kind() value reported by the Hugot embedder, and the only
 // kind currently accepted by New.

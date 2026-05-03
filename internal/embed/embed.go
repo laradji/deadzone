@@ -73,3 +73,19 @@ func New(kind string) (Embedder, error) {
 		return nil, fmt.Errorf("unknown embedder kind %q (valid: %s)", kind, KindHugot)
 	}
 }
+
+// Signature returns the deterministic vector-space signature for the
+// given embedder kind WITHOUT instantiating it (no model load, no
+// network). Mirrors New(kind) — same valid-kinds set, same error
+// shape on unknown kinds. Used by `deadzone cache-signals` to feed
+// the CI per-lib artifact cache key, so a constant edit in hugot.go
+// (model swap, quantization variant change, prefix tweak) invalidates
+// caches in lockstep without forcing a Hugot init at workflow time.
+func Signature(kind string) (string, error) {
+	switch kind {
+	case KindHugot:
+		return HugotSignature(), nil
+	default:
+		return "", fmt.Errorf("unknown embedder kind %q (valid: %s)", kind, KindHugot)
+	}
+}

@@ -107,6 +107,28 @@ jobs:
           key: ort-lib-${{ runner.os }}-${{ hashFiles('internal/ort/ort.go') }}
           restore-keys: |
             ort-lib-${{ runner.os }}-
+      - name: Compute cache signals
+        id: signals
+        # Two semantic invalidation signals emitted as JSON by the Go
+        # side — schema_version (db.CurrentSchemaVersion) and
+        # embedder_signature (hash of hugot.go's vector-space-affecting
+        # constants). Replaces hashFiles('internal/embed/hugot.go'),
+        # which over-invalidated on every refactor, AND covers schema
+        # bumps the file-hash approach missed entirely (#193). Adding
+        # any new vector-space-affecting constant in hugot.go means
+        # updating embed.HugotSignature() — a stability test in
+        # internal/embed/embed_test.go pins the digest so the change is
+        # forced into PR review, not slipped silently.
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=$(go run -tags ORT ./cmd/deadzone cache-signals)
+          schema=$(echo "$out" | jq -r '.schema_version')
+          sig=$(echo "$out" | jq -r '.embedder_signature')
+          [ -n "$schema" ] && [ "$schema" != "null" ] || { echo "::error::cache-signals output missing schema_version: $out"; exit 1; }
+          [ -n "$sig" ]    && [ "$sig"    != "null" ] || { echo "::error::cache-signals output missing embedder_signature: $out"; exit 1; }
+          echo "schema_version=$schema"     >> "$GITHUB_OUTPUT"
+          echo "embedder_signature=$sig"    >> "$GITHUB_OUTPUT"
       - name: Cache per-lib artifact
         id: artifact-cache
         uses: actions/cache@v5
@@ -115,11 +137,18 @@ jobs:
           # urls) for THIS entry only — emitted by `deadzone scrape --list`
           # in expand-libs above. Replaces the old hashFiles() over the
           # whole registry (#153): a URL edit on one lib now invalidates
-          # only that lib's cache instead of all 40+. Embedder hash stays
-          # global so a vector-space change still forces a rescrape in
-          # lockstep with the embedding model cache above.
+          # only that lib's cache instead of all 40+.
+          #
+          # The two -emb / -schema suffixes are global vector-space and
+          # DB-layout signals (see "Compute cache signals" above): a
+          # schema bump or any vector-space-affecting constant change
+          # invalidates the entire cache fleet in lockstep, in the same
+          # way the embedding model cache above does, but via a
+          # semantic source-of-truth rather than `hashFiles(hugot.go)`
+          # (which over-invalidated on pure refactors and missed schema
+          # bumps entirely — #193).
           path: artifacts/${{ matrix.entry.slug }}
-          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-${{ hashFiles('internal/embed/hugot.go') }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-emb${{ steps.signals.outputs.embedder_signature }}-schema${{ steps.signals.outputs.schema_version }}
       - name: Scrape (cache miss)
         if: steps.artifact-cache.outputs.cache-hit != 'true'
         shell: bash
