@@ -163,7 +163,7 @@ libraries:
   # directly: no LLM extraction, no truncation, no verifier skips.
   # Tags ship without a "v" prefix.
   - lib_id: /fastapi/fastapi
-    description: Modern Python web framework for building APIs based on standard Python type hints, with automatic OpenAPI/Swagger documentation and async support.
+    description: Python web framework for building APIs based on standard Python type hints, with automatic OpenAPI/Swagger documentation and async support.
     kind: github-md
     versions:
       "0.134": { ref: 0.134.0 }
@@ -1101,7 +1101,7 @@ libraries:
   # middleware/builtin/. lib_id stays /honojs/hono (the lib repo) for
   # canonical naming; URLs target honojs/website. Same pattern as bun.
   - lib_id: /honojs/hono
-    description: Small, fast, edge-first JavaScript web framework built on Web Standards, runs on Cloudflare Workers, Deno, Bun, Node.js, and AWS Lambda.
+    description: JavaScript web framework built on Web Standards, runs on Cloudflare Workers, Deno, Bun, Node.js, and AWS Lambda.
     kind: github-md
     ref: 7cca6ae11bd538f8e2cf119ddb8646744becb60f
     urls:
