@@ -37,13 +37,12 @@ Your AI client says `"how do I register a tool?"`. The doc says `AddTool`. A gre
 brew install laradji/deadzone/deadzone
 
 # Linux — self-mounting AppImage (amd64 | arm64)
-VERSION=v0.2.0 ARCH=amd64
+VERSION=v0.5.0 ARCH=amd64
 curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.AppImage"
 chmod +x "deadzone_${VERSION}_linux_${ARCH}.AppImage"
 
-# Anything else — tarball + quarantine strip on macOS
-curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_darwin_arm64.tar.gz" | tar xz
-xattr -d com.apple.quarantine ./deadzone   # macOS only, until notarization lands
+# Linux without FUSE — plain tarball (amd64 | arm64)
+curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.tar.gz" | tar xz
 ```
 
 Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
