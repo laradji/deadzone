@@ -215,7 +215,7 @@ func TestHandleSearchLibraries(t *testing.T) {
 		{"/expressjs/express", 75},
 	}
 	for _, l := range libs {
-		if err := db.UpsertLibIfNew(d, l.id, "", testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, l.id, "", "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", l.id, err)
 		}
 		if err := db.UpdateLibCount(d, l.id, "", l.count); err != nil {

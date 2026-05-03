@@ -1048,6 +1048,152 @@ libraries:
 	}
 }
 
+// --- description field (#191) ---
+
+// TestLoadConfig_DescriptionTopLevelRoundTrips pins the basic happy
+// path: a non-empty top-level description: parses into LibrarySource,
+// Expand puts it on every ResolvedSource, and a single-version entry
+// surfaces the same string verbatim.
+func TestLoadConfig_DescriptionTopLevelRoundTrips(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /tokio-rs/tokio
+    kind: github-md
+    description: Asynchronous runtime for Rust providing IO, scheduling, and synchronization primitives.
+    urls:
+      - https://example.com/tokio/README.md
+`)
+	if got := cfg.Libraries[0].Description; got != "Asynchronous runtime for Rust providing IO, scheduling, and synchronization primitives." {
+		t.Errorf("Description = %q", got)
+	}
+	got := cfg.Resolve("", "")
+	if len(got) != 1 {
+		t.Fatalf("Resolve returned %d, want 1", len(got))
+	}
+	if got[0].Description == "" || got[0].Description != cfg.Libraries[0].Description {
+		t.Errorf("ResolvedSource.Description = %q, want top-level passthrough", got[0].Description)
+	}
+}
+
+// TestLoadConfig_DescriptionAbsentDefaultsToEmpty pins backwards compat:
+// a YAML entry with no description: at all parses fine and yields the
+// empty string downstream — the legacy "embed lib_id alone" path.
+func TestLoadConfig_DescriptionAbsentDefaultsToEmpty(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /modelcontextprotocol/go-sdk
+    kind: github-md
+    urls:
+      - https://example.com/go-sdk/README.md
+`)
+	if cfg.Libraries[0].Description != "" {
+		t.Errorf("Description = %q, want empty", cfg.Libraries[0].Description)
+	}
+	got := cfg.Resolve("", "")
+	if got[0].Description != "" {
+		t.Errorf("ResolvedSource.Description = %q, want empty", got[0].Description)
+	}
+}
+
+// TestLoadConfig_DescriptionWhitespaceOnlyNormalizesToEmpty pins the
+// parse-time normalization rule: " " or "\t\n" at either level becomes
+// "" so an accidental whitespace-only override doesn't suppress
+// inheritance.
+func TestLoadConfig_DescriptionWhitespaceOnlyNormalizesToEmpty(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /org/topwhitespace
+    kind: github-md
+    description: "   "
+    urls:
+      - https://example.com/a.md
+  - lib_id: /org/perversionwhitespace
+    kind: github-md
+    description: top-level intent
+    versions:
+      "1.0":
+        ref: v1.0.0
+        description: "  \t  "
+    urls:
+      - https://example.com/{ref}/a.md
+`)
+	if got := cfg.Libraries[0].Description; got != "" {
+		t.Errorf("top-level whitespace-only Description = %q, want empty", got)
+	}
+	if got := cfg.Libraries[1].Versions[0].Description; got != "" {
+		t.Errorf("per-version whitespace-only Description = %q, want empty", got)
+	}
+	// And inheritance kicks in for the per-version case: the resolved
+	// source rides the top-level description because the override
+	// normalized to "".
+	got := cfg.Resolve("/org/perversionwhitespace", "1.0")
+	if len(got) != 1 {
+		t.Fatalf("Resolve returned %d, want 1", len(got))
+	}
+	if got[0].Description != "top-level intent" {
+		t.Errorf("ResolvedSource.Description = %q, want %q", got[0].Description, "top-level intent")
+	}
+}
+
+// TestLoadConfig_DescriptionPerVersionOverrides pins the per-version
+// override: when a version sets its own description:, that string
+// wins for that version's ResolvedSource; siblings without an override
+// inherit the top-level. Mirrors the terraform 1.13/1.14 case the
+// issue calls out.
+func TestLoadConfig_DescriptionPerVersionOverrides(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /hashicorp/terraform
+    kind: github-md
+    description: Infrastructure as code for managing cloud resources via declarative HCL.
+    versions:
+      "1.13":
+        ref: v1.13.5
+      "1.14":
+        ref: v1.14.6
+        description: Terraform 1.14 — adds state encryption and ephemeral resources.
+    urls:
+      - https://example.com/{ref}/README.md
+`)
+	got := cfg.Resolve("/hashicorp/terraform", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	// Declaration order: 1.13 inherits, 1.14 overrides.
+	if got[0].Version != "1.13" || got[0].Description != "Infrastructure as code for managing cloud resources via declarative HCL." {
+		t.Errorf("[0] (1.13) Description = %q, want top-level inheritance", got[0].Description)
+	}
+	if got[1].Version != "1.14" || got[1].Description != "Terraform 1.14 — adds state encryption and ephemeral resources." {
+		t.Errorf("[1] (1.14) Description = %q, want per-version override", got[1].Description)
+	}
+}
+
+// TestLoadConfig_DescriptionBothEmpty pins the "no description anywhere"
+// path: top-level absent + per-version absent → ResolvedSource carries
+// "" at both versions, which is the signal the embedder uses to fall
+// back to lib_id-only embedding.
+func TestLoadConfig_DescriptionBothEmpty(t *testing.T) {
+	cfg := mustLoadInline(t, `
+libraries:
+  - lib_id: /org/project
+    kind: github-md
+    versions:
+      "1.0": { ref: v1.0.0 }
+      "2.0": { ref: v2.0.0 }
+    urls:
+      - https://example.com/{ref}/README.md
+`)
+	got := cfg.Resolve("", "")
+	if len(got) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(got))
+	}
+	for i, r := range got {
+		if r.Description != "" {
+			t.Errorf("[%d] Description = %q, want empty", i, r.Description)
+		}
+	}
+}
+
 func TestLoadConfig_VersionsMapShape_PerVersionRefOverridesTopLevel(t *testing.T) {
 	cfg := mustLoadInline(t, `
 libraries:

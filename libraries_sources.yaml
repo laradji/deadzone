@@ -22,6 +22,23 @@
 #             substituted at resolve time (#103). When used at top level,
 #             applies to every expanded version unless overridden.
 #
+#   description  short upstream-authored summary (1-2 sentences,
+#             ~100-220 chars) of what this lib IS and what role it plays.
+#             Mixed into the lib-row embedding alongside the normalized
+#             lib_id at scrape time so search_libraries can rank on
+#             semantic intent instead of lib_id token overlap alone
+#             (#191). Source preference: upstream README first
+#             paragraph, GitHub repo description, or official tagline —
+#             whatever is authoritative. Avoid licensing/sponsorship
+#             text and marketing fluff ("powerful", "blazing fast",
+#             "modern") unless the upstream tagline literally uses the
+#             word and dropping it loses information. Empty/missing
+#             reverts to the legacy lib_id-only embedding (no behavior
+#             change). Whitespace-only normalizes to "" at parse time.
+#             Example:
+#               description: Asynchronous runtime for Rust providing IO,
+#                 scheduling, and synchronization primitives.
+#
 #   versions  mapping of version identifiers to per-version overrides.
 #             When present, every effective URL list (baseline or a
 #             per-version `urls:` override) must contain the literal
@@ -45,6 +62,14 @@
 #                         same lib diverge structurally, or when the
 #                         URL path literal differs per version (see the
 #                         `hashicorp/terraform` entry below).
+#               - `description:` replaces the top-level `description:`
+#                         for this version's libs-table row only (#191).
+#                         Use sparingly — only when versions have
+#                         meaningfully diverged (e.g. a major API
+#                         rewrite). Omit to inherit the top-level
+#                         description; whitespace-only normalizes to ""
+#                         at parse time so it doesn't accidentally
+#                         suppress inheritance.
 #
 #             The legacy list shape `versions: [v1, v2]` is rejected at
 #             parse time — use `{"1.4": {...}, "1.5": {...}}` instead
@@ -117,6 +142,7 @@
 # large repos and are subject to upstream GC.
 libraries:
   - lib_id: /modelcontextprotocol/go-sdk
+    description: Official Go SDK for the Model Context Protocol (MCP), used by clients and servers exchanging tools, prompts, and resources with LLM hosts.
     kind: github-md
     versions:
       "1.4": { ref: v1.4.1 }
@@ -137,6 +163,7 @@ libraries:
   # directly: no LLM extraction, no truncation, no verifier skips.
   # Tags ship without a "v" prefix.
   - lib_id: /fastapi/fastapi
+    description: Python web framework for building APIs based on standard Python type hints, with automatic OpenAPI/Swagger documentation and async support.
     kind: github-md
     versions:
       "0.134": { ref: 0.134.0 }
@@ -252,6 +279,7 @@ libraries:
   # so we pull the raw .rst directly. No HTML scrape, no LLM. The 20
   # modules below are the "core 20" decided in #95.
   - lib_id: /python/cpython
+    description: Reference implementation of the Python programming language, providing the standard library and the interpreter runtime.
     kind: github-rst
     versions:
       "3.13": { ref: v3.13.9 }
@@ -292,6 +320,7 @@ libraries:
   # the same sha for both). Duplicating the URL list is the cheap way
   # to keep the vocab one-placeholder-wide.
   - lib_id: /hashicorp/terraform
+    description: Infrastructure as code tool for declaratively provisioning and managing cloud resources via providers and HCL configuration.
     kind: github-md
     ref: 9c479db1ab97a2f175e049c0d5bbf31c24959c7e
     versions:
@@ -391,6 +420,7 @@ libraries:
   # OpenTofu — docs are MDX directly in the opentofu repo at
   # website/docs/. Terraform fork, so the tree shape mirrors hashicorp's.
   - lib_id: /opentofu/opentofu
+    description: Open-source infrastructure as code tool, community-driven fork of Terraform under the Linux Foundation, compatible with HCL and existing providers.
     kind: github-md
     versions:
       "1.10": { ref: v1.10.9 }
@@ -440,6 +470,7 @@ libraries:
 
   # OVHcloud Go SDK — README is the canonical reference.
   - lib_id: /ovh/go-ovh
+    description: Official Go client library for the OVHcloud public APIs, handling authentication, request signing, and consumer-key flows.
     kind: github-md
     versions:
       "1.8": { ref: v1.8.0 }
@@ -449,6 +480,7 @@ libraries:
 
   # OVHcloud CLI (v2). Canonical repo name is `ovhcloud-cli`, not `ovh-cli`.
   - lib_id: /ovh/ovhcloud-cli
+    description: Command-line interface for the OVHcloud APIs, scriptable wrapper for managing accounts, projects, and cloud resources.
     kind: github-md
     versions:
       "0.10": { ref: v0.10.0 }
@@ -458,6 +490,7 @@ libraries:
 
   # OVHcloud Terraform provider — README + top-level provider doc.
   - lib_id: /ovh/terraform-provider-ovh
+    description: Terraform provider for OVHcloud resources covering compute, networking, public cloud, dedicated servers, and managed services.
     kind: github-md
     versions:
       "2.12": { ref: v2.12.0 }
@@ -472,6 +505,7 @@ libraries:
   # documented exception to the #120 convention). `ref:` mirrors the
   # version key verbatim because the version IS the git tag for this lib.
   - lib_id: /scaleway/scaleway-sdk-go
+    description: Official Go SDK for the Scaleway cloud APIs (instances, object storage, Kubernetes Kapsule, serverless containers, IAM).
     kind: github-md
     versions:
       v1.0.0-beta.35: { ref: v1.0.0-beta.35 }
@@ -481,6 +515,7 @@ libraries:
 
   # Scaleway CLI — README + cookbook + v2 migration guide.
   - lib_id: /scaleway/scaleway-cli
+    description: Command-line interface for managing Scaleway cloud resources (instances, Kapsule, object storage, IAM), built on top of the Scaleway Go SDK.
     kind: github-md
     versions:
       "2.53": { ref: v2.53.0 }
@@ -492,6 +527,7 @@ libraries:
 
   # Scaleway Terraform provider — README + top-level provider doc.
   - lib_id: /scaleway/terraform-provider-scaleway
+    description: Terraform provider for Scaleway cloud resources (instances, networking, Kubernetes Kapsule, object storage, serverless).
     kind: github-md
     versions:
       "2.71": { ref: v2.71.0 }
@@ -508,6 +544,7 @@ libraries:
   # packages/web/src/content/docs/ at the English root only — translated
   # subdirs (bs/, ar/, fr/, etc.) are intentionally excluded. See #149.
   - lib_id: /anomalyco/opencode
+    description: Open-source AI coding agent for the terminal, model-agnostic and configurable via slash commands and a TUI.
     kind: github-md
     ref: 908e28175f9e5c46206c8884bdd9a7dbb31d0f0b
     urls:
@@ -552,6 +589,7 @@ libraries:
   # as of 2026-04-23), so we pin to `main` with a bare URL list. README
   # only — CONTRIBUTING/LICENSE are project meta, not library docs. See #132.
   - lib_id: /tursodatabase/turso-go
+    description: Official Go driver and client library for Turso, the SQLite-compatible distributed database, with embedded and remote sync modes.
     kind: github-md
     urls:
       - https://raw.githubusercontent.com/tursodatabase/turso-go/main/README.md
@@ -565,6 +603,7 @@ libraries:
   # docs/language-reference/ is skipped (it only ships compiled mdBook HTML,
   # not markdown source). See #132.
   - lib_id: /tursodatabase/turso
+    description: In-process SQLite-compatible database written in Rust (formerly Limbo/libSQL), with vector search, full-text search, MVCC, and CDC.
     kind: github-md
     versions:
       "0.6": { ref: v0.6.0-pre.22 }
@@ -639,6 +678,7 @@ libraries:
   # /introduction, /sdk/*, /cli/*, /features/*. docs.turso.tech is
   # unversioned (always current), so no `versions:` block and no ref pin.
   - lib_id: /tursodatabase/turso-docs
+    description: Documentation site source for the Turso edge SQLite database platform, covering SDKs, CLI, and managed service usage.
     kind: github-md
     urls:
       - https://docs.turso.tech/introduction.md
@@ -675,6 +715,7 @@ libraries:
   # Tiny surface: README + contrib.md. CHANGELOG skipped (release log,
   # not library docs). See #142.
   - lib_id: /knights-analytics/hugot
+    description: Go library for running HuggingFace transformer models on the ONNX Runtime, with embedding, classification, and token generation pipelines.
     kind: github-md
     versions:
       "0.6": { ref: v0.6.5 }
@@ -688,6 +729,7 @@ libraries:
   # site/content/ (Hugo markdown). CONDUCT/CONTRIBUTING/SECURITY skipped
   # (project meta). See #142.
   - lib_id: /spf13/cobra
+    description: Go library for building modern command-line applications, with subcommands, POSIX flag parsing, and shell completion generation.
     kind: github-md
     versions:
       "1.9":  { ref: v1.9.1 }
@@ -717,6 +759,7 @@ libraries:
   # authoring docs (plugin-*-development.md, plugin-lua-modules.md) are
   # also skipped — out of scope for deadzone's use of mise. See #142.
   - lib_id: /jdx/mise
+    description: Polyglot tool version manager and task runner, drop-in successor to asdf with support for Go, Node.js, Python, Ruby, and many language runtimes.
     kind: github-md
     versions:
       "2026.3": { ref: v2026.3.9 }
@@ -757,6 +800,7 @@ libraries:
   # reference; skills/just/SKILL.md is the upstream agent-oriented
   # cheat sheet. CHANGELOG/CONTRIBUTING/中文 README skipped. See #142.
   - lib_id: /casey/just
+    description: Command runner for project-specific tasks, similar in spirit to make but focused on running recipes rather than tracking file dependencies.
     kind: github-md
     versions:
       "1.49": { ref: "1.49.0" }
@@ -772,6 +816,7 @@ libraries:
   # does not exist at v2.36 — keeping a single URL list across both
   # minors (no per-version override needed). See #142.
   - lib_id: /direnv/direnv
+    description: Shell extension that loads and unloads environment variables based on the current directory, scoped via per-project .envrc files.
     kind: github-md
     versions:
       "2.36": { ref: v2.36.0 }
@@ -793,6 +838,7 @@ libraries:
   # pattern exhaustively; examples/go + examples/web are the reference
   # integrations. CONTRIBUTING skipped (project meta). See #142.
   - lib_id: /daulet/tokenizers
+    description: Go bindings for HuggingFace's Rust tokenizers library, providing high-throughput BPE, WordPiece, and Unigram tokenization for ML pipelines.
     kind: github-md
     versions:
       "1.26": { ref: v1.26.0 }
@@ -809,6 +855,7 @@ libraries:
   # C API surface (what CGO linking actually needs): project README +
   # C_API_Guidelines + c_cxx sample entry. See #142.
   - lib_id: /microsoft/onnxruntime
+    description: Cross-platform inference and training accelerator for ONNX models, with hardware-accelerated execution providers (CUDA, CoreML, DirectML, TensorRT).
     kind: github-md
     versions:
       "1.24": { ref: v1.24.4 }
@@ -829,6 +876,7 @@ libraries:
   # the 2025-11-25 tag — omitted to keep both URL lists identical. See
   # #142.
   - lib_id: /modelcontextprotocol/modelcontextprotocol
+    description: Specification and reference materials for the Model Context Protocol (MCP), an open standard for connecting LLM applications to data sources and tools.
     kind: github-md
     versions:
       "2025-06-18": { ref: 2025-06-18 }
@@ -860,6 +908,7 @@ libraries:
   # canonical guide at docs/doc.md (~70KB) plus README as the index.
   # No separate docs site — the in-repo markdown is the source of truth.
   - lib_id: /gin-gonic/gin
+    description: HTTP web framework for Go with a martini-like API, focused on routing throughput and middleware composition for building REST APIs.
     kind: github-md
     ref: v1.12.0
     urls:
@@ -869,6 +918,7 @@ libraries:
   # go-chi/chi — lightweight, idiomatic Go HTTP router. Upstream uses the
   # README itself as the canonical documentation; there is no docs/ tree.
   - lib_id: /go-chi/chi
+    description: Lightweight idiomatic HTTP router for Go, composable via middleware and built directly on net/http with no external runtime dependencies.
     kind: github-md
     ref: v5.2.5
     urls:
@@ -882,6 +932,7 @@ libraries:
   # contributors.md (29KB list), translations.md, writing-docs.md skipped
   # — project meta, not learning material.
   - lib_id: /ent/ent
+    description: Entity framework for Go that generates type-safe code from a graph-based schema, supporting SQL backends and complex relations.
     kind: github-md
     ref: v0.14.6
     urls:
@@ -947,6 +998,7 @@ libraries:
   # Coverage spans overview/install + howto/ + reference/ + tutorials/
   # + guides/.
   - lib_id: /sqlc-dev/sqlc
+    description: Generates type-safe Go code from raw SQL queries, validating queries against the database schema at compile time.
     kind: github-md
     ref: v1.31.1
     urls:
@@ -996,6 +1048,7 @@ libraries:
   # adopting bun + Postgres. lib_id stays /uptrace/bun (the lib repo)
   # for canonical naming; URLs target the bun-docs repo.
   - lib_id: /uptrace/bun
+    description: SQL-first Go ORM and query builder for PostgreSQL, MySQL, and SQLite, with first-class support for migrations and bulk operations.
     kind: github-md
     ref: 290ada1ee4c46eae2af9394fbfb0d7e1470eb118
     urls:
@@ -1048,6 +1101,7 @@ libraries:
   # middleware/builtin/. lib_id stays /honojs/hono (the lib repo) for
   # canonical naming; URLs target honojs/website. Same pattern as bun.
   - lib_id: /honojs/hono
+    description: JavaScript web framework built on Web Standards, runs on Cloudflare Workers, Deno, Bun, Node.js, and AWS Lambda.
     kind: github-md
     ref: 7cca6ae11bd538f8e2cf119ddb8646744becb60f
     urls:
@@ -1143,6 +1197,7 @@ libraries:
   # excluded; only the current top-level api.md is indexed. blog/,
   # changelog/, en/resources/contributing.md skipped (project meta).
   - lib_id: /expressjs/express
+    description: Minimal and flexible Node.js HTTP web application framework, providing routing, middleware, and a baseline feature set for web and APIs.
     kind: github-md
     ref: 2d4df3f05fbd5d5f211f5938395ae965e8714d60
     urls:
@@ -1180,6 +1235,7 @@ libraries:
   # 5.x). Contributing.md skipped (project meta). Migration-Guide-V3/V4/V5
   # kept — load-bearing for users upgrading.
   - lib_id: /fastify/fastify
+    description: Fast and low-overhead web framework for Node.js, focused on schema-based JSON validation and high request-throughput via efficient routing.
     kind: github-md
     ref: v5.8.5
     urls:
@@ -1233,6 +1289,7 @@ libraries:
   # parser. lib_id stays /nestjs/nest. content/{enterprise,support}.md and
   # content/discover/who-uses.* skipped (sales/listing meta).
   - lib_id: /nestjs/nest
+    description: Node.js framework for building scalable server-side applications with TypeScript, using decorators, dependency injection, and modular architecture inspired by Angular.
     kind: github-md
     ref: 239dffa12125337a987128439f08ff884108050c
     urls:
@@ -1379,6 +1436,7 @@ libraries:
   # ecosystem/ skipped — out of learning scope. mouse.js in reusability/
   # is a code file, not docs.
   - lib_id: /vuejs/vue
+    description: Progressive JavaScript framework for building user interfaces, with reactive data binding, component composition, and a single-file component model.
     kind: github-md
     ref: 037a76daf60b0638e2837e8daa3174262e37af65
     urls:
@@ -1473,6 +1531,7 @@ libraries:
   # Svelte 3/4 patterns historical only; 99-faq.md kept. index.md per
   # subdir skipped (TOC-only stubs).
   - lib_id: /sveltejs/svelte
+    description: Compiler-based UI framework that converts components to efficient vanilla JavaScript at build time, with no virtual DOM and built-in reactivity.
     kind: github-md
     ref: dc5bd887b50c593033408b7faa079d56f38e74b9
     urls:
@@ -1562,6 +1621,7 @@ libraries:
   # experimental-flags, modules) skipped to keep PR-3 manageable; can be
   # promoted later if user-requested.
   - lib_id: /withastro/astro
+    description: Web framework for content-driven sites that ships zero JavaScript by default, with island architecture and multi-framework component support (React, Vue, Svelte).
     kind: github-md
     ref: 6bd56078bfb402e32ed639c507872c2cc91f8d49
     urls:
@@ -1655,6 +1715,7 @@ libraries:
   # tracing, shutdown, bridging) + the canonical Tokio tutorial. blog/
   # excluded.
   - lib_id: /tokio-rs/tokio
+    description: Asynchronous runtime for Rust providing IO, scheduling, and synchronization primitives for writing reliable network applications.
     kind: github-md
     ref: 46517ae6c29326df204bb8abd96308012809abba
     urls:
@@ -1682,6 +1743,7 @@ libraries:
   # repo `serde-rs/serde-rs.github.io` (Jekyll on GH Pages, no tags —
   # pinned by commit SHA). Markdown source under _src/, prose-dense.
   - lib_id: /serde-rs/serde
+    description: Generic serialization and deserialization framework for Rust, supporting JSON, YAML, TOML, MessagePack, and many other formats via derive macros.
     kind: github-md
     ref: 811393f8ddf79078d559bc479eb560927534148b
     urls:
@@ -1738,6 +1800,7 @@ libraries:
   # Hugo `_index.md` files (Hugo section landings) included; gopher.md
   # in reference/ skipped (historical Gopher protocol).
   - lib_id: /redis/redis
+    description: In-memory key-value data structure store used as a database, cache, message broker, and streaming engine, with persistence and pub/sub.
     kind: github-md
     ref: 488b72b3a95c8c90c9fa42deb5c7b9868f002935
     urls:
@@ -1776,6 +1839,7 @@ libraries:
   # user-requested — top-level compatibility.md only. cloud/ subdirs
   # (connect/migrate/sso) similarly deferred.
   - lib_id: /dragonflydb/dragonfly
+    description: In-memory key-value data store fully compatible with the Redis and Memcached protocols, designed for higher throughput and lower memory footprint.
     kind: github-md
     ref: b6c9fc9ecd8e71f247769722eb5697ec885064b1
     urls:
@@ -1815,6 +1879,7 @@ libraries:
   #   - content/en/docs/{contributing,compatibility,migration}/
   #   - content/en/docs/specs/, /security/
   - lib_id: /open-telemetry/opentelemetry
+    description: Vendor-neutral observability framework providing APIs, SDKs, and tools for collecting and exporting traces, metrics, and logs across languages and backends.
     kind: github-md
     ref: 4f744c5b97228df5a43bd785a32750271803699e
     urls:
@@ -1863,6 +1928,7 @@ libraries:
   # is deliberate — Grafana docs deserve a dedicated PR when sized
   # properly.
   - lib_id: /grafana/grafana
+    description: Observability platform for visualization and analysis of metrics, logs, and traces, with a plugin architecture supporting many data sources.
     kind: github-md
     ref: 2a9d7c18219e9421c3c9a44cb40df19657ba5dbb
     urls:
@@ -1885,6 +1951,7 @@ libraries:
   # landings. Deferred: setup/, operations/, configure/, reference/,
   # release-notes/, community/, visualize/. .png files filtered out.
   - lib_id: /grafana/loki
+    description: Horizontally-scalable, multi-tenant log aggregation system inspired by Prometheus, indexing labels rather than full log content for cheap storage.
     kind: github-md
     ref: d8f4d0f6668928184dd4aa993a7481101b0ea169
     urls:
@@ -1911,6 +1978,7 @@ libraries:
   # api_docs (3 files, skip .png) + configuration top-level (skip
   # AGENTS.md, .png). helm-charts subtree deferred.
   - lib_id: /grafana/tempo
+    description: Distributed tracing backend that ingests OpenTelemetry, Jaeger, and Zipkin formats with object-storage-only persistence (S3, GCS, Azure Blob).
     kind: github-md
     ref: 4dc3e5b0d3463a0b67498b662b85a148698b4afd
     urls:
@@ -1940,6 +2008,7 @@ libraries:
   # Deeper subtrees (manage/, configure/, get-started/, references/)
   # deferred — they would require their own dedicated PR.
   - lib_id: /grafana/mimir
+    description: Highly-scalable long-term storage for Prometheus metrics, supporting horizontal scaling, multi-tenancy, and cardinality at the billion-series scale.
     kind: github-md
     ref: cc1467ac91ae9358a46277660b20acae000163c5
     urls:
@@ -1956,6 +2025,7 @@ libraries:
   # is massive — every component gets its own page; deserves own PR),
   # set-up/, troubleshoot/, assets/, shared/.
   - lib_id: /grafana/alloy
+    description: Vendor-neutral OpenTelemetry Collector distribution from Grafana Labs, with built-in pipelines for Prometheus, Loki, Tempo, and Mimir.
     kind: github-md
     ref: e830b3be28412ab6c5659d8c238c208fffd7354a
     urls:
@@ -2008,6 +2078,7 @@ libraries:
   #   - extensions/, k6-studio/, grafana-cloud-k6/ (hosted-product)
   #   - reference/, results-output/, set-up/, release-notes/
   - lib_id: /grafana/k6
+    description: Load-testing tool scripted in JavaScript, designed for engineering teams to test API and web application performance under controlled traffic patterns.
     kind: github-md
     ref: d257660eb1be0efa1db7d9ddb5e3b54306798388
     urls:
@@ -2047,6 +2118,7 @@ libraries:
   # deploy-kubernetes/, reference-pyroscope-* (architecture refs),
   # reference-server-api/, release-notes/, upgrade-guide/.
   - lib_id: /grafana/pyroscope
+    description: Continuous profiling backend that aggregates and analyzes CPU, memory, and goroutine profiles across services for production performance debugging.
     kind: github-md
     ref: 4813c00d022f506d626e38e806f7bacf432865c5
     urls:
@@ -2074,6 +2146,7 @@ libraries:
   # tutorials directory is user-facing; developer/ is internal release
   # process, skipped.
   - lib_id: /grafana/faro-web-sdk
+    description: Frontend application observability SDK that captures errors, traces, and web vitals from browser apps and forwards them to Grafana Cloud or Tempo/Loki.
     kind: github-md
     ref: c96c565026503972eceae6c47d53fd81eaf9da75
     urls:

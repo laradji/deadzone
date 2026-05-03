@@ -69,10 +69,19 @@ type Config struct {
 // version; when nil, the version inherits the top-level URLs. An
 // explicit empty list is rejected at parse time — inheritance is
 // expressed by omitting the field.
+//
+// Description (see #191) is a per-version override of the parent
+// LibrarySource.Description. The empty string means "inherit the
+// top-level description"; whitespace-only values normalize to "" at
+// parse time so YAML quirks don't accidentally suppress inheritance.
+// Used only when two versions have meaningfully diverged (e.g. major
+// API rewrite); otherwise leave it empty so both versions ride the
+// shared top-level description.
 type VersionEntry struct {
-	Name string
-	Ref  string
-	URLs []string
+	Name        string
+	Ref         string
+	URLs        []string
+	Description string
 }
 
 // LibrarySource is a single entry in libraries_sources.yaml.
@@ -86,12 +95,20 @@ type VersionEntry struct {
 //
 // Ref pins URLs to a single upstream git tag or commit SHA when URLs
 // contain the literal "{ref}" token. See #103.
+//
+// Description (see #191) is an optional 1-2 sentence upstream-authored
+// summary of what this lib IS and what role it plays. It is mixed into
+// the libs-table embedding alongside the normalized lib_id so
+// search_libraries can rank on semantic intent rather than lib_id token
+// overlap alone. Empty string is the legacy behavior (embed lib_id
+// alone); whitespace-only values normalize to "" at parse time.
 type LibrarySource struct {
-	LibID    string
-	Kind     string
-	URLs     []string
-	Ref      string
-	Versions []VersionEntry
+	LibID       string
+	Kind        string
+	URLs        []string
+	Ref         string
+	Description string
+	Versions    []VersionEntry
 }
 
 // ResolvedSource is one library, post-version-expansion, ready to scrape.
@@ -108,13 +125,19 @@ type LibrarySource struct {
 // BaseLibID is retained as a separate field for readability at call
 // sites — it is always == LibID after #113, but the name documents
 // intent ("the unversioned identity of this lib").
+//
+// Description (see #191) is the effective per-(lib_id, version)
+// description: per-version override → top-level → "". Threaded down to
+// the embedder so two versions of the same lib can produce distinct
+// embeddings when their descriptions diverge.
 type ResolvedSource struct {
-	LibID     string
-	BaseLibID string
-	Version   string
-	Kind      string
-	Ref       string
-	URLs      []string
+	LibID       string
+	BaseLibID   string
+	Version     string
+	Kind        string
+	Ref         string
+	URLs        []string
+	Description string
 }
 
 // UnmarshalYAML parses `versions:` as a mapping:
@@ -130,11 +153,12 @@ type ResolvedSource struct {
 // deterministic order.
 func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 	var raw struct {
-		LibID    string    `yaml:"lib_id"`
-		Kind     string    `yaml:"kind"`
-		URLs     []string  `yaml:"urls"`
-		Ref      string    `yaml:"ref"`
-		Versions yaml.Node `yaml:"versions"`
+		LibID       string    `yaml:"lib_id"`
+		Kind        string    `yaml:"kind"`
+		URLs        []string  `yaml:"urls"`
+		Ref         string    `yaml:"ref"`
+		Description string    `yaml:"description"`
+		Versions    yaml.Node `yaml:"versions"`
 	}
 	if err := node.Decode(&raw); err != nil {
 		return err
@@ -143,6 +167,10 @@ func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 	l.Kind = raw.Kind
 	l.URLs = raw.URLs
 	l.Ref = raw.Ref
+	// Whitespace-only descriptions normalize to "" so an accidental
+	// `description: " "` doesn't suppress inheritance for per-version
+	// entries — same rule applied at both levels (#191).
+	l.Description = strings.TrimSpace(raw.Description)
 	l.Versions = nil
 
 	if raw.Versions.Kind == 0 {
@@ -162,13 +190,18 @@ func (l *LibrarySource) UnmarshalYAML(node *yaml.Node) error {
 				return fmt.Errorf("versions map key: %w", err)
 			}
 			var entry struct {
-				Ref  string    `yaml:"ref"`
-				URLs yaml.Node `yaml:"urls"`
+				Ref         string    `yaml:"ref"`
+				URLs        yaml.Node `yaml:"urls"`
+				Description string    `yaml:"description"`
 			}
 			if err := valNode.Decode(&entry); err != nil {
 				return fmt.Errorf("versions[%q]: %w", name, err)
 			}
-			v := VersionEntry{Name: name, Ref: entry.Ref}
+			v := VersionEntry{
+				Name:        name,
+				Ref:         entry.Ref,
+				Description: strings.TrimSpace(entry.Description),
+			}
 			// Distinguish omitted urls (inherit baseline) from explicit
 			// `urls: []` (rejected as ambiguous — see #115).
 			if entry.URLs.Kind != 0 {
@@ -381,11 +414,12 @@ func (l LibrarySource) Expand() []ResolvedSource {
 			urls[i] = substituteRef(u, l.Ref)
 		}
 		return []ResolvedSource{{
-			LibID:     l.LibID,
-			BaseLibID: l.LibID,
-			Kind:      l.Kind,
-			Ref:       l.Ref,
-			URLs:      urls,
+			LibID:       l.LibID,
+			BaseLibID:   l.LibID,
+			Kind:        l.Kind,
+			Ref:         l.Ref,
+			URLs:        urls,
+			Description: l.Description,
 		}}
 	}
 	out := make([]ResolvedSource, 0, len(l.Versions))
@@ -404,13 +438,22 @@ func (l LibrarySource) Expand() []ResolvedSource {
 		for i, u := range src {
 			urls[i] = substituteRef(u, ref)
 		}
+		// Effective description: per-version override → top-level →
+		// "". Whitespace-only is already normalized to "" at parse
+		// time (UnmarshalYAML), so a non-empty per-version value is
+		// always a deliberate override (#191).
+		desc := v.Description
+		if desc == "" {
+			desc = l.Description
+		}
 		out = append(out, ResolvedSource{
-			LibID:     l.LibID,
-			BaseLibID: l.LibID,
-			Version:   v.Name,
-			Kind:      l.Kind,
-			Ref:       ref,
-			URLs:      urls,
+			LibID:       l.LibID,
+			BaseLibID:   l.LibID,
+			Version:     v.Name,
+			Kind:        l.Kind,
+			Ref:         ref,
+			URLs:        urls,
+			Description: desc,
 		})
 	}
 	return out
