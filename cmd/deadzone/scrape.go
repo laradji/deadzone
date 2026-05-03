@@ -439,7 +439,7 @@ func scrapeLibToArtifact(
 	// filled in at the end of this function once we know the real
 	// number. Each ResolvedSource covers exactly one (lib_id, version)
 	// slot so a single upsert per source is the correct grain.
-	if upsertErr := db.UpsertLibIfNew(d, src.LibID, src.Version, e); upsertErr != nil {
+	if upsertErr := db.UpsertLibIfNew(d, src.LibID, src.Version, src.Description, e); upsertErr != nil {
 		return 0, 0, fmt.Errorf("upsert lib %q version %q: %w", src.LibID, src.Version, upsertErr)
 	}
 

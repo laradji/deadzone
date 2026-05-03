@@ -32,7 +32,7 @@ func makeArtifact(t *testing.T, dir, libID, version string, docs []db.Doc) strin
 	if err != nil {
 		t.Fatalf("OpenArtifact %q version %q: %v", libID, version, err)
 	}
-	if err := db.UpsertLibIfNew(a, libID, version, testEmbedder); err != nil {
+	if err := db.UpsertLibIfNew(a, libID, version, "", testEmbedder); err != nil {
 		a.Close()
 		t.Fatalf("UpsertLibIfNew %q version %q: %v", libID, version, err)
 	}
@@ -364,7 +364,7 @@ func TestConsolidate_EmbedderMismatchLeavesMainUnchanged(t *testing.T) {
 	if err := db.Insert(main, seed, embedText(t, testEmbedder, seed)); err != nil {
 		t.Fatalf("Insert seed: %v", err)
 	}
-	if err := db.UpsertLibIfNew(main, "/seed/lib", "", testEmbedder); err != nil {
+	if err := db.UpsertLibIfNew(main, "/seed/lib", "", "", testEmbedder); err != nil {
 		t.Fatalf("UpsertLibIfNew seed: %v", err)
 	}
 

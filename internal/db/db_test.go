@@ -454,14 +454,14 @@ func TestUpsertLibIfNew_Idempotent(t *testing.T) {
 	d := openTestDB(t)
 	c := &countingEmbedder{inner: testEmbedder}
 
-	if err := db.UpsertLibIfNew(d, "/facebook/react", "", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/facebook/react", "", "", c); err != nil {
 		t.Fatalf("first UpsertLibIfNew: %v", err)
 	}
 	if c.calls != 1 {
 		t.Fatalf("after first upsert: Embed called %d time(s), want 1", c.calls)
 	}
 
-	if err := db.UpsertLibIfNew(d, "/facebook/react", "", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/facebook/react", "", "", c); err != nil {
 		t.Fatalf("second UpsertLibIfNew: %v", err)
 	}
 	if c.calls != 1 {
@@ -471,7 +471,7 @@ func TestUpsertLibIfNew_Idempotent(t *testing.T) {
 	// And a sanity check: a *different* lib_id does trigger a fresh Embed
 	// call. This catches the failure mode where UpsertLibIfNew gets
 	// over-eager and short-circuits on any non-empty libs table.
-	if err := db.UpsertLibIfNew(d, "/vercel/next.js", "", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/vercel/next.js", "", "", c); err != nil {
 		t.Fatalf("upsert second lib: %v", err)
 	}
 	if c.calls != 2 {
@@ -487,10 +487,10 @@ func TestUpsertLibIfNew_AllowsSameLibDifferentVersion(t *testing.T) {
 	d := openTestDB(t)
 	c := &countingEmbedder{inner: testEmbedder}
 
-	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.14", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.14", "", c); err != nil {
 		t.Fatalf("upsert v1.14: %v", err)
 	}
-	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.13", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.13", "", c); err != nil {
 		t.Fatalf("upsert v1.13: %v", err)
 	}
 	// Two distinct (lib_id, version) pairs → two embed calls.
@@ -508,12 +508,176 @@ func TestUpsertLibIfNew_AllowsSameLibDifferentVersion(t *testing.T) {
 
 	// And the re-upsert of an existing pair is still idempotent (no
 	// extra embed call).
-	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.14", c); err != nil {
+	if err := db.UpsertLibIfNew(d, "/hashicorp/terraform", "v1.14", "", c); err != nil {
 		t.Fatalf("re-upsert v1.14: %v", err)
 	}
 	if c.calls != 2 {
 		t.Errorf("after re-upsert: Embed called %d time(s), want 2", c.calls)
 	}
+}
+
+// libEmbeddingDistance returns the cosine distance between the
+// embeddings of two (lib_id, version) rows in the libs table. Used by
+// the #191 description-mixing tests to assert that embeddings either
+// stay identical (description ignored / both empty) or diverge
+// (description differs). Distance 0 means identical, larger means
+// further apart.
+func libEmbeddingDistance(t *testing.T, d *db.DB, libA, verA, libB, verB string) float64 {
+	t.Helper()
+	var dist float64
+	if err := d.QueryRow(
+		`SELECT vector_distance_cos(a.embedding, b.embedding)
+		 FROM libs a, libs b
+		 WHERE a.lib_id = ? AND a.version = ? AND b.lib_id = ? AND b.version = ?`,
+		libA, verA, libB, verB,
+	).Scan(&dist); err != nil {
+		t.Fatalf("compute lib embedding distance (%q@%q vs %q@%q): %v", libA, verA, libB, verB, err)
+	}
+	return dist
+}
+
+// TestUpsertLibIfNew_DescriptionDistinguishesEmbeddings pins the
+// headline #191 contract: two libs with structurally similar lib_ids
+// but different descriptions land in clearly different regions of the
+// embedding space. The 0.05 cosine-distance floor is loose on purpose:
+// it has to clear all-MiniLM-L6 (the test embedder)'s baseline noise
+// without being so tight that an upstream embedder swap immediately
+// flakes the test. Anything above 0.05 means the description signal is
+// actually being mixed in, not silently dropped.
+func TestUpsertLibIfNew_DescriptionDistinguishesEmbeddings(t *testing.T) {
+	d := openTestDB(t)
+
+	// Two structurally similar lib_ids — both 3-token "org/project"
+	// shapes, both in the same broad domain (databases) — so any
+	// distance signal between them must come from the descriptions.
+	if err := db.UpsertLibIfNew(d, "/foo/widget-a", "", "Distributed key-value cache for low-latency lookups.", testEmbedder); err != nil {
+		t.Fatalf("upsert widget-a: %v", err)
+	}
+	if err := db.UpsertLibIfNew(d, "/foo/widget-b", "", "Photo editing toolkit for raster graphics and image filters.", testEmbedder); err != nil {
+		t.Fatalf("upsert widget-b: %v", err)
+	}
+
+	dist := libEmbeddingDistance(t, d, "/foo/widget-a", "", "/foo/widget-b", "")
+	if dist <= 0.05 {
+		t.Errorf("cosine distance between divergent-description libs = %v, want > 0.05", dist)
+	}
+}
+
+// TestUpsertLibIfNew_EmptyDescriptionMatchesLegacyEmbedding pins the
+// backwards-compat snapshot the issue calls out: passing description=""
+// must produce the exact same vector as the pre-#191 lib_id-only
+// embedding. We assert this via vector_distance_cos against a
+// freshly-computed reference vector of the same normalized lib_id text
+// — distance must be effectively zero (== identical vectors).
+func TestUpsertLibIfNew_EmptyDescriptionMatchesLegacyEmbedding(t *testing.T) {
+	d := openTestDB(t)
+
+	const libID = "/hashicorp/terraform-provider-aws"
+	if err := db.UpsertLibIfNew(d, libID, "", "", testEmbedder); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// Reference vector = the legacy embedding text: lib_id with "/" and
+	// "-" mapped to spaces. Mirrored from internal/db.normalizeLibIDText
+	// (unexported); kept in lockstep here so a future tweak to that
+	// helper trips this test as a heads-up.
+	const legacyText = "hashicorp terraform provider aws"
+	ref, err := testEmbedder.EmbedDocument(legacyText)
+	if err != nil {
+		t.Fatalf("embed reference: %v", err)
+	}
+	refStr := vectorLiteral(ref)
+
+	var dist float64
+	if err := d.QueryRow(
+		`SELECT vector_distance_cos(embedding, vector(?)) FROM libs WHERE lib_id = ? AND version = ?`,
+		refStr, libID, "",
+	).Scan(&dist); err != nil {
+		t.Fatalf("read distance: %v", err)
+	}
+	// Floating-point: a direct equality check on cosine distance is
+	// unsafe, but the same input through the same embedder should land
+	// well below 1e-5 — leaves room for deterministic-but-fuzzy IEEE
+	// drift without admitting any actual semantic divergence.
+	if dist > 1e-5 {
+		t.Errorf("empty-desc vector distance from lib_id-only reference = %v, want ~0 (compat broken)", dist)
+	}
+}
+
+// TestUpsertLibIfNew_PerVersionDescriptionDivergesEmbeddings pins the
+// per-version override path: two versions of the SAME lib_id with
+// different descriptions must land in different embedding regions.
+// This is the headline use case the issue calls out (terraform 1.13
+// vs 1.14 with a major API rewrite) and the property that retracts
+// the legacy "all versions of a lib rank identically" guarantee.
+func TestUpsertLibIfNew_PerVersionDescriptionDivergesEmbeddings(t *testing.T) {
+	d := openTestDB(t)
+
+	const libID = "/hashicorp/terraform"
+	if err := db.UpsertLibIfNew(d, libID, "1.13", "Infrastructure as code with HCL — stable provider ecosystem.", testEmbedder); err != nil {
+		t.Fatalf("upsert 1.13: %v", err)
+	}
+	if err := db.UpsertLibIfNew(d, libID, "1.14", "Image classification benchmarks for convolutional neural networks.", testEmbedder); err != nil {
+		t.Fatalf("upsert 1.14: %v", err)
+	}
+
+	dist := libEmbeddingDistance(t, d, libID, "1.13", libID, "1.14")
+	if dist <= 0.05 {
+		t.Errorf("per-version divergent-description distance = %v, want > 0.05 (descriptions ignored?)", dist)
+	}
+}
+
+// TestUpsertLibIfNew_PerVersionSameDescriptionIdenticalEmbeddings pins
+// the inverse: when two versions inherit the same description (or both
+// have empty descriptions), the embeddings stay identical — preserving
+// the legacy "all versions of a lib rank identically" property for
+// the common case where descriptions don't diverge.
+func TestUpsertLibIfNew_PerVersionSameDescriptionIdenticalEmbeddings(t *testing.T) {
+	d := openTestDB(t)
+
+	const (
+		libID = "/facebook/react"
+		desc  = "Declarative UI library for building component-based web interfaces."
+	)
+	if err := db.UpsertLibIfNew(d, libID, "18", desc, testEmbedder); err != nil {
+		t.Fatalf("upsert 18: %v", err)
+	}
+	if err := db.UpsertLibIfNew(d, libID, "19", desc, testEmbedder); err != nil {
+		t.Fatalf("upsert 19: %v", err)
+	}
+	if dist := libEmbeddingDistance(t, d, libID, "18", libID, "19"); dist > 1e-5 {
+		t.Errorf("same-description versions distance = %v, want ~0", dist)
+	}
+
+	// And the both-empty path: two more versions with no description
+	// must also collapse to a single embedding under the same lib_id.
+	const libEmpty = "/grafana/loki"
+	if err := db.UpsertLibIfNew(d, libEmpty, "2.9", "", testEmbedder); err != nil {
+		t.Fatalf("upsert loki 2.9: %v", err)
+	}
+	if err := db.UpsertLibIfNew(d, libEmpty, "3.0", "", testEmbedder); err != nil {
+		t.Fatalf("upsert loki 3.0: %v", err)
+	}
+	if dist := libEmbeddingDistance(t, d, libEmpty, "2.9", libEmpty, "3.0"); dist > 1e-5 {
+		t.Errorf("both-empty-description versions distance = %v, want ~0", dist)
+	}
+}
+
+// vectorLiteral renders a float32 slice into the textual form turso's
+// vector(?) constructor accepts — "[v1,v2,...]". Lifted from the
+// internal helper so tests can build query-side reference vectors
+// without depending on unexported db helpers.
+func vectorLiteral(v []float32) string {
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i, x := range v {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		fmt.Fprintf(&sb, "%g", x)
+	}
+	sb.WriteByte(']')
+	return sb.String()
 }
 
 // TestUpdateLibCount_UpdatesRightRow verifies that UpdateLibCount only
@@ -524,7 +688,7 @@ func TestUpdateLibCount_UpdatesRightRow(t *testing.T) {
 	d := openTestDB(t)
 
 	for _, libID := range []string{"/a/one", "/b/two"} {
-		if err := db.UpsertLibIfNew(d, libID, "", testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, libID, "", "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", libID, err)
 		}
 	}
@@ -567,7 +731,7 @@ func TestSearchLibsByEmbedding_RanksRelevantFirst(t *testing.T) {
 		"/expressjs/express",
 	}
 	for _, libID := range libs {
-		if err := db.UpsertLibIfNew(d, libID, "", testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, libID, "", "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", libID, err)
 		}
 	}
@@ -599,7 +763,7 @@ func TestSearchLibsByEmbedding_HonoursLimit(t *testing.T) {
 	d := openTestDB(t)
 
 	for _, libID := range []string{"/a/one", "/b/two", "/c/three"} {
-		if err := db.UpsertLibIfNew(d, libID, "", testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, libID, "", "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", libID, err)
 		}
 	}
@@ -634,7 +798,7 @@ func TestTopLibsByDocCount_OrdersDescending(t *testing.T) {
 		{"/medium/lib", 25},
 	}
 	for _, l := range libs {
-		if err := db.UpsertLibIfNew(d, l.id, "", testEmbedder); err != nil {
+		if err := db.UpsertLibIfNew(d, l.id, "", "", testEmbedder); err != nil {
 			t.Fatalf("UpsertLibIfNew %q: %v", l.id, err)
 		}
 		if err := db.UpdateLibCount(d, l.id, "", l.count); err != nil {

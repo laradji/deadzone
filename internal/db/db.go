@@ -53,10 +53,19 @@ var ErrArtifactLibIDMismatch = errors.New("artifact lib_id mismatch")
 
 // CurrentSchemaVersion is the on-disk schema version written by this
 // build. Bump whenever the table layout changes in a non-backwards-
-// compatible way (e.g. a new required table like libs). Stored in the
+// compatible way OR when the embedding semantics change (so old DB
+// vectors and new query vectors live in different spaces — even if
+// the table layout is identical, the rows are stale). Stored in the
 // meta table at first Open and cross-checked on every subsequent open
 // against this constant; a mismatch surfaces as ErrSchemaMismatch.
-const CurrentSchemaVersion = 4
+//
+// Bump history:
+//   - 1: initial layout
+//   - 2: pluggable embedder metadata (#84)
+//   - 3: libs catalog table (#55)
+//   - 4: first-class multi-version (#113)
+//   - 5: lib embedding mixes optional description with lib_id (#191)
+const CurrentSchemaVersion = 5
 
 // Meta describes the embedder a database was created with. It is written
 // to the meta table the first time a fresh DB is opened and cross-checked
@@ -595,15 +604,22 @@ type LibInfo struct {
 }
 
 // UpsertLibIfNew inserts a row into the libs table for (libID, version)
-// iff one doesn't already exist. The embedding is computed from the
-// lib_id text alone with "/" and "-" turned into spaces so the encoder
-// sees something resembling natural language
-// ("/hashicorp/terraform-provider-aws" → "hashicorp terraform provider
-// aws"). Version is intentionally NOT mixed into the embed text:
-// multiple versions of the same lib should rank identically against a
-// free-text library-name query, so the embedding stays keyed on the
-// base identity while the row's (lib_id, version) primary key keeps
-// the versions distinct on disk.
+// iff one doesn't already exist. The embedding text is built by
+// libEmbedText: the normalized lib_id ("/hashicorp/terraform-provider-aws"
+// → "hashicorp terraform provider aws") concatenated with the upstream-
+// authored description (when non-empty) so the encoder sees both the
+// canonical name tokens and the intent prose. Empty description falls
+// back to lib_id alone — the legacy embedding path, byte-for-byte the
+// same vector pre-#191.
+//
+// Version is still NOT mixed into the embed text: the version
+// identifier is a user-facing label with no semantic value to a
+// free-text library-name query. Description, on the other hand, CAN
+// differ per version when a per-version override is set (terraform
+// 1.13 vs 1.14 with a major API rewrite), in which case two versions
+// of the same lib_id WILL produce distinct embeddings. When
+// descriptions match (or both are empty) the legacy "all versions of
+// a lib rank identically" property is preserved for the common case.
 //
 // Re-running this function for an existing (lib_id, version) pair is a
 // fast no-op that does NOT call EmbedDocument — the issue's "at most
@@ -614,7 +630,7 @@ type LibInfo struct {
 // Version is the canonical empty string for single-version libs; the
 // primary key is on (lib_id, version) so the same base lib with two
 // versions cleanly produces two rows.
-func UpsertLibIfNew(d *DB, libID, version string, e LibEmbedder) error {
+func UpsertLibIfNew(d *DB, libID, version, description string, e LibEmbedder) error {
 	if libID == "" {
 		return errors.New("upsert lib: libID must not be empty")
 	}
@@ -625,7 +641,7 @@ func UpsertLibIfNew(d *DB, libID, version string, e LibEmbedder) error {
 	if existing > 0 {
 		return nil
 	}
-	vec, err := e.EmbedDocument(normalizeLibIDText(libID))
+	vec, err := e.EmbedDocument(libEmbedText(libID, description))
 	if err != nil {
 		return fmt.Errorf("upsert lib %q version %q: embed: %w", libID, version, err)
 	}
@@ -639,6 +655,21 @@ func UpsertLibIfNew(d *DB, libID, version string, e LibEmbedder) error {
 		return fmt.Errorf("upsert lib %q version %q: insert: %w", libID, version, err)
 	}
 	return nil
+}
+
+// libEmbedText returns the text fed to the encoder for a lib's row.
+// The normalized lib_id is always present; description is appended
+// with a single space when non-empty, giving the encoder both the
+// canonical name tokens and the upstream-authored intent prose.
+// Empty description short-circuits to the legacy lib_id-only text,
+// preserving the pre-#191 vector byte-for-byte for libs without a
+// description.
+func libEmbedText(libID, description string) string {
+	text := normalizeLibIDText(libID)
+	if d := strings.TrimSpace(description); d != "" {
+		return text + " " + d
+	}
+	return text
 }
 
 // UpdateLibCount sets the doc_count for an existing libs row keyed on
