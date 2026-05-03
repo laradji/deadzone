@@ -206,3 +206,44 @@ func TestNew(t *testing.T) {
 		}
 	})
 }
+
+// TestHugotSignature_Stable pins the current vector-space signature so
+// any constant edit in hugot.go that affects embeddings forces an
+// explicit, diff-visible bump of this expected value. CI's per-lib
+// artifact cache key consumes this digest via `deadzone cache-signals`
+// — silently changing it would silently invalidate every cache in the
+// fleet, which is correct behavior but should be acknowledged in
+// review, not slipped in.
+//
+// If this test fails after a deliberate constant change in hugot.go:
+//  1. Re-run the digest computation (sha256 of NUL-joined parts) and
+//     paste the new value here.
+//  2. Mention the cache invalidation in the PR description.
+func TestHugotSignature_Stable(t *testing.T) {
+	const want = "5355f97f5ab70d53b2f89ab4fe51a284d0ef625e38bd78818362e853b212cdf3"
+	got := embed.HugotSignature()
+	if got != want {
+		t.Fatalf("HugotSignature drift:\n  got:  %s\n  want: %s\n\nIf this is intentional (you bumped a constant in hugot.go that affects the vector space), update the pinned value above and call out the cache invalidation in the PR description.", got, want)
+	}
+}
+
+// TestSignature_DispatchesByKind checks the Signature(kind) wrapper
+// mirrors New(kind) — same valid-kinds set, same error shape on
+// unknown kinds. The Hugot path delegates to HugotSignature, which
+// TestHugotSignature_Stable covers exhaustively.
+func TestSignature_DispatchesByKind(t *testing.T) {
+	t.Run("hugot returns the hugot signature", func(t *testing.T) {
+		got, err := embed.Signature(embed.KindHugot)
+		if err != nil {
+			t.Fatalf("Signature(hugot): %v", err)
+		}
+		if got != embed.HugotSignature() {
+			t.Errorf("Signature(hugot) = %q, want %q (HugotSignature)", got, embed.HugotSignature())
+		}
+	})
+	t.Run("unknown kind errors", func(t *testing.T) {
+		if _, err := embed.Signature("does-not-exist"); err == nil {
+			t.Fatal("expected error for unknown kind, got nil")
+		}
+	})
+}

@@ -55,13 +55,15 @@ jobs:
     outputs:
       libs: ${{ steps.list.outputs.libs }}
       # Exposed so the `report` job can reconstruct the full cache key
-      # (artifact-<slug>-<version>-<entry_cache_hash>-<hugot_hash>) to
-      # look up post-run hit/miss via the caches REST endpoint. The
-      # entry-level segment is per-row in `libs` (see #153); only the
-      # global trailing embedder hash is snapshotted here, since
-      # hashFiles() is a GHA expression function and cannot be computed
-      # in bash.
-      embedder_hash: ${{ steps.key.outputs.embedder_hash }}
+      # (artifact-<slug>-<version>-<entry_cache_hash>-emb<sig>-schema<n>)
+      # to look up post-run hit/miss via the caches REST endpoint. The
+      # entry-level segment is per-row in `libs` (see #153); the two
+      # global trailing signals are snapshotted here so the report job
+      # can build the same key without re-running the Go binary. Both
+      # come from `deadzone cache-signals` so the workflow stays in
+      # lockstep with the binary's source-of-truth (#193).
+      embedder_signature: ${{ steps.signals.outputs.embedder_signature }}
+      schema_version: ${{ steps.signals.outputs.schema_version }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -74,11 +76,23 @@ jobs:
         # No --lib input: keepalive always touches every resolved
         # (lib, version) pair.
         uses: ./.github/actions/list-libs
-      - name: Snapshot embedder hash
-        id: key
+      - name: Compute cache signals
+        id: signals
+        # Mirror of the same step in scrape-pack.yml — must stay in
+        # lockstep, otherwise the keepalive refreshes keys with a
+        # different shape than the live cache and the LRU evicts the
+        # live entries instead. See #193 for the bug the previous
+        # `hashFiles(internal/embed/hugot.go)` shape exhibited.
         shell: bash
         run: |
-          echo "embedder_hash=${{ hashFiles('internal/embed/hugot.go') }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          out=$(go run -tags ORT ./cmd/deadzone cache-signals)
+          schema=$(echo "$out" | jq -r '.schema_version')
+          sig=$(echo "$out" | jq -r '.embedder_signature')
+          [ -n "$schema" ] && [ "$schema" != "null" ] || { echo "::error::cache-signals output missing schema_version: $out"; exit 1; }
+          [ -n "$sig" ]    && [ "$sig"    != "null" ] || { echo "::error::cache-signals output missing embedder_signature: $out"; exit 1; }
+          echo "schema_version=$schema"     >> "$GITHUB_OUTPUT"
+          echo "embedder_signature=$sig"    >> "$GITHUB_OUTPUT"
 
   refresh:
     name: refresh (${{ matrix.entry.slug }})
@@ -99,11 +113,11 @@ jobs:
         # Mirror of scrape-pack.yml's per-lib cache key — drift breaks
         # the keepalive (different key = different cache entry = no
         # refresh, LRU evicts the live entry instead). Per-entry hash
-        # since #153.
+        # since #153; semantic global signals since #193.
         uses: actions/cache/restore@v5
         with:
           path: artifacts/${{ matrix.entry.slug }}
-          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-${{ hashFiles('internal/embed/hugot.go') }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-emb${{ needs.expand-libs.outputs.embedder_signature }}-schema${{ needs.expand-libs.outputs.schema_version }}
       - name: Record hit/miss
         # Per-slot summary row — satisfies the per-slot markdown
         # requirement from #128. The aggregated table + totals live in
@@ -141,7 +155,8 @@ jobs:
       - name: Aggregate hit/miss
         env:
           LIBS_JSON: ${{ needs.expand-libs.outputs.libs }}
-          EMBEDDER_HASH: ${{ needs.expand-libs.outputs.embedder_hash }}
+          EMBEDDER_SIGNATURE: ${{ needs.expand-libs.outputs.embedder_signature }}
+          SCHEMA_VERSION: ${{ needs.expand-libs.outputs.schema_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         shell: bash
@@ -174,7 +189,7 @@ jobs:
           # this job reports phantom misses on entries that are actually
           # alive in the cache.
           while IFS=$'\t' read -r lib_id version slug cache_hash; do
-            expected="artifact-${slug}-${version}-${cache_hash}-${EMBEDDER_HASH}"
+            expected="artifact-${slug}-${version}-${cache_hash}-emb${EMBEDDER_SIGNATURE}-schema${SCHEMA_VERSION}"
             if printf '%s\n' "$caches" | grep -Fxq -- "$expected"; then
               status="hit"; hit=$((hit + 1))
             else
