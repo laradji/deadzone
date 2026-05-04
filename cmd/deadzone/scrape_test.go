@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/laradji/deadzone/internal/db"
 	"github.com/laradji/deadzone/internal/packs"
 	"github.com/laradji/deadzone/internal/scraper"
+	"github.com/laradji/deadzone/internal/scraper/godoc"
 )
 
 // stubEmbedder is a deterministic, dependency-free Embedder for testing
@@ -544,5 +546,40 @@ func TestEnvIntOr(t *testing.T) {
 	t.Setenv(name, "12")
 	if got := envIntOr(name, 7); got != 12 {
 		t.Errorf("good: got %d, want 12", got)
+	}
+}
+
+// TestClassifyFetchErr_GodocPaths locks the soft/fatal split for the
+// godoc-introduced sentinels. The classification matters because soft
+// skips advance to the next URL while fatal errors abort the lib —
+// flipping the wrong direction either silently produces empty
+// artifacts (bad) or kills runs on transient blips (worse).
+func TestClassifyFetchErr_GodocPaths(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantReason string
+		wantSoft   bool
+	}{
+		{"module withdrawn = soft", fmt.Errorf("wrap: %w", godoc.ErrModuleWithdrawn), "module_withdrawn", true},
+		{"module not found = fatal", fmt.Errorf("wrap: %w", godoc.ErrModuleNotFound), "module_not_found", false},
+		{"sumdb mismatch = fatal", fmt.Errorf("wrap: %w", godoc.ErrSumDBMismatch), "sumdb_mismatch", false},
+		{"sumdb unavailable = fatal", fmt.Errorf("wrap: %w", godoc.ErrSumDBUnavailable), "sumdb_unavailable", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotReason, gotSoft := classifyFetchErr(tc.err)
+			if gotReason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", gotReason, tc.wantReason)
+			}
+			if gotSoft != tc.wantSoft {
+				t.Errorf("soft = %v, want %v", gotSoft, tc.wantSoft)
+			}
+			// Sanity: errors.Is must still hold across the wrap (otherwise
+			// the test isn't testing what it claims).
+			if !errors.Is(tc.err, errors.Unwrap(tc.err)) {
+				t.Errorf("test setup broken: errors.Is sentinel check fails on %v", tc.err)
+			}
+		})
 	}
 }

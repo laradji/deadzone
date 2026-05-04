@@ -214,6 +214,48 @@ libraries:
 	}
 }
 
+func TestLoadConfig_AcceptsGodocKind(t *testing.T) {
+	path := writeConfig(t, `
+libraries:
+  - lib_id: /spf13/cobra
+    kind: godoc
+    ref: v1.10.2
+    urls:
+      - https://proxy.golang.org/github.com/spf13/cobra/@v/{ref}.zip
+  - lib_id: /golang/go/encoding/json
+    kind: godoc
+    ref: go1.26.2
+    urls:
+      - https://api.github.com/repos/golang/go/contents/src/encoding/json?ref={ref}
+`)
+
+	cfg, err := scraper.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Libraries) != 2 {
+		t.Fatalf("expected 2 libraries, got %d", len(cfg.Libraries))
+	}
+	for i, lib := range cfg.Libraries {
+		if lib.Kind != scraper.KindGodoc {
+			t.Errorf("Libraries[%d].Kind = %q, want %q", i, lib.Kind, scraper.KindGodoc)
+		}
+	}
+
+	resolved := cfg.Resolve("", "")
+	if len(resolved) != 2 {
+		t.Fatalf("Resolve returned %d, want 2", len(resolved))
+	}
+	for i, r := range resolved {
+		if r.Kind != scraper.KindGodoc {
+			t.Errorf("ResolvedSource[%d].Kind = %q, want %q", i, r.Kind, scraper.KindGodoc)
+		}
+		if !strings.Contains(r.URLs[0], r.Ref) {
+			t.Errorf("ResolvedSource[%d].URLs[0] = %q, expected to contain ref %q after expansion", i, r.URLs[0], r.Ref)
+		}
+	}
+}
+
 func TestLoadConfig_VersionsRules(t *testing.T) {
 	cases := []struct {
 		name string

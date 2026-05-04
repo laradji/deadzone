@@ -29,6 +29,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ import (
 	"github.com/laradji/deadzone/internal/logs"
 	"github.com/laradji/deadzone/internal/packs"
 	"github.com/laradji/deadzone/internal/scraper"
+	"github.com/laradji/deadzone/internal/scraper/godoc"
 )
 
 // maxSkipsPerLib caps the number of per-URL failures tolerated inside a
@@ -61,6 +63,7 @@ const maxSkipsPerLib = 5
 const (
 	EnvParallelGithubMD       = "DEADZONE_SCRAPE_PARALLEL_GITHUB_MD"
 	EnvParallelScrapeViaAgent = "DEADZONE_SCRAPE_PARALLEL_SCRAPE_VIA_AGENT"
+	EnvParallelGodoc          = "DEADZONE_SCRAPE_PARALLEL_GODOC"
 )
 
 // Default concurrency per kind. github-md is HTTP-bound; 4 concurrent
@@ -68,10 +71,15 @@ const (
 // backlog fast. scrape-via-agent defaults to 1 because local LLM
 // runtimes (oMLX, Ollama single-model) serialize requests at the
 // backend regardless of how many we fan out from here — raising this
-// only helps against a concurrent backend (vLLM, OpenAI).
+// only helps against a concurrent backend (vLLM, OpenAI). godoc fetch
+// involves a zip download + sumdb lookup + extract + parse; we cap at
+// 2 to stay polite to proxy.golang.org and api.github.com (the latter
+// has a 60 req/h public quota — see GITHUB_TOKEN opt-in in
+// internal/scraper/godoc/fetch.go).
 const (
 	defaultParallelGithubMD       = 4
 	defaultParallelScrapeViaAgent = 1
+	defaultParallelGodoc          = 2
 )
 
 // scrape subcommand flags — package-level so cobra's Flags().XxxVar can
@@ -88,6 +96,7 @@ var (
 	scrapeVersionFilter          string
 	scrapeParallelGithubMD       int
 	scrapeParallelScrapeViaAgent int
+	scrapeParallelGodoc          int
 	scrapeListOnly               bool
 )
 
@@ -125,6 +134,9 @@ func init() {
 	scrapeCmd.Flags().IntVar(&scrapeParallelScrapeViaAgent, "parallel-scrape-via-agent",
 		envIntOr(EnvParallelScrapeViaAgent, defaultParallelScrapeViaAgent),
 		"max concurrent scrape-via-agent libs (env: "+EnvParallelScrapeViaAgent+"; flag wins over env)")
+	scrapeCmd.Flags().IntVar(&scrapeParallelGodoc, "parallel-godoc",
+		envIntOr(EnvParallelGodoc, defaultParallelGodoc),
+		"max concurrent godoc libs (env: "+EnvParallelGodoc+"; flag wins over env)")
 	// --list short-circuits before embedder/agent setup and emits the
 	// resolved (lib_id, version, slug) matrix to stdout as JSON. Consumed
 	// by .github/workflows/scrape-pack.yml's expand-libs job (see #126);
@@ -144,6 +156,9 @@ func runScrape() error {
 	}
 	if scrapeParallelScrapeViaAgent < 1 {
 		return fmt.Errorf("--parallel-scrape-via-agent must be >= 1, got %d", scrapeParallelScrapeViaAgent)
+	}
+	if scrapeParallelGodoc < 1 {
+		return fmt.Errorf("--parallel-godoc must be >= 1, got %d", scrapeParallelGodoc)
 	}
 	// --version without --lib is ambiguous — multi-version libs share
 	// tags (two libs can both have a v1.0) so the filter has to be
@@ -231,6 +246,7 @@ func runScrape() error {
 		"model_version", e.ModelVersion(),
 		"parallel_github_md", scrapeParallelGithubMD,
 		"parallel_scrape_via_agent", scrapeParallelScrapeViaAgent,
+		"parallel_godoc", scrapeParallelGodoc,
 	)
 
 	runStart := time.Now()
@@ -238,6 +254,7 @@ func runScrape() error {
 		scraper.KindGithubMD:       scrapeParallelGithubMD,
 		scraper.KindGithubRST:      scrapeParallelGithubMD,
 		scraper.KindScrapeViaAgent: scrapeParallelScrapeViaAgent,
+		scraper.KindGodoc:          scrapeParallelGodoc,
 	}
 	results := scrapeSources(ctx, http.DefaultClient, agent, e, meta, scrapeArtifactsDir, sources, parallelByKind)
 
@@ -487,6 +504,8 @@ func scrapeLibToArtifact(
 			res, err = scraper.FetchOneViaGithubRST(ctx, client, src.LibID, u)
 		case scraper.KindScrapeViaAgent:
 			res, err = scraper.FetchOneViaAgent(ctx, client, agent, src.LibID, u)
+		case scraper.KindGodoc:
+			res, err = godoc.FetchOneViaGodoc(ctx, client, src.LibID, u)
 		default:
 			return docsTotal, skippedThisLib, fmt.Errorf("unsupported kind %q for lib %q", src.Kind, src.LibID)
 		}
@@ -630,11 +649,12 @@ func scrapeLibToArtifact(
 			Model: e.ModelVersion(),
 			Dim:   e.Dim(),
 		},
-		Ref:       src.Ref,
-		CreatedAt: now,
-		UpdatedAt: now,
-		URLCount:  len(src.URLs),
-		DocCount:  docsTotal,
+		Ref:         src.Ref,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		URLCount:    len(src.URLs),
+		DocCount:    docsTotal,
+		GoToolchain: runtime.Version(),
 	}
 	if existingState != nil && !existingState.CreatedAt.IsZero() {
 		state.CreatedAt = existingState.CreatedAt
@@ -664,9 +684,15 @@ func scrapeLibToArtifact(
 // Soft-failable errors:
 //   - ErrAgentVerificationFailed — hallucinated code block, per-URL drop
 //   - ErrPDFNotSupportedYet      — incidental PDF link in a doc index
+//   - ErrModuleWithdrawn         — godoc: module version withdrawn upstream
 //   - context.DeadlineExceeded   — cold-start reload or slow first token
 //   - HTTP 5xx (via HTTPStatusError) — upstream blip
 //   - transient transport errors (ECONNRESET, EPIPE, EOF, net timeouts)
+//
+// Fatal-for-the-lib errors (4xx, integrity, missing config):
+//   - ErrModuleNotFound          — godoc: 404 from proxy or sumdb (config bug)
+//   - ErrSumDBMismatch           — godoc: zip integrity failure (tamper or bug)
+//   - ErrSumDBUnavailable        — godoc: cannot verify, refuse to index
 //
 // Anything else (auth failures, 4xx other than above, decode errors)
 // is fatal for the lib.
@@ -676,8 +702,16 @@ func classifyFetchErr(err error) (reason string, soft bool) {
 		return "verification_failed", true
 	case errors.Is(err, scraper.ErrPDFNotSupportedYet):
 		return "pdf_unsupported", true
+	case errors.Is(err, godoc.ErrModuleWithdrawn):
+		return "module_withdrawn", true
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout", true
+	case errors.Is(err, godoc.ErrModuleNotFound):
+		return "module_not_found", false
+	case errors.Is(err, godoc.ErrSumDBMismatch):
+		return "sumdb_mismatch", false
+	case errors.Is(err, godoc.ErrSumDBUnavailable):
+		return "sumdb_unavailable", false
 	}
 	var httpErr *scraper.HTTPStatusError
 	if errors.As(err, &httpErr) {

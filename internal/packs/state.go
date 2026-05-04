@@ -58,6 +58,14 @@ type StateFile struct {
 	UpdatedAt time.Time `yaml:"updated_at"`
 	URLCount  int       `yaml:"url_count"`
 	DocCount  int       `yaml:"doc_count"`
+	// GoToolchain is the runtime.Version() of the deadzone binary that
+	// produced this artifact (#198). For kind: godoc artifacts the
+	// chunk content is a function of go/doc's output, which is
+	// stable per Go 1 compatibility but varies subtly in formatting
+	// across releases — recording the toolchain lets an operator
+	// correlate a chunk-shape regression with a deadzone build.
+	// Empty for artifacts produced before this field was introduced.
+	GoToolchain string `yaml:"go_toolchain,omitempty"`
 }
 
 // EmbedderState mirrors the embedder identity triple the scraper also
