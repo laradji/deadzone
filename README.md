@@ -185,13 +185,14 @@ The binary itself is CGO-linked (hugot ORT backend + static `libtokenizers.a`). 
 
 Escape hatches for air-gapped boxes:
 
-| Env var                   | Effect                                                      |
-|---------------------------|-------------------------------------------------------------|
-| `DEADZONE_ORT_LIB_PATH`   | Hand-positioned `libonnxruntime` path. Skips the download.  |
-| `DEADZONE_ORT_CACHE`      | Override the ORT library cache dir.                         |
-| `DEADZONE_HUGOT_CACHE`    | Override the model-weights cache dir.                       |
-| `DEADZONE_DB_CACHE`       | Override the `deadzone.db` cache dir.                       |
-| `DEADZONE_DB_OFFLINE=1`   | Refuse any network call. Fails loudly if nothing is cached. |
+| Env var                   | Effect                                                                                  |
+|---------------------------|-----------------------------------------------------------------------------------------|
+| `DEADZONE_ORT_LIB_PATH`   | Hand-positioned `libonnxruntime` path. Skips the download.                              |
+| `DEADZONE_ORT_CACHE`      | Override the ORT library cache dir.                                                     |
+| `DEADZONE_HUGOT_CACHE`    | Override the model-weights cache dir.                                                   |
+| `DEADZONE_DB_CACHE`       | Override the `deadzone.db` cache dir.                                                   |
+| `DEADZONE_DB_OFFLINE=1`   | Refuse any network call. Fails loudly if nothing is cached.                             |
+| `DEADZONE_DB_AUTOUPDATE=0` | Disable the boot-time DB freshness probe (the probe runs by default; `fetch-db` always probes regardless of this flag). |
 
 Default cache paths per platform:
 
@@ -201,7 +202,7 @@ Default cache paths per platform:
 | Linux    | `$XDG_DATA_HOME/deadzone/deadzone.db` (else `~/.local/share/...`) |
 | Windows  | `%LOCALAPPDATA%\deadzone\deadzone.db`                             |
 
-A sibling `deadzone.db.release` text file records the tag the cache was fetched from. Startup compares it against the binary's compiled-in version: match → zero-network; differs → fetch and atomic-swap; dev build → fall back to `/releases/latest` with a `server.db_version_dev_fallback` WARN.
+A sibling `deadzone.db.release` JSON manifest records `{tag, sha256, fetched_at}`. Startup compares the cached tag against the binary's compiled-in version: match → fire a 3-second freshness probe against `deadzone.db.sha256` on the matching GitHub Release, atomic-swap if the remote sha differs (soft-fail to the cache on any network error); differs → fetch the new tag's release and atomic-swap; dev build → fall back to `/releases/latest` with a `server.db_version_dev_fallback` WARN. Pre-#197 binaries wrote a single-line tag-only sidecar; the JSON reader still accepts that format and rewrites it to v1 on first probe.
 
 ---
 
