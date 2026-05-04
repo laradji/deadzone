@@ -291,8 +291,9 @@ func runServer() error {
 	//   unset → auto-fetch from the latest GH Release into the
 	//           per-platform data dir, auto-upgrade on subsequent runs
 	//           when a newer release exists. The whole flow is bounded
-	//           by the DEADZONE_DB_OFFLINE / DEADZONE_DB_NO_AUTO_UPGRADE
-	//           env-var escape hatches.
+	//           by the DEADZONE_DB_OFFLINE / DEADZONE_DB_AUTOUPDATE
+	//           env-var escape hatches (#197 added the second one for
+	//           the boot-time freshness probe).
 	//   set   → use the path verbatim. No fetch, no version check.
 	//           Error if missing — the operator opted into a specific
 	//           file and we respect that.
@@ -301,7 +302,14 @@ func runServer() error {
 		// tears down cleanly instead of letting the HTTP client run
 		// to its 15-minute timeout.
 		bootstrapCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		resolved, upgraded, err := db.Bootstrap(bootstrapCtx, version)
+		resolved, upgraded, err := db.BootstrapWithOptions(bootstrapCtx, db.BootstrapOptions{
+			AppVersion: version,
+			// Server is the implicit-boot caller; DEADZONE_DB_AUTOUPDATE
+			// governs only this path. fetch-db ignores the env var on
+			// purpose (it's a user-driven explicit refresh).
+			SkipAutoUpdateProbe: autoUpdateDisabled(),
+			Caller:              "server",
+		})
 		stop()
 		if err != nil {
 			return fmt.Errorf("bootstrap deadzone.db: %w", err)
@@ -384,4 +392,18 @@ func runServer() error {
 		return fmt.Errorf("mcp run: %w", err)
 	}
 	return nil
+}
+
+// autoUpdateDisabled returns true when DEADZONE_DB_AUTOUPDATE is
+// explicitly set to "0" or "false" (case-insensitive). Anything else
+// — unset, empty, "1", "true", "anything-else" — leaves the boot-time
+// freshness probe enabled. Mirrors the explicit-opt-out convention of
+// DEADZONE_DB_OFFLINE (which uses "1" as opt-in).
+//
+// Lives here rather than in internal/db because the env var only
+// governs the implicit server-boot path. fetch-db deliberately
+// ignores it (the probe IS what fetch-db is for).
+func autoUpdateDisabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(db.EnvAutoUpdate)))
+	return v == "0" || v == "false"
 }
