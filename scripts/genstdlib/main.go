@@ -276,6 +276,14 @@ func needsYAMLQuoting(s string) bool {
 	if strings.HasPrefix(s, "- ") || strings.HasPrefix(s, "? ") {
 		return true
 	}
+	// YAML 1.2 forbids unquoted ": " (colon-space) inside a plain
+	// scalar — gopkg.in/yaml.v3 raises "mapping values are not allowed
+	// in this context". Our "Key APIs: A, B, C." descriptions trigger
+	// this. Same for " #" (mid-string comment) which strips trailing
+	// content silently.
+	if strings.Contains(s, ": ") || strings.Contains(s, " #") {
+		return true
+	}
 	for _, r := range s {
 		if r < 0x20 || r == 0x7f {
 			return true

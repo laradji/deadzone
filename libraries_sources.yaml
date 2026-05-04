@@ -2190,308 +2190,308 @@ libraries:
   # Description format: <synopsis> Key APIs: <up to 8 exported names>
 
   - lib_id: /golang/go/archive/tar
-    description: Package tar implements access to tar archives. Key APIs: FileInfoNames, Format, Header, Reader, Writer.
+    description: "Package tar implements access to tar archives. Key APIs: FileInfoNames, Format, Header, Reader, Writer."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/archive/tar?ref={ref}
 
   - lib_id: /golang/go/archive/zip
-    description: Package zip provides support for reading and writing ZIP archives. Key APIs: Compressor, Decompressor, File, FileHeader, ReadCloser, Reader, Writer, RegisterCompressor.
+    description: "Package zip provides support for reading and writing ZIP archives. Key APIs: Compressor, Decompressor, File, FileHeader, ReadCloser, Reader, Writer, RegisterCompressor."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/archive/zip?ref={ref}
 
   - lib_id: /golang/go/arena
-    description: The arena package provides the ability to allocate memory for a collection of Go values and free that space manually all at once, safely. Key APIs: Arena, Clone, MakeSlice, New.
+    description: "The arena package provides the ability to allocate memory for a collection of Go values and free that space manually all at once, safely. Key APIs: Arena, Clone, MakeSlice, New."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/arena?ref={ref}
 
   - lib_id: /golang/go/bufio
-    description: Package bufio implements buffered I/O. It wraps an io.Reader or io.Writer object, creating another object (Reader or Writer) that also implements the interface but provides buffering and some help for textual I/O. Key APIs: ReadWriter, Reader, Scanner, SplitFunc, Writer, ScanBytes, ScanLines, ScanRunes.
+    description: "Package bufio implements buffered I/O. It wraps an io.Reader or io.Writer object, creating another object (Reader or Writer) that also implements the interface but provides buffering and some help for textual I/O. Key APIs: ReadWriter, Reader, Scanner, SplitFunc, Writer, ScanBytes, ScanLines, ScanRunes."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/bufio?ref={ref}
 
   - lib_id: /golang/go/bytes
-    description: Package bytes implements functions for the manipulation of byte slices. Key APIs: Buffer, Reader, Clone, Compare, Contains, ContainsAny, ContainsFunc, ContainsRune.
+    description: "Package bytes implements functions for the manipulation of byte slices. Key APIs: Buffer, Reader, Clone, Compare, Contains, ContainsAny, ContainsFunc, ContainsRune."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/bytes?ref={ref}
 
   - lib_id: /golang/go/cmp
-    description: Package cmp provides types and functions related to comparing ordered values. Key APIs: Ordered, Compare, Less, Or.
+    description: "Package cmp provides types and functions related to comparing ordered values. Key APIs: Ordered, Compare, Less, Or."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/cmp?ref={ref}
 
   - lib_id: /golang/go/compress/bzip2
-    description: Package bzip2 implements bzip2 decompression. Key APIs: StructuralError, NewReader.
+    description: "Package bzip2 implements bzip2 decompression. Key APIs: StructuralError, NewReader."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/compress/bzip2?ref={ref}
 
   - lib_id: /golang/go/compress/flate
-    description: Package flate implements the DEFLATE compressed data format, described in RFC 1951. Key APIs: CorruptInputError, InternalError, ReadError, Reader, Resetter, WriteError, Writer, NewReader.
+    description: "Package flate implements the DEFLATE compressed data format, described in RFC 1951. Key APIs: CorruptInputError, InternalError, ReadError, Reader, Resetter, WriteError, Writer, NewReader."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/compress/flate?ref={ref}
 
   - lib_id: /golang/go/compress/gzip
-    description: Package gzip implements reading and writing of gzip format compressed files, as specified in RFC 1952. Key APIs: Header, Reader, Writer.
+    description: "Package gzip implements reading and writing of gzip format compressed files, as specified in RFC 1952. Key APIs: Header, Reader, Writer."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/compress/gzip?ref={ref}
 
   - lib_id: /golang/go/compress/lzw
-    description: Package lzw implements the Lempel-Ziv-Welch compressed data format, described in T. A. Welch, “A Technique for High-Performance Data Compression”, Computer, 17(6) (June 1984), pp 8-19. Key APIs: Order, Reader, Writer, NewReader, NewWriter.
+    description: "Package lzw implements the Lempel-Ziv-Welch compressed data format, described in T. A. Welch, “A Technique for High-Performance Data Compression”, Computer, 17(6) (June 1984), pp 8-19. Key APIs: Order, Reader, Writer, NewReader, NewWriter."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/compress/lzw?ref={ref}
 
   - lib_id: /golang/go/compress/zlib
-    description: Package zlib implements reading and writing of zlib format compressed data, as specified in RFC 1950. Key APIs: Resetter, Writer, NewReader, NewReaderDict.
+    description: "Package zlib implements reading and writing of zlib format compressed data, as specified in RFC 1950. Key APIs: Resetter, Writer, NewReader, NewReaderDict."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/compress/zlib?ref={ref}
 
   - lib_id: /golang/go/container/heap
-    description: Package heap provides heap operations for any type that implements heap.Interface. Key APIs: Interface, Fix, Init, Pop, Push, Remove.
+    description: "Package heap provides heap operations for any type that implements heap.Interface. Key APIs: Interface, Fix, Init, Pop, Push, Remove."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/container/heap?ref={ref}
 
   - lib_id: /golang/go/container/list
-    description: Package list implements a doubly linked list. Key APIs: Element, List.
+    description: "Package list implements a doubly linked list. Key APIs: Element, List."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/container/list?ref={ref}
 
   - lib_id: /golang/go/container/ring
-    description: Package ring implements operations on circular lists. Key APIs: Ring.
+    description: "Package ring implements operations on circular lists. Key APIs: Ring."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/container/ring?ref={ref}
 
   - lib_id: /golang/go/context
-    description: Package context defines the Context type, which carries deadlines, cancellation signals, and other request-scoped values across API boundaries and between processes. Key APIs: CancelCauseFunc, CancelFunc, Context, AfterFunc, Cause, WithCancel, WithCancelCause, WithDeadline.
+    description: "Package context defines the Context type, which carries deadlines, cancellation signals, and other request-scoped values across API boundaries and between processes. Key APIs: CancelCauseFunc, CancelFunc, Context, AfterFunc, Cause, WithCancel, WithCancelCause, WithDeadline."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/context?ref={ref}
 
   - lib_id: /golang/go/crypto
-    description: Package crypto collects common cryptographic constants. Key APIs: Decapsulator, Decrypter, DecrypterOpts, Encapsulator, Hash, MessageSigner, PrivateKey, PublicKey.
+    description: "Package crypto collects common cryptographic constants. Key APIs: Decapsulator, Decrypter, DecrypterOpts, Encapsulator, Hash, MessageSigner, PrivateKey, PublicKey."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto?ref={ref}
 
   - lib_id: /golang/go/crypto/aes
-    description: Package aes implements AES encryption (formerly Rijndael), as defined in U.S. Federal Information Processing Standards Publication 197. Key APIs: KeySizeError, NewCipher.
+    description: "Package aes implements AES encryption (formerly Rijndael), as defined in U.S. Federal Information Processing Standards Publication 197. Key APIs: KeySizeError, NewCipher."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/aes?ref={ref}
 
   - lib_id: /golang/go/crypto/boring
-    description: Package boring exposes functions that are only available when building with Go+BoringCrypto. Key APIs: Enabled.
+    description: "Package boring exposes functions that are only available when building with Go+BoringCrypto. Key APIs: Enabled."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/boring?ref={ref}
 
   - lib_id: /golang/go/crypto/cipher
-    description: Package cipher implements standard block cipher modes that can be wrapped around low-level block cipher implementations. Key APIs: AEAD, Block, BlockMode, Stream, StreamReader, StreamWriter.
+    description: "Package cipher implements standard block cipher modes that can be wrapped around low-level block cipher implementations. Key APIs: AEAD, Block, BlockMode, Stream, StreamReader, StreamWriter."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/cipher?ref={ref}
 
   - lib_id: /golang/go/crypto/des
-    description: Package des implements the Data Encryption Standard (DES) and the Triple Data Encryption Algorithm (TDEA) as defined in U.S. Federal Information Processing Standards Publication 46-3. Key APIs: KeySizeError, NewCipher, NewTripleDESCipher.
+    description: "Package des implements the Data Encryption Standard (DES) and the Triple Data Encryption Algorithm (TDEA) as defined in U.S. Federal Information Processing Standards Publication 46-3. Key APIs: KeySizeError, NewCipher, NewTripleDESCipher."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/des?ref={ref}
 
   - lib_id: /golang/go/crypto/dsa
-    description: Package dsa implements the Digital Signature Algorithm, as defined in FIPS 186-3. Key APIs: ParameterSizes, Parameters, PrivateKey, PublicKey, GenerateKey, GenerateParameters, Sign, Verify.
+    description: "Package dsa implements the Digital Signature Algorithm, as defined in FIPS 186-3. Key APIs: ParameterSizes, Parameters, PrivateKey, PublicKey, GenerateKey, GenerateParameters, Sign, Verify."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/dsa?ref={ref}
 
   - lib_id: /golang/go/crypto/ecdh
-    description: Package ecdh implements Elliptic Curve Diffie-Hellman over NIST curves and Curve25519. Key APIs: Curve, KeyExchanger, PrivateKey, PublicKey.
+    description: "Package ecdh implements Elliptic Curve Diffie-Hellman over NIST curves and Curve25519. Key APIs: Curve, KeyExchanger, PrivateKey, PublicKey."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/ecdh?ref={ref}
 
   - lib_id: /golang/go/crypto/ecdsa
-    description: Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defined in [FIPS 186-5]. Key APIs: PrivateKey, PublicKey, Sign, SignASN1, Verify, VerifyASN1.
+    description: "Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defined in [FIPS 186-5]. Key APIs: PrivateKey, PublicKey, Sign, SignASN1, Verify, VerifyASN1."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/ecdsa?ref={ref}
 
   - lib_id: /golang/go/crypto/ed25519
-    description: Package ed25519 implements the Ed25519 signature algorithm. Key APIs: Options, PrivateKey, PublicKey, GenerateKey, Sign, Verify, VerifyWithOptions.
+    description: "Package ed25519 implements the Ed25519 signature algorithm. Key APIs: Options, PrivateKey, PublicKey, GenerateKey, Sign, Verify, VerifyWithOptions."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/ed25519?ref={ref}
 
   - lib_id: /golang/go/crypto/elliptic
-    description: Package elliptic implements the standard NIST P-224, P-256, P-384, and P-521 elliptic curves over prime fields. Key APIs: Curve, CurveParams, GenerateKey, Marshal, MarshalCompressed, Unmarshal, UnmarshalCompressed.
+    description: "Package elliptic implements the standard NIST P-224, P-256, P-384, and P-521 elliptic curves over prime fields. Key APIs: Curve, CurveParams, GenerateKey, Marshal, MarshalCompressed, Unmarshal, UnmarshalCompressed."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/elliptic?ref={ref}
 
   - lib_id: /golang/go/crypto/fips140
-    description: Go standard library package fips140. Key APIs: Enabled, Enforced, Version, WithoutEnforcement.
+    description: "Go standard library package fips140. Key APIs: Enabled, Enforced, Version, WithoutEnforcement."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/fips140?ref={ref}
 
   - lib_id: /golang/go/crypto/hkdf
-    description: Package hkdf implements the HMAC-based Extract-and-Expand Key Derivation Function (HKDF) as defined in RFC 5869. Key APIs: Expand, Extract, Key.
+    description: "Package hkdf implements the HMAC-based Extract-and-Expand Key Derivation Function (HKDF) as defined in RFC 5869. Key APIs: Expand, Extract, Key."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/hkdf?ref={ref}
 
   - lib_id: /golang/go/crypto/hmac
-    description: Package hmac implements the Keyed-Hash Message Authentication Code (HMAC) as defined in U.S. Federal Information Processing Standards Publication 198. Key APIs: Equal, New.
+    description: "Package hmac implements the Keyed-Hash Message Authentication Code (HMAC) as defined in U.S. Federal Information Processing Standards Publication 198. Key APIs: Equal, New."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/hmac?ref={ref}
 
   - lib_id: /golang/go/crypto/hpke
-    description: Package hpke implements Hybrid Public Key Encryption (HPKE) as defined in [RFC 9180]. Key APIs: AEAD, KDF, KEM, PrivateKey, PublicKey, Recipient, Sender, Open.
+    description: "Package hpke implements Hybrid Public Key Encryption (HPKE) as defined in [RFC 9180]. Key APIs: AEAD, KDF, KEM, PrivateKey, PublicKey, Recipient, Sender, Open."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/hpke?ref={ref}
 
   - lib_id: /golang/go/crypto/md5
-    description: Go standard library package md5. Key APIs: Data.
+    description: "Go standard library package md5. Key APIs: Data."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/md5?ref={ref}
 
   - lib_id: /golang/go/crypto/md5/_asm
-    description: Go standard library package _asm. Key APIs: ROUND1, ROUND2, ROUND3, ROUND3FIRST, ROUND4.
+    description: "Go standard library package _asm. Key APIs: ROUND1, ROUND2, ROUND3, ROUND3FIRST, ROUND4."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/md5/_asm?ref={ref}
 
   - lib_id: /golang/go/crypto/mlkem
-    description: Package mlkem implements the quantum-resistant key encapsulation method ML-KEM (formerly known as Kyber), as specified in [NIST FIPS 203]. Key APIs: DecapsulationKey1024, DecapsulationKey768, EncapsulationKey1024, EncapsulationKey768.
+    description: "Package mlkem implements the quantum-resistant key encapsulation method ML-KEM (formerly known as Kyber), as specified in [NIST FIPS 203]. Key APIs: DecapsulationKey1024, DecapsulationKey768, EncapsulationKey1024, EncapsulationKey768."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/mlkem?ref={ref}
 
   - lib_id: /golang/go/crypto/mlkem/mlkemtest
-    description: Package mlkemtest provides testing functions for the ML-KEM algorithm. Key APIs: Encapsulate1024, Encapsulate768.
+    description: "Package mlkemtest provides testing functions for the ML-KEM algorithm. Key APIs: Encapsulate1024, Encapsulate768."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/mlkem/mlkemtest?ref={ref}
 
   - lib_id: /golang/go/crypto/pbkdf2
-    description: Package pbkdf2 implements the key derivation function PBKDF2 as defined in RFC 8018 (PKCS #5 v2.1). Key APIs: Key.
+    description: "Package pbkdf2 implements the key derivation function PBKDF2 as defined in RFC 8018 (PKCS #5 v2.1). Key APIs: Key."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/pbkdf2?ref={ref}
 
   - lib_id: /golang/go/crypto/rand
-    description: Package rand implements a cryptographically secure random number generator. Key APIs: Int, Prime, Read, Text.
+    description: "Package rand implements a cryptographically secure random number generator. Key APIs: Int, Prime, Read, Text."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/rand?ref={ref}
 
   - lib_id: /golang/go/crypto/rc4
-    description: Package rc4 implements RC4 encryption, as defined in Bruce Schneier's Applied Cryptography. Key APIs: Cipher, KeySizeError.
+    description: "Package rc4 implements RC4 encryption, as defined in Bruce Schneier's Applied Cryptography. Key APIs: Cipher, KeySizeError."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/rc4?ref={ref}
 
   - lib_id: /golang/go/crypto/rsa
-    description: Package rsa implements RSA encryption as specified in PKCS #1 and RFC 8017. Key APIs: CRTValue, OAEPOptions, PKCS1v15DecryptOptions, PSSOptions, PrecomputedValues, PrivateKey, PublicKey, DecryptOAEP.
+    description: "Package rsa implements RSA encryption as specified in PKCS #1 and RFC 8017. Key APIs: CRTValue, OAEPOptions, PKCS1v15DecryptOptions, PSSOptions, PrecomputedValues, PrivateKey, PublicKey, DecryptOAEP."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/rsa?ref={ref}
 
   - lib_id: /golang/go/crypto/sha1
-    description: Package sha1 implements the SHA-1 hash algorithm as defined in RFC 3174. Key APIs: New, Sum.
+    description: "Package sha1 implements the SHA-1 hash algorithm as defined in RFC 3174. Key APIs: New, Sum."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/sha1?ref={ref}
 
   - lib_id: /golang/go/crypto/sha1/_asm
-    description: Go standard library package _asm. Key APIs: BSWAP_SHUFB_CTL_DATA, CALC, CALC_0, CALC_1, CALC_10, CALC_100, CALC_101, CALC_102.
+    description: "Go standard library package _asm. Key APIs: BSWAP_SHUFB_CTL_DATA, CALC, CALC_0, CALC_1, CALC_10, CALC_100, CALC_101, CALC_102."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/sha1/_asm?ref={ref}
 
   - lib_id: /golang/go/crypto/sha256
-    description: Package sha256 implements the SHA224 and SHA256 hash algorithms as defined in FIPS 180-4. Key APIs: New, New224, Sum224, Sum256.
+    description: "Package sha256 implements the SHA224 and SHA256 hash algorithms as defined in FIPS 180-4. Key APIs: New, New224, Sum224, Sum256."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/sha256?ref={ref}
 
   - lib_id: /golang/go/crypto/sha3
-    description: Package sha3 implements the SHA-3 hash algorithms and the SHAKE extendable output functions defined in FIPS 202. Key APIs: SHA3, SHAKE, Sum224, Sum256, Sum384, Sum512, SumSHAKE128, SumSHAKE256.
+    description: "Package sha3 implements the SHA-3 hash algorithms and the SHAKE extendable output functions defined in FIPS 202. Key APIs: SHA3, SHAKE, Sum224, Sum256, Sum384, Sum512, SumSHAKE128, SumSHAKE256."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/sha3?ref={ref}
 
   - lib_id: /golang/go/crypto/sha512
-    description: Package sha512 implements the SHA-384, SHA-512, SHA-512/224, and SHA-512/256 hash algorithms as defined in FIPS 180-4. Key APIs: New, New384, New512_224, New512_256, Sum384, Sum512, Sum512_224, Sum512_256.
+    description: "Package sha512 implements the SHA-384, SHA-512, SHA-512/224, and SHA-512/256 hash algorithms as defined in FIPS 180-4. Key APIs: New, New384, New512_224, New512_256, Sum384, Sum512, Sum512_224, Sum512_256."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/sha512?ref={ref}
 
   - lib_id: /golang/go/crypto/subtle
-    description: Package subtle implements functions that are often useful in cryptographic code but require careful thought to use correctly. Key APIs: ConstantTimeByteEq, ConstantTimeCompare, ConstantTimeCopy, ConstantTimeEq, ConstantTimeLessOrEq, ConstantTimeSelect, WithDataIndependentTiming, XORBytes.
+    description: "Package subtle implements functions that are often useful in cryptographic code but require careful thought to use correctly. Key APIs: ConstantTimeByteEq, ConstantTimeCompare, ConstantTimeCopy, ConstantTimeEq, ConstantTimeLessOrEq, ConstantTimeSelect, WithDataIndependentTiming, XORBytes."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/subtle?ref={ref}
 
   - lib_id: /golang/go/crypto/tls
-    description: Package tls partially implements TLS 1.2, as specified in RFC 5246, and TLS 1.3, as specified in RFC 8446. Key APIs: AlertError, Certificate, CertificateRequestInfo, CertificateVerificationError, CipherSuite, ClientAuthType, ClientHelloInfo, ClientSessionCache.
+    description: "Package tls partially implements TLS 1.2, as specified in RFC 5246, and TLS 1.3, as specified in RFC 8446. Key APIs: AlertError, Certificate, CertificateRequestInfo, CertificateVerificationError, CipherSuite, ClientAuthType, ClientHelloInfo, ClientSessionCache."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -2505,378 +2505,378 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/crypto/tls/fipsonly?ref={ref}
 
   - lib_id: /golang/go/crypto/x509
-    description: Package x509 implements a subset of the X.509 standard. Key APIs: CertPool, Certificate, CertificateInvalidError, CertificateRequest, ConstraintViolationError, ExtKeyUsage, HostnameError, InsecureAlgorithmError.
+    description: "Package x509 implements a subset of the X.509 standard. Key APIs: CertPool, Certificate, CertificateInvalidError, CertificateRequest, ConstraintViolationError, ExtKeyUsage, HostnameError, InsecureAlgorithmError."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/x509?ref={ref}
 
   - lib_id: /golang/go/crypto/x509/pkix
-    description: Package pkix contains shared, low level structures used for ASN.1 parsing and serialization of X.509 certificates, CRL and OCSP. Key APIs: AlgorithmIdentifier, AttributeTypeAndValue, AttributeTypeAndValueSET, CertificateList, Extension, Name, RDNSequence, RelativeDistinguishedNameSET.
+    description: "Package pkix contains shared, low level structures used for ASN.1 parsing and serialization of X.509 certificates, CRL and OCSP. Key APIs: AlgorithmIdentifier, AttributeTypeAndValue, AttributeTypeAndValueSET, CertificateList, Extension, Name, RDNSequence, RelativeDistinguishedNameSET."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/crypto/x509/pkix?ref={ref}
 
   - lib_id: /golang/go/database/sql
-    description: Package sql provides a generic interface around SQL (or SQL-like) databases. Key APIs: ColumnType, Conn, DB, DBStats, IsolationLevel, NamedArg, Null, NullBool.
+    description: "Package sql provides a generic interface around SQL (or SQL-like) databases. Key APIs: ColumnType, Conn, DB, DBStats, IsolationLevel, NamedArg, Null, NullBool."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/database/sql?ref={ref}
 
   - lib_id: /golang/go/database/sql/driver
-    description: Package driver defines interfaces to be implemented by database drivers as used by package sql. Key APIs: ColumnConverter, Conn, ConnBeginTx, ConnPrepareContext, Connector, Driver, DriverContext, Execer.
+    description: "Package driver defines interfaces to be implemented by database drivers as used by package sql. Key APIs: ColumnConverter, Conn, ConnBeginTx, ConnPrepareContext, Connector, Driver, DriverContext, Execer."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/database/sql/driver?ref={ref}
 
   - lib_id: /golang/go/debug/buildinfo
-    description: Package buildinfo provides access to information embedded in a Go binary about how it was built. Key APIs: BuildInfo.
+    description: "Package buildinfo provides access to information embedded in a Go binary about how it was built. Key APIs: BuildInfo."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/buildinfo?ref={ref}
 
   - lib_id: /golang/go/debug/dwarf
-    description: Package dwarf provides access to DWARF debugging information loaded from executable files, as defined in the DWARF 2.0 Standard at http://dwarfstd.org/doc/dwarf-2.0.0.pdf. Key APIs: AddrType, ArrayType, Attr, BasicType, BoolType, CharType, Class, CommonType.
+    description: "Package dwarf provides access to DWARF debugging information loaded from executable files, as defined in the DWARF 2.0 Standard at http://dwarfstd.org/doc/dwarf-2.0.0.pdf. Key APIs: AddrType, ArrayType, Attr, BasicType, BoolType, CharType, Class, CommonType."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/dwarf?ref={ref}
 
   - lib_id: /golang/go/debug/elf
-    description: Package elf implements access to ELF object files. Key APIs: Chdr32, Chdr64, Class, CompressionType, Data, Dyn32, Dyn64, DynFlag.
+    description: "Package elf implements access to ELF object files. Key APIs: Chdr32, Chdr64, Class, CompressionType, Data, Dyn32, Dyn64, DynFlag."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/elf?ref={ref}
 
   - lib_id: /golang/go/debug/gosym
-    description: Package gosym implements access to the Go symbol and line number tables embedded in Go binaries generated by the gc compilers. Key APIs: DecodingError, Func, LineTable, Obj, Sym, Table, UnknownFileError, UnknownLineError.
+    description: "Package gosym implements access to the Go symbol and line number tables embedded in Go binaries generated by the gc compilers. Key APIs: DecodingError, Func, LineTable, Obj, Sym, Table, UnknownFileError, UnknownLineError."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/gosym?ref={ref}
 
   - lib_id: /golang/go/debug/macho
-    description: Package macho implements access to Mach-O object files. Key APIs: Cpu, Dylib, DylibCmd, Dysymtab, DysymtabCmd, FatArch, FatArchHeader, FatFile.
+    description: "Package macho implements access to Mach-O object files. Key APIs: Cpu, Dylib, DylibCmd, Dysymtab, DysymtabCmd, FatArch, FatArchHeader, FatFile."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/macho?ref={ref}
 
   - lib_id: /golang/go/debug/pe
-    description: Package pe implements access to PE (Microsoft Windows Portable Executable) files. Key APIs: COFFSymbol, COFFSymbolAuxFormat5, DataDirectory, File, FileHeader, FormatError, ImportDirectory, OptionalHeader32.
+    description: "Package pe implements access to PE (Microsoft Windows Portable Executable) files. Key APIs: COFFSymbol, COFFSymbolAuxFormat5, DataDirectory, File, FileHeader, FormatError, ImportDirectory, OptionalHeader32."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/pe?ref={ref}
 
   - lib_id: /golang/go/debug/plan9obj
-    description: Package plan9obj implements access to Plan 9 a.out object files. Key APIs: File, FileHeader, Section, SectionHeader, Sym.
+    description: "Package plan9obj implements access to Plan 9 a.out object files. Key APIs: File, FileHeader, Section, SectionHeader, Sym."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/debug/plan9obj?ref={ref}
 
   - lib_id: /golang/go/embed
-    description: Package embed provides access to files embedded in the running Go program. Key APIs: FS.
+    description: "Package embed provides access to files embedded in the running Go program. Key APIs: FS."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/embed?ref={ref}
 
   - lib_id: /golang/go/encoding
-    description: Package encoding defines interfaces shared by other packages that convert data to and from byte-level and textual representations. Key APIs: BinaryAppender, BinaryMarshaler, BinaryUnmarshaler, TextAppender, TextMarshaler, TextUnmarshaler.
+    description: "Package encoding defines interfaces shared by other packages that convert data to and from byte-level and textual representations. Key APIs: BinaryAppender, BinaryMarshaler, BinaryUnmarshaler, TextAppender, TextMarshaler, TextUnmarshaler."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding?ref={ref}
 
   - lib_id: /golang/go/encoding/ascii85
-    description: Package ascii85 implements the ascii85 data encoding as used in the btoa tool and Adobe's PostScript and PDF document formats. Key APIs: CorruptInputError, Decode, Encode, MaxEncodedLen, NewDecoder, NewEncoder.
+    description: "Package ascii85 implements the ascii85 data encoding as used in the btoa tool and Adobe's PostScript and PDF document formats. Key APIs: CorruptInputError, Decode, Encode, MaxEncodedLen, NewDecoder, NewEncoder."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/ascii85?ref={ref}
 
   - lib_id: /golang/go/encoding/asn1
-    description: Package asn1 implements parsing of DER-encoded ASN.1 data structures, as defined in ITU-T Rec X.690. Key APIs: BitString, Enumerated, Flag, ObjectIdentifier, RawContent, RawValue, StructuralError, SyntaxError.
+    description: "Package asn1 implements parsing of DER-encoded ASN.1 data structures, as defined in ITU-T Rec X.690. Key APIs: BitString, Enumerated, Flag, ObjectIdentifier, RawContent, RawValue, StructuralError, SyntaxError."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/asn1?ref={ref}
 
   - lib_id: /golang/go/encoding/base32
-    description: Package base32 implements base32 encoding as specified by RFC 4648. Key APIs: CorruptInputError, Encoding, NewDecoder, NewEncoder.
+    description: "Package base32 implements base32 encoding as specified by RFC 4648. Key APIs: CorruptInputError, Encoding, NewDecoder, NewEncoder."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/base32?ref={ref}
 
   - lib_id: /golang/go/encoding/base64
-    description: Package base64 implements base64 encoding as specified by RFC 4648. Key APIs: CorruptInputError, Encoding, NewDecoder, NewEncoder.
+    description: "Package base64 implements base64 encoding as specified by RFC 4648. Key APIs: CorruptInputError, Encoding, NewDecoder, NewEncoder."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/base64?ref={ref}
 
   - lib_id: /golang/go/encoding/binary
-    description: Package binary implements simple translation between numbers and byte sequences and encoding and decoding of varints. Key APIs: AppendByteOrder, ByteOrder, Append, AppendUvarint, AppendVarint, Decode, Encode, PutUvarint.
+    description: "Package binary implements simple translation between numbers and byte sequences and encoding and decoding of varints. Key APIs: AppendByteOrder, ByteOrder, Append, AppendUvarint, AppendVarint, Decode, Encode, PutUvarint."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/binary?ref={ref}
 
   - lib_id: /golang/go/encoding/csv
-    description: Package csv reads and writes comma-separated values (CSV) files. Key APIs: ParseError, Reader, Writer.
+    description: "Package csv reads and writes comma-separated values (CSV) files. Key APIs: ParseError, Reader, Writer."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/csv?ref={ref}
 
   - lib_id: /golang/go/encoding/gob
-    description: Package gob manages streams of gobs - binary values exchanged between an [Encoder] (transmitter) and a [Decoder] (receiver). Key APIs: CommonType, Decoder, Encoder, GobDecoder, GobEncoder, Debug, Register, RegisterName.
+    description: "Package gob manages streams of gobs - binary values exchanged between an [Encoder] (transmitter) and a [Decoder] (receiver). Key APIs: CommonType, Decoder, Encoder, GobDecoder, GobEncoder, Debug, Register, RegisterName."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/gob?ref={ref}
 
   - lib_id: /golang/go/encoding/hex
-    description: Package hex implements hexadecimal encoding and decoding. Key APIs: InvalidByteError, AppendDecode, AppendEncode, Decode, DecodeString, DecodedLen, Dump, Dumper.
+    description: "Package hex implements hexadecimal encoding and decoding. Key APIs: InvalidByteError, AppendDecode, AppendEncode, Decode, DecodeString, DecodedLen, Dump, Dumper."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/hex?ref={ref}
 
   - lib_id: /golang/go/encoding/json
-    description: Package json implements encoding and decoding of JSON as defined in RFC 7159. Key APIs: Decoder, Delim, Encoder, InvalidUTF8Error, InvalidUnmarshalError, Marshaler, MarshalerError, Number.
+    description: "Package json implements encoding and decoding of JSON as defined in RFC 7159. Key APIs: Decoder, Delim, Encoder, InvalidUTF8Error, InvalidUnmarshalError, Marshaler, MarshalerError, Number."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/json?ref={ref}
 
   - lib_id: /golang/go/encoding/json/jsontext
-    description: Package jsontext implements syntactic processing of JSON as specified in RFC 4627, RFC 7159, RFC 7493, RFC 8259, and RFC 8785. Key APIs: Decoder, Encoder, Kind, Options, Pointer, SyntacticError, Token, Value.
+    description: "Package jsontext implements syntactic processing of JSON as specified in RFC 4627, RFC 7159, RFC 7493, RFC 8259, and RFC 8785. Key APIs: Decoder, Encoder, Kind, Options, Pointer, SyntacticError, Token, Value."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/json/jsontext?ref={ref}
 
   - lib_id: /golang/go/encoding/json/v2
-    description: Package json implements semantic processing of JSON as specified in RFC 8259. Key APIs: Marshaler, MarshalerTo, Marshalers, Options, SemanticError, Unmarshaler, UnmarshalerFrom, Unmarshalers.
+    description: "Package json implements semantic processing of JSON as specified in RFC 8259. Key APIs: Marshaler, MarshalerTo, Marshalers, Options, SemanticError, Unmarshaler, UnmarshalerFrom, Unmarshalers."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/json/v2?ref={ref}
 
   - lib_id: /golang/go/encoding/pem
-    description: Package pem implements the PEM data encoding, which originated in Privacy Enhanced Mail. Key APIs: Block, Encode, EncodeToMemory.
+    description: "Package pem implements the PEM data encoding, which originated in Privacy Enhanced Mail. Key APIs: Block, Encode, EncodeToMemory."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/pem?ref={ref}
 
   - lib_id: /golang/go/encoding/xml
-    description: Package xml implements a simple XML 1.0 parser that understands XML name spaces. Key APIs: Attr, CharData, Comment, Decoder, Directive, Encoder, EndElement, Marshaler.
+    description: "Package xml implements a simple XML 1.0 parser that understands XML name spaces. Key APIs: Attr, CharData, Comment, Decoder, Directive, Encoder, EndElement, Marshaler."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/encoding/xml?ref={ref}
 
   - lib_id: /golang/go/errors
-    description: Package errors implements functions to manipulate errors. Key APIs: As, AsType, Is, Join, New, Unwrap.
+    description: "Package errors implements functions to manipulate errors. Key APIs: As, AsType, Is, Join, New, Unwrap."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/errors?ref={ref}
 
   - lib_id: /golang/go/expvar
-    description: Package expvar provides a standardized interface to public variables, such as operation counters in servers. Key APIs: Float, Func, Int, KeyValue, Map, String, Var, Do.
+    description: "Package expvar provides a standardized interface to public variables, such as operation counters in servers. Key APIs: Float, Func, Int, KeyValue, Map, String, Var, Do."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/expvar?ref={ref}
 
   - lib_id: /golang/go/flag
-    description: Package flag implements command-line flag parsing. Key APIs: ErrorHandling, Flag, FlagSet, Getter, Value, Arg, Args, Bool.
+    description: "Package flag implements command-line flag parsing. Key APIs: ErrorHandling, Flag, FlagSet, Getter, Value, Arg, Args, Bool."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/flag?ref={ref}
 
   - lib_id: /golang/go/fmt
-    description: Package fmt implements formatted I/O with functions analogous to C's printf and scanf. Key APIs: Formatter, GoStringer, ScanState, Scanner, State, Stringer, Append, Appendf.
+    description: "Package fmt implements formatted I/O with functions analogous to C's printf and scanf. Key APIs: Formatter, GoStringer, ScanState, Scanner, State, Stringer, Append, Appendf."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/fmt?ref={ref}
 
   - lib_id: /golang/go/go/ast
-    description: Package ast declares the types used to represent syntax trees for Go packages. Key APIs: ArrayType, AssignStmt, BadDecl, BadExpr, BadStmt, BasicLit, BinaryExpr, BlockStmt.
+    description: "Package ast declares the types used to represent syntax trees for Go packages. Key APIs: ArrayType, AssignStmt, BadDecl, BadExpr, BadStmt, BasicLit, BinaryExpr, BlockStmt."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/ast?ref={ref}
 
   - lib_id: /golang/go/go/build
-    description: Package build gathers information about Go packages. Key APIs: Context, Directive, ImportMode, MultiplePackageError, NoGoError, Package, ArchChar, IsLocalImport.
+    description: "Package build gathers information about Go packages. Key APIs: Context, Directive, ImportMode, MultiplePackageError, NoGoError, Package, ArchChar, IsLocalImport."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/build?ref={ref}
 
   - lib_id: /golang/go/go/build/constraint
-    description: Package constraint implements parsing and evaluation of build constraint lines. Key APIs: AndExpr, Expr, NotExpr, OrExpr, SyntaxError, TagExpr, GoVersion, IsGoBuild.
+    description: "Package constraint implements parsing and evaluation of build constraint lines. Key APIs: AndExpr, Expr, NotExpr, OrExpr, SyntaxError, TagExpr, GoVersion, IsGoBuild."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/build/constraint?ref={ref}
 
   - lib_id: /golang/go/go/constant
-    description: Package constant implements Values representing untyped Go constants and their corresponding operations. Key APIs: Kind, Value, BitLen, BoolVal, Bytes, Compare, Float32Val, Float64Val.
+    description: "Package constant implements Values representing untyped Go constants and their corresponding operations. Key APIs: Kind, Value, BitLen, BoolVal, Bytes, Compare, Float32Val, Float64Val."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/constant?ref={ref}
 
   - lib_id: /golang/go/go/doc
-    description: Package doc extracts source code documentation from a Go AST. Key APIs: Example, Filter, Func, Mode, Note, Package, Type, Value.
+    description: "Package doc extracts source code documentation from a Go AST. Key APIs: Example, Filter, Func, Mode, Note, Package, Type, Value."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/doc?ref={ref}
 
   - lib_id: /golang/go/go/doc/comment
-    description: Package comment implements parsing and reformatting of Go doc comments, (documentation comments), which are comments that immediately precede a top-level declaration of a package, const, func, type, or var. Key APIs: Block, Code, Doc, DocLink, Heading, Italic, Link, LinkDef.
+    description: "Package comment implements parsing and reformatting of Go doc comments, (documentation comments), which are comments that immediately precede a top-level declaration of a package, const, func, type, or var. Key APIs: Block, Code, Doc, DocLink, Heading, Italic, Link, LinkDef."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/doc/comment?ref={ref}
 
   - lib_id: /golang/go/go/format
-    description: Package format implements standard formatting of Go source. Key APIs: Node, Source.
+    description: "Package format implements standard formatting of Go source. Key APIs: Node, Source."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/format?ref={ref}
 
   - lib_id: /golang/go/go/importer
-    description: Package importer provides access to export data importers. Key APIs: Lookup, Default, For, ForCompiler.
+    description: "Package importer provides access to export data importers. Key APIs: Lookup, Default, For, ForCompiler."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/importer?ref={ref}
 
   - lib_id: /golang/go/go/parser
-    description: Package parser implements a parser for Go source files. Key APIs: Mode, ParseDir, ParseExpr, ParseExprFrom, ParseFile.
+    description: "Package parser implements a parser for Go source files. Key APIs: Mode, ParseDir, ParseExpr, ParseExprFrom, ParseFile."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/parser?ref={ref}
 
   - lib_id: /golang/go/go/printer
-    description: Package printer implements printing of AST nodes. Key APIs: CommentedNode, Config, Mode, Fprint.
+    description: "Package printer implements printing of AST nodes. Key APIs: CommentedNode, Config, Mode, Fprint."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/printer?ref={ref}
 
   - lib_id: /golang/go/go/scanner
-    description: Package scanner implements a scanner for Go source text. Key APIs: Error, ErrorHandler, ErrorList, Mode, Scanner, PrintError.
+    description: "Package scanner implements a scanner for Go source text. Key APIs: Error, ErrorHandler, ErrorList, Mode, Scanner, PrintError."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/scanner?ref={ref}
 
   - lib_id: /golang/go/go/token
-    description: Package token defines constants representing the lexical tokens of the Go programming language and basic operations on tokens (printing, predicates). Key APIs: File, FileSet, Pos, Position, Token, IsExported, IsIdentifier, IsKeyword.
+    description: "Package token defines constants representing the lexical tokens of the Go programming language and basic operations on tokens (printing, predicates). Key APIs: File, FileSet, Pos, Position, Token, IsExported, IsIdentifier, IsKeyword."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/token?ref={ref}
 
   - lib_id: /golang/go/go/types
-    description: Package types declares the data types and implements the algorithms for type-checking of Go packages. Key APIs: Alias, ArgumentError, Array, Basic, BasicInfo, BasicKind, Builtin, Chan.
+    description: "Package types declares the data types and implements the algorithms for type-checking of Go packages. Key APIs: Alias, ArgumentError, Array, Basic, BasicInfo, BasicKind, Builtin, Chan."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/types?ref={ref}
 
   - lib_id: /golang/go/go/version
-    description: Package version provides operations on [Go versions] in [Go toolchain name syntax]: strings like "go1.20", "go1.21.0", "go1.22rc2", and "go1.23.4-custom". Key APIs: Compare, IsValid, Lang.
+    description: "Package version provides operations on [Go versions] in [Go toolchain name syntax]: strings like \"go1.20\", \"go1.21.0\", \"go1.22rc2\", and \"go1.23.4-custom\". Key APIs: Compare, IsValid, Lang."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/go/version?ref={ref}
 
   - lib_id: /golang/go/hash
-    description: Package hash provides interfaces for hash functions. Key APIs: Cloner, Hash, Hash32, Hash64, XOF.
+    description: "Package hash provides interfaces for hash functions. Key APIs: Cloner, Hash, Hash32, Hash64, XOF."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/hash?ref={ref}
 
   - lib_id: /golang/go/hash/adler32
-    description: Package adler32 implements the Adler-32 checksum. Key APIs: Checksum, New.
+    description: "Package adler32 implements the Adler-32 checksum. Key APIs: Checksum, New."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/hash/adler32?ref={ref}
 
   - lib_id: /golang/go/hash/crc32
-    description: Package crc32 implements the 32-bit cyclic redundancy check, or CRC-32, checksum. Key APIs: Table, Checksum, ChecksumIEEE, New, NewIEEE, Update.
+    description: "Package crc32 implements the 32-bit cyclic redundancy check, or CRC-32, checksum. Key APIs: Table, Checksum, ChecksumIEEE, New, NewIEEE, Update."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/hash/crc32?ref={ref}
 
   - lib_id: /golang/go/hash/crc64
-    description: Package crc64 implements the 64-bit cyclic redundancy check, or CRC-64, checksum. Key APIs: Table, Checksum, New, Update.
+    description: "Package crc64 implements the 64-bit cyclic redundancy check, or CRC-64, checksum. Key APIs: Table, Checksum, New, Update."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/hash/crc64?ref={ref}
 
   - lib_id: /golang/go/hash/fnv
-    description: Package fnv implements FNV-1 and FNV-1a, non-cryptographic hash functions created by Glenn Fowler, Landon Curt Noll, and Phong Vo. Key APIs: New128, New128a, New32, New32a, New64, New64a.
+    description: "Package fnv implements FNV-1 and FNV-1a, non-cryptographic hash functions created by Glenn Fowler, Landon Curt Noll, and Phong Vo. Key APIs: New128, New128a, New32, New32a, New64, New64a."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/hash/fnv?ref={ref}
 
   - lib_id: /golang/go/hash/maphash
-    description: Package maphash provides hash functions on byte sequences and comparable values. Key APIs: Hash, Seed, Bytes, Comparable, String, WriteComparable.
+    description: "Package maphash provides hash functions on byte sequences and comparable values. Key APIs: Hash, Seed, Bytes, Comparable, String, WriteComparable."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/hash/maphash?ref={ref}
 
   - lib_id: /golang/go/html
-    description: Package html provides functions for escaping and unescaping HTML text. Key APIs: EscapeString, UnescapeString.
+    description: "Package html provides functions for escaping and unescaping HTML text. Key APIs: EscapeString, UnescapeString."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/html?ref={ref}
 
   - lib_id: /golang/go/html/template
-    description: Package template (html/template) implements data-driven templates for generating HTML output safe against code injection. Key APIs: CSS, Error, ErrorCode, FuncMap, HTML, HTMLAttr, JS, JSStr.
+    description: "Package template (html/template) implements data-driven templates for generating HTML output safe against code injection. Key APIs: CSS, Error, ErrorCode, FuncMap, HTML, HTMLAttr, JS, JSStr."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/html/template?ref={ref}
 
   - lib_id: /golang/go/image
-    description: Package image implements a basic 2-D image library. Key APIs: Alpha, Alpha16, CMYK, Config, Gray, Gray16, Image, NRGBA.
+    description: "Package image implements a basic 2-D image library. Key APIs: Alpha, Alpha16, CMYK, Config, Gray, Gray16, Image, NRGBA."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/image?ref={ref}
 
   - lib_id: /golang/go/image/color
-    description: Package color implements a basic color library. Key APIs: Alpha, Alpha16, CMYK, Color, Gray, Gray16, Model, NRGBA.
+    description: "Package color implements a basic color library. Key APIs: Alpha, Alpha16, CMYK, Color, Gray, Gray16, Model, NRGBA."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -2890,28 +2890,28 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/image/color/palette?ref={ref}
 
   - lib_id: /golang/go/image/draw
-    description: Package draw provides image composition functions. Key APIs: Drawer, Image, Op, Quantizer, RGBA64Image, Draw, DrawMask.
+    description: "Package draw provides image composition functions. Key APIs: Drawer, Image, Op, Quantizer, RGBA64Image, Draw, DrawMask."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/image/draw?ref={ref}
 
   - lib_id: /golang/go/image/gif
-    description: Package gif implements a GIF image decoder and encoder. Key APIs: GIF, Options, Decode, DecodeConfig, Encode, EncodeAll.
+    description: "Package gif implements a GIF image decoder and encoder. Key APIs: GIF, Options, Decode, DecodeConfig, Encode, EncodeAll."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/image/gif?ref={ref}
 
   - lib_id: /golang/go/image/jpeg
-    description: Package jpeg implements a JPEG image decoder and encoder. Key APIs: FormatError, Options, Reader, UnsupportedError, Decode, DecodeConfig, Encode.
+    description: "Package jpeg implements a JPEG image decoder and encoder. Key APIs: FormatError, Options, Reader, UnsupportedError, Decode, DecodeConfig, Encode."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/image/jpeg?ref={ref}
 
   - lib_id: /golang/go/image/png
-    description: Package png implements a PNG image decoder and encoder. Key APIs: CompressionLevel, Encoder, EncoderBuffer, EncoderBufferPool, FormatError, UnsupportedError, Decode, DecodeConfig.
+    description: "Package png implements a PNG image decoder and encoder. Key APIs: CompressionLevel, Encoder, EncoderBuffer, EncoderBufferPool, FormatError, UnsupportedError, Decode, DecodeConfig."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -2925,308 +2925,308 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/index/suffixarray?ref={ref}
 
   - lib_id: /golang/go/io
-    description: Package io provides basic interfaces to I/O primitives. Key APIs: ByteReader, ByteScanner, ByteWriter, Closer, LimitedReader, OffsetWriter, PipeReader, PipeWriter.
+    description: "Package io provides basic interfaces to I/O primitives. Key APIs: ByteReader, ByteScanner, ByteWriter, Closer, LimitedReader, OffsetWriter, PipeReader, PipeWriter."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/io?ref={ref}
 
   - lib_id: /golang/go/io/fs
-    description: Package fs defines basic interfaces to a file system. Key APIs: DirEntry, FS, File, FileInfo, FileMode, GlobFS, PathError, ReadDirFS.
+    description: "Package fs defines basic interfaces to a file system. Key APIs: DirEntry, FS, File, FileInfo, FileMode, GlobFS, PathError, ReadDirFS."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/io/fs?ref={ref}
 
   - lib_id: /golang/go/io/ioutil
-    description: Package ioutil implements some I/O utility functions. Key APIs: NopCloser, ReadAll, ReadDir, ReadFile, TempDir, TempFile, WriteFile.
+    description: "Package ioutil implements some I/O utility functions. Key APIs: NopCloser, ReadAll, ReadDir, ReadFile, TempDir, TempFile, WriteFile."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/io/ioutil?ref={ref}
 
   - lib_id: /golang/go/iter
-    description: Package iter provides basic definitions and operations related to iterators over sequences. Key APIs: Seq, Seq2, Pull, Pull2.
+    description: "Package iter provides basic definitions and operations related to iterators over sequences. Key APIs: Seq, Seq2, Pull, Pull2."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/iter?ref={ref}
 
   - lib_id: /golang/go/log
-    description: Package log implements a simple logging package. Key APIs: Logger, Fatal, Fatalf, Fatalln, Flags, Output, Panic, Panicf.
+    description: "Package log implements a simple logging package. Key APIs: Logger, Fatal, Fatalf, Fatalln, Flags, Output, Panic, Panicf."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/log?ref={ref}
 
   - lib_id: /golang/go/log/slog
-    description: Package slog provides structured logging, in which log records include a message, a severity level, and various other attributes expressed as key-value pairs. Key APIs: Attr, Handler, HandlerOptions, JSONHandler, Kind, Level, LevelVar, Leveler.
+    description: "Package slog provides structured logging, in which log records include a message, a severity level, and various other attributes expressed as key-value pairs. Key APIs: Attr, Handler, HandlerOptions, JSONHandler, Kind, Level, LevelVar, Leveler."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/log/slog?ref={ref}
 
   - lib_id: /golang/go/log/syslog
-    description: Package syslog provides a simple interface to the system log service. Key APIs: Priority, Writer, NewLogger.
+    description: "Package syslog provides a simple interface to the system log service. Key APIs: Priority, Writer, NewLogger."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/log/syslog?ref={ref}
 
   - lib_id: /golang/go/maps
-    description: Package maps defines various functions useful with maps of any type. Key APIs: All, Clone, Collect, Copy, DeleteFunc, Equal, EqualFunc, Insert.
+    description: "Package maps defines various functions useful with maps of any type. Key APIs: All, Clone, Collect, Copy, DeleteFunc, Equal, EqualFunc, Insert."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/maps?ref={ref}
 
   - lib_id: /golang/go/math
-    description: Package math provides basic constants and mathematical functions. Key APIs: Abs, Acos, Acosh, Asin, Asinh, Atan, Atan2, Atanh.
+    description: "Package math provides basic constants and mathematical functions. Key APIs: Abs, Acos, Acosh, Asin, Asinh, Atan, Atan2, Atanh."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/math?ref={ref}
 
   - lib_id: /golang/go/math/big
-    description: Package big implements arbitrary-precision arithmetic (big numbers). Key APIs: Accuracy, ErrNaN, Float, Int, Rat, RoundingMode, Word, Jacobi.
+    description: "Package big implements arbitrary-precision arithmetic (big numbers). Key APIs: Accuracy, ErrNaN, Float, Int, Rat, RoundingMode, Word, Jacobi."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/math/big?ref={ref}
 
   - lib_id: /golang/go/math/bits
-    description: Package bits implements bit counting and manipulation functions for the predeclared unsigned integer types. Key APIs: Add, Add32, Add64, Div, Div32, Div64, LeadingZeros, LeadingZeros16.
+    description: "Package bits implements bit counting and manipulation functions for the predeclared unsigned integer types. Key APIs: Add, Add32, Add64, Div, Div32, Div64, LeadingZeros, LeadingZeros16."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/math/bits?ref={ref}
 
   - lib_id: /golang/go/math/cmplx
-    description: Package cmplx provides basic constants and mathematical functions for complex numbers. Key APIs: Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Conj.
+    description: "Package cmplx provides basic constants and mathematical functions for complex numbers. Key APIs: Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Conj."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/math/cmplx?ref={ref}
 
   - lib_id: /golang/go/math/rand
-    description: Package rand implements pseudo-random number generators suitable for tasks such as simulation, but it should not be used for security-sensitive work. Key APIs: Rand, Source, Source64, Zipf, ExpFloat64, Float32, Float64, Int.
+    description: "Package rand implements pseudo-random number generators suitable for tasks such as simulation, but it should not be used for security-sensitive work. Key APIs: Rand, Source, Source64, Zipf, ExpFloat64, Float32, Float64, Int."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/math/rand?ref={ref}
 
   - lib_id: /golang/go/math/rand/v2
-    description: Package rand implements pseudo-random number generators suitable for tasks such as simulation, but it should not be used for security-sensitive work. Key APIs: ChaCha8, PCG, Rand, Source, Zipf, ExpFloat64, Float32, Float64.
+    description: "Package rand implements pseudo-random number generators suitable for tasks such as simulation, but it should not be used for security-sensitive work. Key APIs: ChaCha8, PCG, Rand, Source, Zipf, ExpFloat64, Float32, Float64."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/math/rand/v2?ref={ref}
 
   - lib_id: /golang/go/mime
-    description: Package mime implements parts of the MIME spec. Key APIs: WordDecoder, WordEncoder, AddExtensionType, ExtensionsByType, FormatMediaType, ParseMediaType, TypeByExtension.
+    description: "Package mime implements parts of the MIME spec. Key APIs: WordDecoder, WordEncoder, AddExtensionType, ExtensionsByType, FormatMediaType, ParseMediaType, TypeByExtension."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/mime?ref={ref}
 
   - lib_id: /golang/go/mime/multipart
-    description: Package multipart implements MIME multipart parsing, as defined in RFC 2046. Key APIs: File, FileHeader, Form, Part, Reader, Writer, FileContentDisposition.
+    description: "Package multipart implements MIME multipart parsing, as defined in RFC 2046. Key APIs: File, FileHeader, Form, Part, Reader, Writer, FileContentDisposition."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/mime/multipart?ref={ref}
 
   - lib_id: /golang/go/mime/quotedprintable
-    description: Package quotedprintable implements quoted-printable encoding as specified by RFC 2045. Key APIs: Reader, Writer.
+    description: "Package quotedprintable implements quoted-printable encoding as specified by RFC 2045. Key APIs: Reader, Writer."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/mime/quotedprintable?ref={ref}
 
   - lib_id: /golang/go/net
-    description: Package net provides a portable interface for network I/O, including TCP/IP, UDP, domain name resolution, and Unix domain sockets. Key APIs: Addr, AddrError, Buffers, Conn, DNSConfigError, DNSError, Dialer, Error.
+    description: "Package net provides a portable interface for network I/O, including TCP/IP, UDP, domain name resolution, and Unix domain sockets. Key APIs: Addr, AddrError, Buffers, Conn, DNSConfigError, DNSError, Dialer, Error."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net?ref={ref}
 
   - lib_id: /golang/go/net/http
-    description: Package http provides HTTP client and server implementations. Key APIs: Client, ClientConn, CloseNotifier, ConnState, Cookie, CookieJar, CrossOriginProtection, Dir.
+    description: "Package http provides HTTP client and server implementations. Key APIs: Client, ClientConn, CloseNotifier, ConnState, Cookie, CookieJar, CrossOriginProtection, Dir."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http?ref={ref}
 
   - lib_id: /golang/go/net/http/cgi
-    description: Package cgi implements CGI (Common Gateway Interface) as specified in RFC 3875. Key APIs: Handler, Request, RequestFromMap, Serve.
+    description: "Package cgi implements CGI (Common Gateway Interface) as specified in RFC 3875. Key APIs: Handler, Request, RequestFromMap, Serve."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/cgi?ref={ref}
 
   - lib_id: /golang/go/net/http/cookiejar
-    description: Package cookiejar implements an in-memory RFC 6265-compliant http.CookieJar. Key APIs: Jar, Options, PublicSuffixList.
+    description: "Package cookiejar implements an in-memory RFC 6265-compliant http.CookieJar. Key APIs: Jar, Options, PublicSuffixList."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/cookiejar?ref={ref}
 
   - lib_id: /golang/go/net/http/fcgi
-    description: Package fcgi implements the FastCGI protocol. Key APIs: ProcessEnv, Serve.
+    description: "Package fcgi implements the FastCGI protocol. Key APIs: ProcessEnv, Serve."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/fcgi?ref={ref}
 
   - lib_id: /golang/go/net/http/httptest
-    description: Package httptest provides utilities for HTTP testing. Key APIs: ResponseRecorder, Server, NewRequest, NewRequestWithContext.
+    description: "Package httptest provides utilities for HTTP testing. Key APIs: ResponseRecorder, Server, NewRequest, NewRequestWithContext."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/httptest?ref={ref}
 
   - lib_id: /golang/go/net/http/httptrace
-    description: Package httptrace provides mechanisms to trace the events within HTTP client requests. Key APIs: ClientTrace, DNSDoneInfo, DNSStartInfo, GotConnInfo, WroteRequestInfo, WithClientTrace.
+    description: "Package httptrace provides mechanisms to trace the events within HTTP client requests. Key APIs: ClientTrace, DNSDoneInfo, DNSStartInfo, GotConnInfo, WroteRequestInfo, WithClientTrace."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/httptrace?ref={ref}
 
   - lib_id: /golang/go/net/http/httputil
-    description: Package httputil provides HTTP utility functions, complementing the more common ones in the net/http package. Key APIs: BufferPool, ClientConn, ProxyRequest, ReverseProxy, ServerConn, DumpRequest, DumpRequestOut, DumpResponse.
+    description: "Package httputil provides HTTP utility functions, complementing the more common ones in the net/http package. Key APIs: BufferPool, ClientConn, ProxyRequest, ReverseProxy, ServerConn, DumpRequest, DumpRequestOut, DumpResponse."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/httputil?ref={ref}
 
   - lib_id: /golang/go/net/http/pprof
-    description: Package pprof serves via its HTTP server runtime profiling data in the format expected by the pprof visualization tool. Key APIs: Cmdline, Handler, Index, Profile, Symbol, Trace.
+    description: "Package pprof serves via its HTTP server runtime profiling data in the format expected by the pprof visualization tool. Key APIs: Cmdline, Handler, Index, Profile, Symbol, Trace."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/http/pprof?ref={ref}
 
   - lib_id: /golang/go/net/mail
-    description: Package mail implements parsing of mail messages. Key APIs: Address, AddressParser, Header, Message, ParseDate.
+    description: "Package mail implements parsing of mail messages. Key APIs: Address, AddressParser, Header, Message, ParseDate."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/mail?ref={ref}
 
   - lib_id: /golang/go/net/netip
-    description: Package netip defines an IP address type that's a small value type. Key APIs: Addr, AddrPort, Prefix.
+    description: "Package netip defines an IP address type that's a small value type. Key APIs: Addr, AddrPort, Prefix."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/netip?ref={ref}
 
   - lib_id: /golang/go/net/rpc
-    description: Package rpc provides access to the exported methods of an object across a network or other I/O connection. Key APIs: Call, Client, ClientCodec, Request, Response, Server, ServerCodec, ServerError.
+    description: "Package rpc provides access to the exported methods of an object across a network or other I/O connection. Key APIs: Call, Client, ClientCodec, Request, Response, Server, ServerCodec, ServerError."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/rpc?ref={ref}
 
   - lib_id: /golang/go/net/rpc/jsonrpc
-    description: Package jsonrpc implements a JSON-RPC 1.0 ClientCodec and ServerCodec for the rpc package. Key APIs: Dial, NewClient, NewClientCodec, NewServerCodec, ServeConn.
+    description: "Package jsonrpc implements a JSON-RPC 1.0 ClientCodec and ServerCodec for the rpc package. Key APIs: Dial, NewClient, NewClientCodec, NewServerCodec, ServeConn."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/rpc/jsonrpc?ref={ref}
 
   - lib_id: /golang/go/net/smtp
-    description: Package smtp implements the Simple Mail Transfer Protocol as defined in RFC 5321. Key APIs: Auth, Client, ServerInfo, SendMail.
+    description: "Package smtp implements the Simple Mail Transfer Protocol as defined in RFC 5321. Key APIs: Auth, Client, ServerInfo, SendMail."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/smtp?ref={ref}
 
   - lib_id: /golang/go/net/textproto
-    description: Package textproto implements generic support for text-based request/response protocols in the style of HTTP, NNTP, and SMTP. Key APIs: Conn, Error, MIMEHeader, Pipeline, ProtocolError, Reader, Writer, CanonicalMIMEHeaderKey.
+    description: "Package textproto implements generic support for text-based request/response protocols in the style of HTTP, NNTP, and SMTP. Key APIs: Conn, Error, MIMEHeader, Pipeline, ProtocolError, Reader, Writer, CanonicalMIMEHeaderKey."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/textproto?ref={ref}
 
   - lib_id: /golang/go/net/url
-    description: Package url parses URLs and implements query escaping. Key APIs: Error, EscapeError, InvalidHostError, URL, Userinfo, Values, JoinPath, PathEscape.
+    description: "Package url parses URLs and implements query escaping. Key APIs: Error, EscapeError, InvalidHostError, URL, Userinfo, Values, JoinPath, PathEscape."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/net/url?ref={ref}
 
   - lib_id: /golang/go/os
-    description: Package os provides a platform-independent interface to operating system functionality. Key APIs: DirEntry, File, FileInfo, FileMode, LinkError, PathError, ProcAttr, Process.
+    description: "Package os provides a platform-independent interface to operating system functionality. Key APIs: DirEntry, File, FileInfo, FileMode, LinkError, PathError, ProcAttr, Process."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/os?ref={ref}
 
   - lib_id: /golang/go/os/exec
-    description: Package exec runs external commands. Key APIs: Cmd, Error, ExitError, LookPath.
+    description: "Package exec runs external commands. Key APIs: Cmd, Error, ExitError, LookPath."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/os/exec?ref={ref}
 
   - lib_id: /golang/go/os/signal
-    description: Package signal implements access to incoming signals. Key APIs: Ignore, Ignored, Notify, NotifyContext, Reset, Stop.
+    description: "Package signal implements access to incoming signals. Key APIs: Ignore, Ignored, Notify, NotifyContext, Reset, Stop."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/os/signal?ref={ref}
 
   - lib_id: /golang/go/os/user
-    description: Package user allows user account lookups by name or id. Key APIs: Group, UnknownGroupError, UnknownGroupIdError, UnknownUserError, UnknownUserIdError, User.
+    description: "Package user allows user account lookups by name or id. Key APIs: Group, UnknownGroupError, UnknownGroupIdError, UnknownUserError, UnknownUserIdError, User."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/os/user?ref={ref}
 
   - lib_id: /golang/go/path
-    description: Package path implements utility routines for manipulating slash-separated paths. Key APIs: Base, Clean, Dir, Ext, IsAbs, Join, Match, Split.
+    description: "Package path implements utility routines for manipulating slash-separated paths. Key APIs: Base, Clean, Dir, Ext, IsAbs, Join, Match, Split."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/path?ref={ref}
 
   - lib_id: /golang/go/path/filepath
-    description: Package filepath implements utility routines for manipulating filename paths in a way compatible with the target operating system-defined file paths. Key APIs: WalkFunc, Abs, Base, Clean, Dir, EvalSymlinks, Ext, FromSlash.
+    description: "Package filepath implements utility routines for manipulating filename paths in a way compatible with the target operating system-defined file paths. Key APIs: WalkFunc, Abs, Base, Clean, Dir, EvalSymlinks, Ext, FromSlash."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/path/filepath?ref={ref}
 
   - lib_id: /golang/go/plugin
-    description: Package plugin implements loading and symbol resolution of Go plugins. Key APIs: Plugin, Symbol.
+    description: "Package plugin implements loading and symbol resolution of Go plugins. Key APIs: Plugin, Symbol."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/plugin?ref={ref}
 
   - lib_id: /golang/go/reflect
-    description: Package reflect implements run-time reflection, allowing a program to manipulate objects with arbitrary types. Key APIs: ChanDir, Kind, MapIter, Method, SelectCase, SelectDir, SliceHeader, StringHeader.
+    description: "Package reflect implements run-time reflection, allowing a program to manipulate objects with arbitrary types. Key APIs: ChanDir, Kind, MapIter, Method, SelectCase, SelectDir, SliceHeader, StringHeader."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/reflect?ref={ref}
 
   - lib_id: /golang/go/regexp
-    description: Package regexp implements regular expression search. Key APIs: Regexp, Match, MatchReader, MatchString, QuoteMeta.
+    description: "Package regexp implements regular expression search. Key APIs: Regexp, Match, MatchReader, MatchString, QuoteMeta."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/regexp?ref={ref}
 
   - lib_id: /golang/go/regexp/syntax
-    description: Package syntax parses regular expressions into parse trees and compiles parse trees into programs. Key APIs: EmptyOp, Error, ErrorCode, Flags, Inst, InstOp, Op, Prog.
+    description: "Package syntax parses regular expressions into parse trees and compiles parse trees into programs. Key APIs: EmptyOp, Error, ErrorCode, Flags, Inst, InstOp, Op, Prog."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/regexp/syntax?ref={ref}
 
   - lib_id: /golang/go/runtime
-    description: Package runtime contains operations that interact with Go's runtime system, such as functions to control goroutines. Key APIs: BlockProfileRecord, Cleanup, EpollEvent, Error, ExceptionState32, ExceptionState64, FPControl, FPStatus.
+    description: mkduff generates duff_*.s.
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3240,7 +3240,7 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/runtime/_mkmalloc?ref={ref}
 
   - lib_id: /golang/go/runtime/_mkmalloc/astutil
-    description: Go standard library package astutil. Key APIs: CloneNode.
+    description: "Go standard library package astutil. Key APIs: CloneNode."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3254,28 +3254,28 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/runtime/asan?ref={ref}
 
   - lib_id: /golang/go/runtime/cgo
-    description: Package cgo contains runtime support for code generated by the cgo tool. Key APIs: Handle, Incomplete.
+    description: "Package cgo contains runtime support for code generated by the cgo tool. Key APIs: Handle, Incomplete."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/runtime/cgo?ref={ref}
 
   - lib_id: /golang/go/runtime/coverage
-    description: Package coverage contains APIs for writing coverage profile data at runtime from long-running and/or server programs that do not terminate via os.Exit. Key APIs: ClearCounters, WriteCounters, WriteCountersDir, WriteMeta, WriteMetaDir.
+    description: "Package coverage contains APIs for writing coverage profile data at runtime from long-running and/or server programs that do not terminate via os.Exit. Key APIs: ClearCounters, WriteCounters, WriteCountersDir, WriteMeta, WriteMetaDir."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/runtime/coverage?ref={ref}
 
   - lib_id: /golang/go/runtime/debug
-    description: Package debug contains facilities for programs to debug themselves while they are running. Key APIs: BuildInfo, BuildSetting, CrashOptions, GCStats, Module, FreeOSMemory, PrintStack, ReadGCStats.
+    description: "Package debug contains facilities for programs to debug themselves while they are running. Key APIs: BuildInfo, BuildSetting, CrashOptions, GCStats, Module, FreeOSMemory, PrintStack, ReadGCStats."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/runtime/debug?ref={ref}
 
   - lib_id: /golang/go/runtime/metrics
-    description: Package metrics provides a stable interface to access implementation-defined metrics exported by the Go runtime. Key APIs: Description, Float64Histogram, Sample, Value, ValueKind, Read.
+    description: "Package metrics provides a stable interface to access implementation-defined metrics exported by the Go runtime. Key APIs: Description, Float64Histogram, Sample, Value, ValueKind, Read."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3289,7 +3289,7 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/runtime/msan?ref={ref}
 
   - lib_id: /golang/go/runtime/pprof
-    description: Package pprof writes runtime profiling data in the format expected by the pprof visualization tool. Key APIs: LabelSet, Profile, Do, ForLabels, Label, SetGoroutineLabels, StartCPUProfile, StopCPUProfile.
+    description: "Package pprof writes runtime profiling data in the format expected by the pprof visualization tool. Key APIs: LabelSet, Profile, Do, ForLabels, Label, SetGoroutineLabels, StartCPUProfile, StopCPUProfile."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3303,21 +3303,21 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/runtime/race?ref={ref}
 
   - lib_id: /golang/go/runtime/secret
-    description: Package secret contains helper functions for zeroing out memory that is otherwise invisible to a user program in the service of forward secrecy. Key APIs: Do, Enabled.
+    description: "Package secret contains helper functions for zeroing out memory that is otherwise invisible to a user program in the service of forward secrecy. Key APIs: Do, Enabled."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/runtime/secret?ref={ref}
 
   - lib_id: /golang/go/runtime/trace
-    description: Package trace contains facilities for programs to generate traces for the Go execution tracer. Key APIs: FlightRecorder, FlightRecorderConfig, Region, Task, IsEnabled, Log, Logf, Start.
+    description: "Package trace contains facilities for programs to generate traces for the Go execution tracer. Key APIs: FlightRecorder, FlightRecorderConfig, Region, Task, IsEnabled, Log, Logf, Start."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/runtime/trace?ref={ref}
 
   - lib_id: /golang/go/simd/archsimd
-    description: Package archsimd provides access to architecture-specific SIMD operations. Key APIs: Float32x16, Float32x4, Float32x8, Float64x2, Float64x4, Float64x8, Int16x16, Int16x32.
+    description: "Package archsimd provides access to architecture-specific SIMD operations. Key APIs: Float32x16, Float32x4, Float32x8, Float64x2, Float64x4, Float64x8, Int16x16, Int16x32."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3331,7 +3331,7 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/simd/archsimd/_gen?ref={ref}
 
   - lib_id: /golang/go/simd/archsimd/_gen/simdgen
-    description: simdgen is an experiment in generating Go <-> asm SIMD mappings. Key APIs: Operand, Operation.
+    description: "simdgen is an experiment in generating Go <-> asm SIMD mappings. Key APIs: Operand, Operation."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3345,154 +3345,154 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/simd/archsimd/_gen/tmplgen?ref={ref}
 
   - lib_id: /golang/go/simd/archsimd/_gen/unify
-    description: Package unify implements unification of structured values. Key APIs: Closure, Decoder, Def, DefBuilder, Domain, Pos, ReadOpts, String.
+    description: "Package unify implements unification of structured values. Key APIs: Closure, Decoder, Def, DefBuilder, Domain, Pos, ReadOpts, String."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/simd/archsimd/_gen/unify?ref={ref}
 
   - lib_id: /golang/go/slices
-    description: Package slices defines various functions useful with slices of any type. Key APIs: All, AppendSeq, Backward, BinarySearch, BinarySearchFunc, Chunk, Clip, Clone.
+    description: "Package slices defines various functions useful with slices of any type. Key APIs: All, AppendSeq, Backward, BinarySearch, BinarySearchFunc, Chunk, Clip, Clone."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/slices?ref={ref}
 
   - lib_id: /golang/go/sort
-    description: Go standard library package sort. Key APIs: Variant.
+    description: "Go standard library package sort. Key APIs: Variant."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/sort?ref={ref}
 
   - lib_id: /golang/go/strconv
-    description: Package strconv implements conversions to and from string representations of basic data types. Key APIs: NumError, AppendBool, AppendFloat, AppendInt, AppendQuote, AppendQuoteRune, AppendQuoteRuneToASCII, AppendQuoteRuneToGraphic.
+    description: "Package strconv implements conversions to and from string representations of basic data types. Key APIs: NumError, AppendBool, AppendFloat, AppendInt, AppendQuote, AppendQuoteRune, AppendQuoteRuneToASCII, AppendQuoteRuneToGraphic."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/strconv?ref={ref}
 
   - lib_id: /golang/go/strings
-    description: Package strings implements simple functions to manipulate UTF-8 encoded strings. Key APIs: Builder, Reader, Replacer, Clone, Compare, Contains, ContainsAny, ContainsFunc.
+    description: "Package strings implements simple functions to manipulate UTF-8 encoded strings. Key APIs: Builder, Reader, Replacer, Clone, Compare, Contains, ContainsAny, ContainsFunc."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/strings?ref={ref}
 
   - lib_id: /golang/go/structs
-    description: Package structs defines marker types that can be used as struct fields to modify the properties of a struct. Key APIs: HostLayout.
+    description: "Package structs defines marker types that can be used as struct fields to modify the properties of a struct. Key APIs: HostLayout."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/structs?ref={ref}
 
   - lib_id: /golang/go/sync
-    description: Package sync provides basic synchronization primitives such as mutual exclusion locks. Key APIs: Cond, Locker, Map, Mutex, Once, Pool, RWMutex, WaitGroup.
+    description: "Package sync provides basic synchronization primitives such as mutual exclusion locks. Key APIs: Cond, Locker, Map, Mutex, Once, Pool, RWMutex, WaitGroup."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/sync?ref={ref}
 
   - lib_id: /golang/go/sync/atomic
-    description: Package atomic provides low-level atomic memory primitives useful for implementing synchronization algorithms. Key APIs: Bool, Int32, Int64, Pointer, Uint32, Uint64, Uintptr, Value.
+    description: "Package atomic provides low-level atomic memory primitives useful for implementing synchronization algorithms. Key APIs: Bool, Int32, Int64, Pointer, Uint32, Uint64, Uintptr, Value."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/sync/atomic?ref={ref}
 
   - lib_id: /golang/go/syscall
-    description: Package syscall contains an interface to the low-level operating system primitives. Key APIs: AddrinfoW, BpfHdr, BpfInsn, BpfProgram, BpfStat, BpfTimeval, BpfVersion, BpfZbuf.
+    description: "Package syscall contains an interface to the low-level operating system primitives. Key APIs: AddrinfoW, BpfHdr, BpfInsn, BpfProgram, BpfStat, BpfTimeval, BpfVersion, BpfZbuf."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/syscall?ref={ref}
 
   - lib_id: /golang/go/syscall/js
-    description: Package js gives access to the WebAssembly host environment when using the js/wasm architecture. Key APIs: Error, Func, Type, Value, ValueError, CopyBytesToGo, CopyBytesToJS.
+    description: "Package js gives access to the WebAssembly host environment when using the js/wasm architecture. Key APIs: Error, Func, Type, Value, ValueError, CopyBytesToGo, CopyBytesToJS."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/syscall/js?ref={ref}
 
   - lib_id: /golang/go/testing
-    description: Package testing provides support for automated testing of Go packages. Key APIs: B, BenchmarkResult, Cover, CoverBlock, F, InternalBenchmark, InternalExample, InternalFuzzTarget.
+    description: "Package testing provides support for automated testing of Go packages. Key APIs: B, BenchmarkResult, Cover, CoverBlock, F, InternalBenchmark, InternalExample, InternalFuzzTarget."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing?ref={ref}
 
   - lib_id: /golang/go/testing/cryptotest
-    description: Package cryptotest provides deterministic random source testing. Key APIs: SetGlobalRandom.
+    description: "Package cryptotest provides deterministic random source testing. Key APIs: SetGlobalRandom."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing/cryptotest?ref={ref}
 
   - lib_id: /golang/go/testing/fstest
-    description: Package fstest implements support for testing implementations and users of file systems. Key APIs: MapFS, MapFile, TestFS.
+    description: "Package fstest implements support for testing implementations and users of file systems. Key APIs: MapFS, MapFile, TestFS."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing/fstest?ref={ref}
 
   - lib_id: /golang/go/testing/iotest
-    description: Package iotest implements Readers and Writers useful mainly for testing. Key APIs: DataErrReader, ErrReader, HalfReader, NewReadLogger, NewWriteLogger, OneByteReader, TestReader, TimeoutReader.
+    description: "Package iotest implements Readers and Writers useful mainly for testing. Key APIs: DataErrReader, ErrReader, HalfReader, NewReadLogger, NewWriteLogger, OneByteReader, TestReader, TimeoutReader."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing/iotest?ref={ref}
 
   - lib_id: /golang/go/testing/quick
-    description: Package quick implements utility functions to help with black box testing. Key APIs: CheckEqualError, CheckError, Config, Generator, SetupError, Check, CheckEqual, Value.
+    description: "Package quick implements utility functions to help with black box testing. Key APIs: CheckEqualError, CheckError, Config, Generator, SetupError, Check, CheckEqual, Value."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing/quick?ref={ref}
 
   - lib_id: /golang/go/testing/slogtest
-    description: Package slogtest implements support for testing implementations of log/slog.Handler. Key APIs: Run, TestHandler.
+    description: "Package slogtest implements support for testing implementations of log/slog.Handler. Key APIs: Run, TestHandler."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing/slogtest?ref={ref}
 
   - lib_id: /golang/go/testing/synctest
-    description: Package synctest provides support for testing concurrent code. Key APIs: Test, Wait.
+    description: "Package synctest provides support for testing concurrent code. Key APIs: Test, Wait."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/testing/synctest?ref={ref}
 
   - lib_id: /golang/go/text/scanner
-    description: Package scanner provides a scanner and tokenizer for UTF-8-encoded text. Key APIs: Position, Scanner, TokenString.
+    description: "Package scanner provides a scanner and tokenizer for UTF-8-encoded text. Key APIs: Position, Scanner, TokenString."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/text/scanner?ref={ref}
 
   - lib_id: /golang/go/text/tabwriter
-    description: Package tabwriter implements a write filter (tabwriter.Writer) that translates tabbed columns in input into properly aligned text. Key APIs: Writer.
+    description: "Package tabwriter implements a write filter (tabwriter.Writer) that translates tabbed columns in input into properly aligned text. Key APIs: Writer."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/text/tabwriter?ref={ref}
 
   - lib_id: /golang/go/text/template
-    description: Package template implements data-driven templates for generating textual output. Key APIs: ExecError, FuncMap, Template, HTMLEscape, HTMLEscapeString, HTMLEscaper, IsTrue, JSEscape.
+    description: "Package template implements data-driven templates for generating textual output. Key APIs: ExecError, FuncMap, Template, HTMLEscape, HTMLEscapeString, HTMLEscaper, IsTrue, JSEscape."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/text/template?ref={ref}
 
   - lib_id: /golang/go/text/template/parse
-    description: Package parse builds parse trees for templates as defined by text/template and html/template. Key APIs: ActionNode, BoolNode, BranchNode, BreakNode, ChainNode, CommandNode, CommentNode, ContinueNode.
+    description: "Package parse builds parse trees for templates as defined by text/template and html/template. Key APIs: ActionNode, BoolNode, BranchNode, BreakNode, ChainNode, CommandNode, CommentNode, ContinueNode."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/text/template/parse?ref={ref}
 
   - lib_id: /golang/go/time
-    description: Package time provides functionality for measuring and displaying time. Key APIs: Duration, Location, Month, ParseError, Ticker, Time, Timer, Weekday.
+    description: "Package time provides functionality for measuring and displaying time. Key APIs: Duration, Location, Month, ParseError, Ticker, Time, Timer, Weekday."
     kind: godoc
     ref: go1.26.2
     urls:
@@ -3506,42 +3506,42 @@ libraries:
       - https://api.github.com/repos/golang/go/contents/src/time/tzdata?ref={ref}
 
   - lib_id: /golang/go/unicode
-    description: Package unicode provides data and functions to test some properties of Unicode code points. Key APIs: CaseRange, Range16, Range32, RangeTable, SpecialCase, In, Is, IsControl.
+    description: "Package unicode provides data and functions to test some properties of Unicode code points. Key APIs: CaseRange, Range16, Range32, RangeTable, SpecialCase, In, Is, IsControl."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/unicode?ref={ref}
 
   - lib_id: /golang/go/unicode/utf16
-    description: Package utf16 implements encoding and decoding of UTF-16 sequences. Key APIs: AppendRune, Decode, DecodeRune, Encode, EncodeRune, IsSurrogate, RuneLen.
+    description: "Package utf16 implements encoding and decoding of UTF-16 sequences. Key APIs: AppendRune, Decode, DecodeRune, Encode, EncodeRune, IsSurrogate, RuneLen."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/unicode/utf16?ref={ref}
 
   - lib_id: /golang/go/unicode/utf8
-    description: Package utf8 implements functions and constants to support text encoded in UTF-8. Key APIs: AppendRune, DecodeLastRune, DecodeLastRuneInString, DecodeRune, DecodeRuneInString, EncodeRune, FullRune, FullRuneInString.
+    description: "Package utf8 implements functions and constants to support text encoded in UTF-8. Key APIs: AppendRune, DecodeLastRune, DecodeLastRuneInString, DecodeRune, DecodeRuneInString, EncodeRune, FullRune, FullRuneInString."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/unicode/utf8?ref={ref}
 
   - lib_id: /golang/go/unique
-    description: The unique package provides facilities for canonicalizing ("interning") comparable values. Key APIs: Handle.
+    description: "The unique package provides facilities for canonicalizing (\"interning\") comparable values. Key APIs: Handle."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/unique?ref={ref}
 
   - lib_id: /golang/go/unsafe
-    description: Package unsafe contains operations that step around the type safety of Go programs. Key APIs: ArbitraryType, IntegerType, Pointer, Alignof, Offsetof, Sizeof, String, StringData.
+    description: "Package unsafe contains operations that step around the type safety of Go programs. Key APIs: ArbitraryType, IntegerType, Pointer, Alignof, Offsetof, Sizeof, String, StringData."
     kind: godoc
     ref: go1.26.2
     urls:
       - https://api.github.com/repos/golang/go/contents/src/unsafe?ref={ref}
 
   - lib_id: /golang/go/weak
-    description: Package weak provides ways to safely reference memory weakly, that is, without preventing its reclamation. Key APIs: Pointer.
+    description: "Package weak provides ways to safely reference memory weakly, that is, without preventing its reclamation. Key APIs: Pointer."
     kind: godoc
     ref: go1.26.2
     urls:
