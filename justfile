@@ -182,6 +182,23 @@ fetch-db force="": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone fetch-db {{ if force != "" { "--force" } else { "" } }}
 
+# Walks the locally-installed Go toolchain's GOROOT/src and emits a YAML
+# block of kind: godoc entries — one lib_id per stdlib package, with a
+# description = "<doc.Synopsis> Key APIs: <up to 8 exported names>". Used
+# to refresh libraries_sources.yaml's stdlib coverage on a Go version
+# bump. Output goes to stdout; redirect to a file then splice manually
+# under the "── kind: godoc ──" section.
+#
+# Example:
+#   just gen-stdlib > /tmp/stdlib.yaml      # writes 194 entries (Go 1.26.x)
+#   just gen-stdlib go1.27.0 > /tmp/x.yaml  # generate against the synopsis
+#                                            of the local toolchain but pin
+#                                            the YAML ref to a different tag
+#
+# CGO is NOT required (no embedder, no DB) so this runs in plain `mise exec`.
+gen-stdlib ref="":
+    mise exec -- go run ./scripts/genstdlib {{ref}}
+
 # Pipeline of docker-build:
 #   1. `just build-release` — produces ./deadzone for the host arch
 #   2. `./deadzone ort-meta` — emits the pinned ORT URL/SHA for each linux arch
