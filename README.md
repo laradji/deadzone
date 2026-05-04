@@ -52,6 +52,14 @@ curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzo
 
 Both flavors land a `deadzone` executable in your current directory, so the `./deadzone server` snippet below works as-is.
 
+```sh
+# Container — multi-arch (linux/amd64 + linux/arm64), auto-fetches the DB on first run
+docker pull ghcr.io/laradji/deadzone:latest
+docker run --rm -i ghcr.io/laradji/deadzone:latest server
+```
+
+The image bakes the binary plus `libonnxruntime` and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). On first launch `deadzone server` downloads `deadzone.db` (~50 MB) from the GitHub Release matching the binary's compiled-in version, SHA256-verifies, and caches it under the container's data dir; subsequent runs are zero-network. To refresh the index, pull a newer tag.
+
 Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
 
 **Verify checksums** (optional but cheap):

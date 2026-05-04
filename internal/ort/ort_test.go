@@ -286,3 +286,55 @@ func buildFakeArchive(t *testing.T, rel release) ([]byte, string) {
 	sum := sha256.Sum256(buf.Bytes())
 	return buf.Bytes(), hex.EncodeToString(sum[:])
 }
+
+// TestPinnedRelease covers the narrow public API the OCI image build
+// reads via `deadzone ort-meta`. We assert that the URL, sha, and lib
+// filename returned by PinnedRelease for each linux arch match the
+// pinnedReleases table verbatim — if a future bump forgets to refresh
+// either side, this test fails before CI ever pushes a broken image.
+func TestPinnedRelease(t *testing.T) {
+	for _, plat := range []string{"linux/amd64", "linux/arm64"} {
+		parts := strings.SplitN(plat, "/", 2)
+		url, sum, lib, ok := PinnedRelease(parts[0], parts[1])
+		if !ok {
+			t.Fatalf("%s: PinnedRelease returned ok=false", plat)
+		}
+		want := pinnedReleases[plat]
+		wantArchive := strings.ReplaceAll(want.Archive, "{version}", Version)
+		wantURL := releaseBaseURL + "/v" + Version + "/" + wantArchive
+		if url != wantURL {
+			t.Errorf("%s: url = %q, want %q", plat, url, wantURL)
+		}
+		if sum != want.SHA256 {
+			t.Errorf("%s: sha256 = %q, want %q", plat, sum, want.SHA256)
+		}
+		if lib != want.LibName {
+			t.Errorf("%s: libName = %q, want %q", plat, lib, want.LibName)
+		}
+	}
+	if _, _, _, ok := PinnedRelease("plan9", "mips"); ok {
+		t.Errorf("PinnedRelease(plan9/mips) returned ok=true, want false")
+	}
+}
+
+// TestSupportedPlatforms guards the contract the ort-meta subcommand
+// relies on: the slice is sorted (deterministic CI output) and contains
+// at least the two linux arches the OCI image targets.
+func TestSupportedPlatforms(t *testing.T) {
+	got := SupportedPlatforms()
+	for i := 1; i < len(got); i++ {
+		if got[i-1] >= got[i] {
+			t.Errorf("SupportedPlatforms not sorted: %v", got)
+			break
+		}
+	}
+	have := map[string]bool{}
+	for _, p := range got {
+		have[p] = true
+	}
+	for _, want := range []string{"linux/amd64", "linux/arm64"} {
+		if !have[want] {
+			t.Errorf("SupportedPlatforms missing %q (got %v)", want, got)
+		}
+	}
+}

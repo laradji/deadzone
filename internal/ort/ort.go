@@ -31,6 +31,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -228,6 +229,37 @@ func DefaultCacheDir() string {
 func Supported() bool {
 	_, ok := pinnedReleases[runtime.GOOS+"/"+runtime.GOARCH]
 	return ok
+}
+
+// PinnedRelease returns the GitHub-release archive URL, hex SHA256, and
+// expected library filename for the onnxruntime build pinned to Version
+// on the given GOOS+GOARCH. ok is false when no entry exists.
+//
+// Out-of-band stagers (the OCI image build, air-gapped install scripts)
+// use this to fetch the same archive Bootstrap would, without
+// duplicating the URL / SHA256 / filename in their own configs. archiveKind
+// stays unexported because callers operating outside Bootstrap should
+// not branch on it — the on-disk shape after extraction is what matters,
+// not the wrapper format.
+func PinnedRelease(goos, goarch string) (url, sha256, libName string, ok bool) {
+	rel, found := pinnedReleases[goos+"/"+goarch]
+	if !found {
+		return "", "", "", false
+	}
+	archive := strings.ReplaceAll(rel.Archive, "{version}", Version)
+	return releaseBaseURL + "/v" + Version + "/" + archive, rel.SHA256, rel.LibName, true
+}
+
+// SupportedPlatforms returns "goos/goarch" keys with a pinned release,
+// in deterministic alphabetical order so callers (CI, doc generation)
+// get stable output across runs.
+func SupportedPlatforms() []string {
+	out := make([]string, 0, len(pinnedReleases))
+	for k := range pinnedReleases {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // downloadAndExtract streams url through a sha256 hasher while
