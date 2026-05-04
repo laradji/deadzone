@@ -1,0 +1,141 @@
+# scrape-batch — reusable workflow that scrapes one batch of libs (up
+# to 256, the GitHub Actions matrix limit). Called by scrape-pack.yml's
+# `scrape` job via matrix-of-uses to fan out batches when the resolved
+# registry exceeds 256 entries — see scrape-pack.yml's `expand-libs`
+# step for the chunking logic and the rationale (256 is a hard
+# GitHub-side ceiling, silently truncating to zero matrix slots when
+# exceeded).
+#
+# Per-lib semantics are preserved here (each matrix slot still scrapes
+# exactly one lib, with its own per-lib cache and per-lib upload
+# artifact) — the only thing that changed vs the original single-job
+# scrape is that the matrix now enumerates a SUBSET of the registry,
+# selected by the parent's batch chunking. That keeps the existing
+# cache-key + artifact-name shapes byte-identical so cache-keepalive
+# warming continues to hit the same keys this workflow probes.
+
+name: scrape-batch
+
+on:
+  workflow_call:
+    inputs:
+      libs_json:
+        description: JSON array of resolved entries — exactly the shape `deadzone scrape --list` emits.
+        required: true
+        type: string
+      batch_id:
+        description: Batch identifier (cross-references the parent's matrix slot).
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Mirror scrape-pack.yml's env so cache restore keys collide cleanly
+  # across the parent's expand-libs and consolidate jobs.
+  DEADZONE_HUGOT_CACHE: ${{ github.workspace }}/.deadzone-cache/models
+  DEADZONE_ORT_CACHE: ${{ github.workspace }}/.deadzone-cache/ort
+  CGO_ENABLED: "1"
+  CGO_LDFLAGS: -L/tmp/deadzone-deps/tokenizers
+
+jobs:
+  scrape:
+    name: scrape (${{ matrix.entry.slug }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Siblings must keep running when one lib breaks — continue-on-error
+      # semantics at the matrix level (#93 mirrors this inside a single
+      # scrape invocation). The parent's consolidate summary surfaces
+      # per-slot failures so a broken slot is visible, not silently
+      # dropped.
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        entry: ${{ fromJSON(inputs.libs_json) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install native deps
+        uses: ./.github/actions/install-native-deps
+      - name: Cache embedding model
+        # Key verbatim from .github/workflows/ci.yml + scrape-pack.yml's
+        # consolidate job — bumping the embedder (internal/embed/hugot.go)
+        # invalidates all three caches in lockstep.
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_HUGOT_CACHE }}
+          key: hugot-model-${{ runner.os }}-${{ hashFiles('internal/embed/hugot.go') }}
+          restore-keys: |
+            hugot-model-${{ runner.os }}-
+      - name: Cache ONNX Runtime library
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.DEADZONE_ORT_CACHE }}
+          key: ort-lib-${{ runner.os }}-${{ hashFiles('internal/ort/ort.go') }}
+          restore-keys: |
+            ort-lib-${{ runner.os }}-
+      - name: Compute cache signals
+        id: signals
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=$(go run -tags ORT ./cmd/deadzone cache-signals)
+          schema=$(echo "$out" | jq -r '.schema_version')
+          sig=$(echo "$out" | jq -r '.embedder_signature')
+          [ -n "$schema" ] && [ "$schema" != "null" ] || { echo "::error::cache-signals output missing schema_version: $out"; exit 1; }
+          [ -n "$sig" ]    && [ "$sig"    != "null" ] || { echo "::error::cache-signals output missing embedder_signature: $out"; exit 1; }
+          echo "schema_version=$schema"     >> "$GITHUB_OUTPUT"
+          echo "embedder_signature=$sig"    >> "$GITHUB_OUTPUT"
+      - name: Cache per-lib artifact
+        id: artifact-cache
+        uses: actions/cache@v5
+        with:
+          # Identical cache-key shape to the pre-batching scrape-pack.yml:
+          # cache-keepalive.yml warms the same keys, so moving the matrix
+          # from a single job to N batched calls must not change the
+          # key. matrix.entry.cache_hash is a sha256 over (kind, ref,
+          # sorted urls) for THIS entry only.
+          path: artifacts/${{ matrix.entry.slug }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-emb${{ steps.signals.outputs.embedder_signature }}-schema${{ steps.signals.outputs.schema_version }}
+      - name: Scrape (cache miss)
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(scrape --artifacts ./artifacts --lib "${{ matrix.entry.lib_id }}")
+          if [ -n "${{ matrix.entry.version }}" ]; then
+            args+=(--version "${{ matrix.entry.version }}")
+          fi
+          go run -tags ORT ./cmd/deadzone "${args[@]}"
+      - name: Record slot status + anchor upload LCA
+        # See scrape-pack.yml history (pre-#NNN batching) for the LCA
+        # rationale — `artifacts/.pack-root` anchors upload-artifact's
+        # archive root at `artifacts/`, so each archive carries a
+        # `<slug>/...` prefix that download-artifact's merge-multiple
+        # rebuilds losslessly.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "artifacts/${{ matrix.entry.slug }}"
+          : > artifacts/.pack-root
+          if [ "${{ steps.artifact-cache.outputs.cache-hit }}" = "true" ]; then
+            echo cached > "artifacts/${{ matrix.entry.slug }}/.run_status"
+          else
+            echo scraped > "artifacts/${{ matrix.entry.slug }}/.run_status"
+          fi
+      - name: Stage artifact for consolidate
+        # Artifact name is identical across batches (no batch_id in the
+        # name) — the consolidate job in the parent run downloads with
+        # `pattern: scrape-pack-*` and merges; reusable-workflow
+        # artifacts are visible to the calling workflow's other jobs
+        # via actions/upload-artifact@v4+.
+        uses: actions/upload-artifact@v7
+        with:
+          name: scrape-pack-${{ matrix.entry.slug }}
+          path: artifacts/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
