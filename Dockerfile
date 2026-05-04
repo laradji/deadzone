@@ -22,14 +22,18 @@
 # fails on first launch, which is fine for the MCP-client use case
 # where network is the default.
 
-ARG TARGETARCH
-
 # Stage 1 — collect the per-arch payload from the build context. Alpine
 # is the cheapest image with a real `cp`; the staging stage exists so
 # the final image carries no traces of the source paths or unused
 # context files. Each arch reads from dist/linux_${TARGETARCH}/, which
 # CI populates from actions/download-artifact + a curl of the pinned
 # libonnxruntime tarball (see release.yml's `Stage build context` step).
+#
+# TARGETARCH is one of buildx's pre-defined ARGs — auto-populated per
+# platform when the build is invoked with `--platform linux/amd64,
+# linux/arm64`. It MUST be declared inside this stage (and NOT also at
+# the global pre-FROM scope) so the auto-injection isn't shadowed by an
+# empty global. https://docs.docker.com/reference/dockerfile/#scope
 FROM alpine:3 AS staging
 ARG TARGETARCH
 WORKDIR /staged
