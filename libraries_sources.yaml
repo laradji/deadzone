@@ -1879,9 +1879,9 @@ libraries:
   #   - content/en/docs/{contributing,compatibility,migration}/
   #   - content/en/docs/specs/, /security/
   - lib_id: /open-telemetry/opentelemetry
-    description: Vendor-neutral observability framework providing APIs, SDKs, and tools for collecting and exporting traces, metrics, and logs across languages and backends.
+    description: Vendor-neutral observability framework with APIs, SDKs, and the OTel Collector for instrumenting applications and forwarding traces, metrics, and logs to aggregation backends (Loki, Jaeger, Prometheus).
     kind: github-md
-    ref: 4f744c5b97228df5a43bd785a32750271803699e
+    ref: 04f6be942965ba53e19121fc4966d603d8787f95
     urls:
       - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/_index.md
       - https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/{ref}/content/en/docs/concepts/_index.md
