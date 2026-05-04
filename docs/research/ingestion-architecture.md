@@ -56,6 +56,8 @@ The downstream pipeline (parse → chunk → embed → store) is **identical** f
 
 A `json-api` kind is being researched in #1 (terraform.io discovery surfaced JSON:API endpoints under `/v2/` that bypass the SPA shell). If it ships, it joins the short list. The principle stays: **the kind set is bounded by source shapes, not by source families**.
 
+A fourth kind, `godoc`, is locked for Go stdlib + third-party Go modules — see [`go-stdlib-ingestion.md`](go-stdlib-ingestion.md) (#133). The Go shape is "comments embedded in `.go` source, parsed by `go/doc`, fetched from `proxy.golang.org` for modules and from GitHub raw for the unmoduled stdlib"; none of `github-md` / `github-rst` / `scrape-via-agent` covers it cleanly.
+
 ### Rationale
 
 - **Bounded code surface**: at 3,000 libs, the kind set stays small (3 today, 4 if `json-api` ships). Per-source code is replaced by per-source config in `libraries_sources.yaml`.
