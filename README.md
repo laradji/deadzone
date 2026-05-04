@@ -9,7 +9,7 @@
     > you ask in english. it answers in snippets.
 ```
 
-> **Status.** `v0.2.0` shipped 2026-04-17. Vector search wired end-to-end. MCP over stdio. One binary, three platforms, zero telemetry. Milestone `0.3` in flight — see the [roadmap](https://github.com/laradji/deadzone/milestones).
+> **Status.** Vector search wired end-to-end. MCP over stdio. One binary, Linux + macOS, zero telemetry. See [releases](https://github.com/laradji/deadzone/releases) for the latest tag and the [roadmap](https://github.com/laradji/deadzone/milestones) for in-flight work.
 > The scraper is still the messy half — [#64](https://github.com/laradji/deadzone/issues/64) is honest about it.
 
 ---
@@ -36,12 +36,15 @@ Your AI client says `"how do I register a tool?"`. The doc says `AddTool`. A gre
 # macOS Apple Silicon — the one-liner
 brew install laradji/deadzone/deadzone
 
-# Linux — self-mounting AppImage (amd64 | arm64)
-VERSION=v0.5.0 ARCH=amd64
+# Linux — resolve the latest tag once, then pick a flavor
+VERSION=$(curl -fsSL https://api.github.com/repos/laradji/deadzone/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+ARCH=amd64    # or arm64
+
+# self-mounting AppImage
 curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.AppImage"
 chmod +x "deadzone_${VERSION}_linux_${ARCH}.AppImage"
 
-# Linux without FUSE — plain tarball (amd64 | arm64)
+# or plain tarball (no FUSE needed)
 curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.tar.gz" | tar xz
 ```
 
@@ -261,17 +264,21 @@ Two-phase as of [#101](https://github.com/laradji/deadzone/issues/101) — CI sh
 # 1. Regenerate deadzone.db from the committed scraper config.
 just scrape && just consolidate
 
-# 2. Tag + push. CI's release.yml builds the tarballs + AppImages + creates the release.
+# 2. Tag + push. CI's release.yml builds tarballs + AppImages, creates the release,
+#    and auto-bumps the Homebrew tap on release.published.
 git tag v0.X.0 && git push --tags
 
 # 3. Ship deadzone.db + deadzone.db.sha256 to the same release.
 just dbrelease v0.X.0
 
-# 4. Bump the Homebrew tap (until #130 lands the PAT-based auto-trigger).
-gh workflow run update-package-channels.yml -f tag=v0.X.0
-
-# 5. Commit artifacts/manifest.yaml so the release-history trace lands in git.
+# 4. Commit artifacts/manifest.yaml so the release-history trace lands in git.
 git add artifacts/manifest.yaml && git commit -m "release v0.X.0" && git push
+```
+
+**Manual Homebrew fallback.** The tap auto-bump fires on `release.published` ([#148](https://github.com/laradji/deadzone/pull/148)). If `RELEASE_PUBLISH_TOKEN` expires and the chain breaks, run it by hand:
+
+```sh
+gh workflow run update-package-channels.yml -f tag=v0.X.0
 ```
 
 ---
@@ -295,7 +302,7 @@ MCP client log paths: Claude Code on macOS writes to `~/Library/Logs/Claude/mcp-
 
 ## Roadmap & contributing
 
-Issues: [`laradji/deadzone/issues`](https://github.com/laradji/deadzone/issues). Scope via [milestones](https://github.com/laradji/deadzone/milestones) (`0.1` shipped, `0.2` shipped, `0.3` in flight). Category via `feature` / `research` labels; priority via `P1` / `P2` / `P3`.
+Issues: [`laradji/deadzone/issues`](https://github.com/laradji/deadzone/issues). Scope via [milestones](https://github.com/laradji/deadzone/milestones). Category via `feature` / `research` labels; priority via `P1` / `P2` / `P3`.
 
 New library or refresh: use the [New issue](https://github.com/laradji/deadzone/issues/new/choose) page and pick the matching form.
 
