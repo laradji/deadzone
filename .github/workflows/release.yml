@@ -406,12 +406,24 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      # Four smoke steps, one per (arch, mode) pair. The --version path
-      # short-circuits before DB load and runs with --network none — it
-      # proves libonnxruntime is dlopen-able and the binary boots
-      # inside the distroless rootfs. The server path requires network
-      # so the first run can fetch deadzone.db from the matching GH
-      # Release (this is the same first-launch flow native users get).
+      # Two --version smoke steps, one per arch. --network none because
+      # the --version path short-circuits before any embedder or DB load
+      # — the only thing this validates is that the binary launches
+      # inside the distroless rootfs (GLIBC compat + dlopen of
+      # libonnxruntime + ldflags injection).
+      #
+      # We deliberately do NOT run a `server` smoke here even though it
+      # would exercise the end-to-end MCP handshake. Reason: the docker
+      # job runs BEFORE the `release` job creates the GitHub Release
+      # object, so the binary's `internal/db.Bootstrap` would fail to
+      # fetch deadzone.db from the just-tagged release ("no
+      # deadzone.db published for this binary version"). That smoke is
+      # structurally impossible at this point in the pipeline; the
+      # native binary's `smoke` job already validates the bootstrap
+      # logic against a previously-published release. End-to-end
+      # validation of the new image happens manually after the operator
+      # uploads deadzone.db (just dbrelease <tag> or scrape-pack.yml
+      # with non-empty tag).
       #
       # Skipped on dry-run dispatch because the image isn't pushed and
       # docker run can't address a buildx-only build by name.
@@ -422,26 +434,6 @@ jobs:
       - name: Smoke arm64 --version (offline)
         if: github.event_name == 'push' && github.ref_type == 'tag'
         run: docker run --rm --platform linux/arm64 --network none ${{ steps.img.outputs.ref }}:${{ steps.meta.outputs.version }} --version
-
-      - name: Smoke amd64 server (online, fetches DB)
-        if: github.event_name == 'push' && github.ref_type == 'tag'
-        shell: bash
-        run: |
-          set -euo pipefail
-          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
-          out=$(echo "${init}" | docker run --rm -i --platform linux/amd64 ${{ steps.img.outputs.ref }}:${{ steps.meta.outputs.version }} server)
-          echo "${out}"
-          echo "${out}" | grep -q '"name":"deadzone"'
-
-      - name: Smoke arm64 server (online, fetches DB)
-        if: github.event_name == 'push' && github.ref_type == 'tag'
-        shell: bash
-        run: |
-          set -euo pipefail
-          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
-          out=$(echo "${init}" | docker run --rm -i --platform linux/arm64 ${{ steps.img.outputs.ref }}:${{ steps.meta.outputs.version }} server)
-          echo "${out}"
-          echo "${out}" | grep -q '"name":"deadzone"'
 
   release:
     name: publish release
