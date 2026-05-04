@@ -311,6 +311,14 @@ The per-artifact upload/download/list code initially landed disabled-in-place af
 
 The folder-per-lib layout (addendum to decision 2) is orthogonal to this v2 — it landed in the same PR as part of #101 to unblock #64 but stays useful regardless of the distribution pipeline.
 
+### v3 (2026-05-04, #196): OCI image on GHCR as an additional channel
+
+A multi-arch (`linux/amd64` + `linux/arm64`) OCI image is now published to `ghcr.io/laradji/deadzone:<tag>` and `:latest` on every release tag, alongside (not in place of) the existing tarball / AppImage / Homebrew tap artifacts. The driver was eligibility for the official MCP Registry (`registry.modelcontextprotocol.io`), which only accepts `npm` / `pypi` / `nuget` / `oci` (Docker Hub or GHCR) packages — raw GitHub Releases binaries are invisible to it. GHCR-only because it reuses the existing `GITHUB_TOKEN` auth path and because Docker Hub adds a second account/secret/namespace for no Tier-1 registry coverage that GHCR doesn't already provide.
+
+The image bakes the binary plus `libonnxruntime` at `/usr/local/lib/` (with `DEADZONE_ORT_LIB_PATH` pointing there so `internal/ort.Bootstrap` returns from cache without any network call), but **does not bake `deadzone.db`**. First `server` launch inside the container fetches the DB from the matching GH Release via the same `internal/db.BootstrapWithOptions` flow as the native binary — one mental model across brew / tarball / image. The tradeoff (no offline first launch inside `--network none`) is acceptable because MCP clients run with full network access by default, and the `--version` short-circuit still works offline (which is what release.yml's per-arch image smoke verifies).
+
+The image is built in a new `docker` job in `release.yml` between `smoke` and `release`, gated `needs: smoke` (so the binary is already proven to launch) and feeding `release.needs += docker` (so the GH Release object isn't published before the OCI push completes). The `Dockerfile` does no compilation — it `COPY`s the per-arch binaries produced upstream by the existing `build` matrix, plus the pinned `libonnxruntime` archive fetched at job time using `./deadzone ort-meta` (a hidden subcommand that prints the URL/SHA from the same `internal/ort.pinnedReleases` table `Bootstrap` uses), so #70's "native runners only, no goreleaser-cross" decision is unaffected.
+
 ---
 
 ## 6. Reasoning-mode suppression in the agent path (#60)

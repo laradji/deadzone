@@ -182,8 +182,76 @@ fetch-db force="": _check-tokenizers
     CGO_ENABLED=1 CGO_LDFLAGS="-L{{tokenizers_lib}}" \
         mise exec -- go run -tags ORT ./cmd/deadzone fetch-db {{ if force != "" { "--force" } else { "" } }}
 
+# Pipeline of docker-build:
+#   1. `just build-release` — produces ./deadzone for the host arch
+#   2. `./deadzone ort-meta` — emits the pinned ORT URL/SHA for each linux arch
+#   3. curl + sha256 verify the libonnxruntime tarball
+#   4. stage binary + lib into dist/linux_${arch}/
+#   5. docker buildx build --load (single-arch; multi-arch happens only in CI)
+#
+# `--load` brings the image into the local docker daemon so `docker run
+# deadzone:dev` works without a registry push. The CI flow uses --push
+# instead and skips this recipe entirely.
+
+# Build the OCI image locally for the host arch only, tagged `deadzone:dev` (Linux host required; cross-compile from darwin is blocked by #70)
+docker-build: _check-tokenizers
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "$(uname -s)" != "Linux" ]]; then
+        echo "error: docker-build requires a Linux host — the staged binary is embedded into a Linux image and #70 blocks CGO cross-compile from darwin/windows." >&2
+        echo "       Workarounds: run inside a Linux dev container/VM, or rely on the release.yml docker job for end-to-end testing." >&2
+        exit 1
+    fi
+    arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/;s/arm64/arm64/')
+    case "${arch}" in amd64|arm64) ;; *) echo "unsupported host arch: ${arch}" >&2; exit 1 ;; esac
+    just build-release
+    # Pull the pinned ORT URL/SHA/lib name from the binary (single source of truth — internal/ort.pinnedReleases).
+    meta=$(./deadzone ort-meta)
+    url=$(echo "${meta}" | jq -r --arg a "${arch}" '.platforms[] | select(.goarch==$a) | .url')
+    sha=$(echo "${meta}" | jq -r --arg a "${arch}" '.platforms[] | select(.goarch==$a) | .sha256')
+    if [ -z "${url}" ] || [ -z "${sha}" ]; then
+        echo "error: ort-meta returned no entry for linux/${arch}" >&2
+        exit 1
+    fi
+    ctx="dist/linux_${arch}"
+    rm -rf "${ctx}"
+    mkdir -p "${ctx}/lib"
+    cp ./deadzone "${ctx}/deadzone"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp}"' EXIT
+    echo "fetching ${url}"
+    curl -fL -o "${tmp}/ort.tgz" "${url}"
+    echo "${sha}  ${tmp}/ort.tgz" | sha256sum -c -
+    # Flatten lib/libonnxruntime.so* (real ELF + symlink alias) out of
+    # the upstream */lib/ subdir into our staging dir.
+    tar -C "${tmp}" -xzf "${tmp}/ort.tgz"
+    find "${tmp}" -type f -name 'libonnxruntime.so*' -exec cp -P {} "${ctx}/lib/" \;
+    find "${tmp}" -type l -name 'libonnxruntime.so*' -exec cp -P {} "${ctx}/lib/" \;
+    docker buildx build --platform "linux/${arch}" --load -t deadzone:dev .
+    echo "built deadzone:dev for linux/${arch}"
+
+# Network-enabled because the first `server` launch inside the image
+# fetches deadzone.db from the matching GH Release; subsequent runs
+# reuse the on-disk cache (which is per-container, so every fresh
+# `docker run` re-fetches unless the cache dir is volume-mounted).
+
+# Smoke the local `deadzone:dev` image with an MCP `initialize` handshake (requires `just docker-build` first; network-enabled, see comment above)
+docker-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
+    out=$(echo "${init}" | docker run --rm -i deadzone:dev server)
+    echo "${out}"
+    # Two anchors: the server name proves the implementation is wired,
+    # the protocolVersion echo proves the handshake reached a real
+    # initialize handler (not a generic JSON-RPC error response).
+    echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
+    echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }
+    echo "docker-smoke OK"
+
 # Remove the built binary, per-lib artifact folders, and the local DB files (preserves artifacts/manifest.yaml)
 clean:
     rm -f deadzone
     rm -f deadzone.db deadzone.db-wal deadzone.db-shm deadzone.db.sha256
     rm -rf artifacts/*/
+    rm -rf dist/
