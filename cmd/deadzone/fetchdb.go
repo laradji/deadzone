@@ -36,11 +36,19 @@ var (
 
 var fetchDBCmd = &cobra.Command{
 	Use:   "fetch-db",
-	Short: "Download/refresh the cached deadzone.db from the latest GH Release",
+	Short: "Probe and refresh the cached deadzone.db from the matching GH Release",
 	Long: `Explicit cache-warmup / refresh entry point for the same db.Bootstrap flow
 ` + "`deadzone server`" + ` uses implicitly. The fetched DB is pinned to the binary's
-own version; pass --force to re-fetch the same tag to recover from local
-corruption.`,
+own version.
+
+Behaviour without --force: probes the remote ` + "`deadzone.db.sha256`" + ` for the
+matching tag (3-second budget), downloads + atomic-swaps only if the remote
+sha differs from the cached one. With --force: skips the probe and always
+re-downloads (use to recover from local corruption).
+
+Unlike ` + "`deadzone server`" + `, fetch-db ignores ` + "`DEADZONE_DB_AUTOUPDATE=0`" + ` —
+the env var only governs the implicit server-boot path, not explicit
+user-driven refreshes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runFetchDB()
 	},
@@ -68,6 +76,10 @@ func runFetchDB() error {
 		Repo:       fetchDBRepo,
 		AppVersion: version,
 		Force:      fetchDBForce,
+		// fetch-db NEVER sets SkipAutoUpdateProbe — DEADZONE_DB_AUTOUPDATE
+		// only opts the implicit server-boot path out. An explicit
+		// `fetch-db` invocation by definition wants the probe.
+		Caller: "fetch-db",
 	})
 	if err != nil {
 		return fmt.Errorf("fetch-db: %w", err)

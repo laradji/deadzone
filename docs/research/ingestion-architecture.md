@@ -319,6 +319,30 @@ The image bakes the binary plus `libonnxruntime` at `/usr/local/lib/` (with `DEA
 
 The image is built in a new `docker` job in `release.yml` between `smoke` and `release`, gated `needs: smoke` (so the binary is already proven to launch) and feeding `release.needs += docker` (so the GH Release object isn't published before the OCI push completes). The `Dockerfile` does no compilation — it `COPY`s the per-arch binaries produced upstream by the existing `build` matrix, plus the pinned `libonnxruntime` archive fetched at job time using `./deadzone ort-meta` (a hidden subcommand that prints the URL/SHA from the same `internal/ort.pinnedReleases` table `Bootstrap` uses), so #70's "native runners only, no goreleaser-cross" decision is unaffected.
 
+### v4 (2026-05-04, #197): boot-time freshness probe refines the match-then-zero-network rule
+
+The PR #110 review locked in a "tag match → zero network" contract for `internal/db.Bootstrap`: a binary at version `vX.Y.Z` with a cached `deadzone.db` whose sidecar tag also reads `vX.Y.Z` was treated as authoritative for life. That rule was correct against the *original* `dbrelease` semantics (one upload per tag, immutable after publish) but became wrong against the *operator-driven* semantics that `just dbrelease v0.X.0` actually uses: the operator re-runs `dbrelease` against the **same tag** every time the corpus is re-scraped, clobbering the asset in place. Within a single binary version, "the matching `deadzone.db`" is therefore not a fixed object — it's whatever the operator pushed last.
+
+Concrete failure mode: a user installs `vX.Y.Z` on day 1, the operator pushes a fresh `deadzone.db` against `vX.Y.Z` on day 14, the user still serves day-1 bytes on day 15 until they manually wipe their cache or upgrade the binary. Freshness window unbounded.
+
+**Decision:** refine the rule to **"match → 3s probe → zero-network-on-soft-fail"**. On every boot where the cached tag matches the binary's `AppVersion`, `BootstrapWithOptions` issues a 78-byte GET on `deadzone.db.sha256` (the asset CDN, not the API JSON — bypasses the 60 req/h unauthenticated rate limit) with a fixed 3-second budget on a dedicated `probeHTTPClient`. Match against the sidecar's recorded sha → return cache; mismatch → atomic-swap via `deadzone.db.new` → sha-verify → rename → rewrite sidecar. **Every** non-success outcome other than a sha-verified corrupt download is a soft-fail logged under `db.update_check_skipped` (`reason ∈ network_timeout, network_error, parse_error, disabled_via_env, offline_mode`); boot continues against the cached DB. Corrupt download is the one fatal path — `.new` deleted, cache intact, `BootstrapWithOptions` returns a non-nil error so we never serve unverified bytes.
+
+The sidecar (`deadzone.db.release`) evolves from a single-line tag to a JSON `{tag, sha256, fetched_at}` object so the probe can compare hashes without rehashing the 50 MB cache file on every boot. Pre-#197 binaries wrote the legacy single-line form; the reader still accepts it and rewrites it to v1 on first probe.
+
+Two scoping decisions tighten the surface:
+
+- **`DEADZONE_DB_AUTOUPDATE=0` opts the implicit server-boot path out** but does NOT govern `deadzone fetch-db`. The env var threads through `BootstrapOptions.SkipAutoUpdateProbe`, set by `cmd/deadzone/server.go` from the env and *never* set by `cmd/deadzone/fetchdb.go` — `fetch-db` is by definition an explicit user-driven refresh, so the probe is precisely what it's for. This makes the env var's contract narrow and predictable: "the steady-state cache-hit boot is allowed to be zero-network if you ask".
+- **`DEADZONE_DB_OFFLINE=1` (existing) hard-overrides** for both callers. Offline mode never reaches out, regardless of the auto-update env var.
+
+What v4 does **not** do:
+
+- No "check at most every N hours" throttling. The probe is small enough (~78 bytes) that a 10-launch-per-day workflow is negligible. Throttling adds state, divergence between callers, and a "is my cache really fresh?" mental model the operator doesn't need.
+- No retry-with-backoff. One attempt, fail-fast, fall back to cache. Retries on every boot would slow down every offline launch.
+- No binary auto-update. The DB is the moving target; binary updates remain a `brew upgrade` / re-pull-image / re-download-tarball user action.
+- No new `update-db` subcommand. `fetch-db` (already shipped in #108) inherits the probe-and-maybe-download behaviour by virtue of going through the same `BootstrapWithOptions` path; adding a second subcommand would just split the surface.
+
+Holds at scale: the probe's cost per boot is one TLS handshake + one ~78-byte response. At a hypothetical 10k-user, 10-launch-per-day deployment that's 100k probes/day — well under GitHub's anonymous CDN limits, and most boots take the no-change branch which logs at DEBUG (zero operator surface in steady state).
+
 ---
 
 ## 6. Reasoning-mode suppression in the agent path (#60)
