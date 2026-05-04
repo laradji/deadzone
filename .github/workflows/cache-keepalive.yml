@@ -54,11 +54,19 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       libs: ${{ steps.list.outputs.libs }}
+      # Resolved entries chunked into ≤256-slot batches. The `refresh`
+      # job dispatches one reusable-workflow call per batch (see #202),
+      # mirroring scrape-pack.yml's batching since v0.6.0 (commit
+      # 4ec4182). 256 is the GitHub-side hard ceiling; exceeding it
+      # silently truncates the matrix to zero slots.
+      batches: ${{ steps.chunk.outputs.batches }}
       # Exposed so the `report` job can reconstruct the full cache key
       # (artifact-<slug>-<version>-<entry_cache_hash>-emb<sig>-schema<n>)
-      # to look up post-run hit/miss via the caches REST endpoint. The
-      # entry-level segment is per-row in `libs` (see #153); the two
-      # global trailing signals are snapshotted here so the report job
+      # to look up post-run hit/miss via the caches REST endpoint, and
+      # so the `refresh` reusable-workflow call can build the same key
+      # in its restore step. The entry-level segment is per-row in
+      # `libs` (see #153); the two global trailing signals are
+      # snapshotted here so the report job (and the reusable workflow)
       # can build the same key without re-running the Go binary. Both
       # come from `deadzone cache-signals` so the workflow stays in
       # lockstep with the binary's source-of-truth (#193).
@@ -76,6 +84,36 @@ jobs:
         # No --lib input: keepalive always touches every resolved
         # (lib, version) pair.
         uses: ./.github/actions/list-libs
+      - name: Chunk libs into 256-slot batches
+        id: chunk
+        # Mirror of scrape-pack.yml's chunking step (#202). GitHub
+        # Actions caps a job's matrix at 256 entries; exceeding the cap
+        # silently expands to ZERO slots and the run reports `success`
+        # because the empty matrix counts as "no failures". Splitting
+        # the resolved set into batches of 256 and dispatching
+        # ceil(N/256) reusable-workflow calls (each with its own ≤256
+        # matrix) keeps per-slot semantics intact — cache key shape and
+        # failure isolation are preserved per slot. See
+        # cache-keepalive-batch.yml for the receiving half. The 256
+        # figure is the GitHub-side hard ceiling; do not raise without
+        # confirming the limit moved.
+        shell: bash
+        env:
+          LIBS_JSON: ${{ steps.list.outputs.libs }}
+        run: |
+          set -euo pipefail
+          n=$(echo "$LIBS_JSON" | jq length)
+          batches=$(echo "$LIBS_JSON" | jq -c '
+            [
+              range(0; length; 256) as $i |
+              { batch_id: ($i / 256 | floor),
+                libs:     .[$i:($i+256)] }
+            ]
+          ')
+          bcount=$(echo "$batches" | jq length)
+          echo "resolved $n libs → $bcount batch(es)"
+          echo "$batches" | jq -r '.[] | "  batch \(.batch_id): \(.libs | length) libs"'
+          echo "batches=$batches" >> "$GITHUB_OUTPUT"
       - name: Compute cache signals
         id: signals
         # Mirror of the same step in scrape-pack.yml — must stay in
@@ -95,47 +133,28 @@ jobs:
           echo "embedder_signature=$sig"    >> "$GITHUB_OUTPUT"
 
   refresh:
-    name: refresh (${{ matrix.entry.slug }})
+    name: refresh (batch ${{ matrix.batch.batch_id }})
     needs: expand-libs
-    runs-on: ubuntu-latest
-    # Per-slot failures are masked; the report job's 0% hit-rate guard
-    # is the sole workflow gate (#163).
-    continue-on-error: true
     strategy:
+      # fail-fast: false at the BATCH level so a single batch's failure
+      # doesn't cancel the others — each batch is a separate
+      # reusable-workflow run with its own per-slot matrix that already
+      # honors fail-fast: false + continue-on-error: true internally.
       fail-fast: false
-      max-parallel: 20
       matrix:
-        entry: ${{ fromJSON(needs.expand-libs.outputs.libs) }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Touch artifact cache
-        id: touch
-        # Mirror of scrape-pack.yml's per-lib cache key — drift breaks
-        # the keepalive (different key = different cache entry = no
-        # refresh, LRU evicts the live entry instead). Per-entry hash
-        # since #153; semantic global signals since #193.
-        uses: actions/cache/restore@v5
-        with:
-          path: artifacts/${{ matrix.entry.slug }}
-          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-emb${{ needs.expand-libs.outputs.embedder_signature }}-schema${{ needs.expand-libs.outputs.schema_version }}
-      - name: Record hit/miss
-        # Per-slot summary row — satisfies the per-slot markdown
-        # requirement from #128. The aggregated table + totals live in
-        # the downstream `report` job.
-        shell: bash
-        run: |
-          set -euo pipefail
-          status="miss"
-          if [ "${{ steps.touch.outputs.cache-hit }}" = "true" ]; then
-            status="hit"
-          fi
-          {
-            echo "### cache-keepalive — \`${{ matrix.entry.lib_id }}\` @ \`${{ matrix.entry.version }}\`"
-            echo ""
-            echo "| lib | version | status |"
-            echo "| --- | --- | --- |"
-            echo "| \`${{ matrix.entry.lib_id }}\` | \`${{ matrix.entry.version }}\` | $status |"
-          } >> "$GITHUB_STEP_SUMMARY"
+        batch: ${{ fromJSON(needs.expand-libs.outputs.batches) }}
+    # Reusable workflow per batch (#202). Each call dispatches its own
+    # ≤256-slot matrix (one slot = one (lib, version), identical to the
+    # pre-batching shape) and runs `actions/cache/restore@v5` against
+    # the same per-lib cache key the scrape pipeline writes.
+    # ceil(N/256) reusable runs total. Mirror of scrape-pack.yml's
+    # `scrape` job since v0.6.0 (commit 4ec4182).
+    uses: ./.github/workflows/cache-keepalive-batch.yml
+    with:
+      libs_json: ${{ toJSON(matrix.batch.libs) }}
+      batch_id: ${{ matrix.batch.batch_id }}
+      embedder_signature: ${{ needs.expand-libs.outputs.embedder_signature }}
+      schema_version: ${{ needs.expand-libs.outputs.schema_version }}
 
   report:
     name: report

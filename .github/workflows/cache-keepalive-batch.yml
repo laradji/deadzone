@@ -1,0 +1,86 @@
+# cache-keepalive-batch — reusable workflow that refreshes one batch of
+# per-lib artifact caches (up to 256, the GitHub Actions matrix limit).
+# Called by cache-keepalive.yml's `refresh` job via matrix-of-uses to
+# fan out batches when the resolved registry exceeds 256 entries — see
+# cache-keepalive.yml's `expand-libs` step for the chunking logic and
+# the rationale (256 is a hard GitHub-side ceiling, silently truncating
+# to zero matrix slots when exceeded; #202).
+#
+# Per-slot semantics are preserved here (each matrix slot still touches
+# exactly one (lib, version) cache entry, with the same cache-key shape
+# and the same per-slot summary row) — the only thing that changed vs
+# the original single-job refresh is that the matrix now enumerates a
+# SUBSET of the registry, selected by the parent's batch chunking. That
+# keeps the cache-key shape byte-identical to scrape-pack.yml +
+# scrape-batch.yml so this workflow continues to refresh the same keys
+# the scrape pipeline writes.
+
+name: cache-keepalive-batch
+
+on:
+  workflow_call:
+    inputs:
+      libs_json:
+        description: JSON array of resolved entries — exactly the shape `deadzone scrape --list` emits.
+        required: true
+        type: string
+      batch_id:
+        description: Batch identifier (cross-references the parent's matrix slot).
+        required: true
+        type: string
+      embedder_signature:
+        description: Embedder signature from the parent's `cache-signals` step. Must match the live cache keys exactly.
+        required: true
+        type: string
+      schema_version:
+        description: Schema version from the parent's `cache-signals` step. Must match the live cache keys exactly.
+        required: true
+        type: string
+
+permissions:
+  contents: read # no writes anywhere — keepalive never publishes
+
+jobs:
+  refresh:
+    name: refresh (${{ matrix.entry.slug }})
+    runs-on: ubuntu-latest
+    # Per-slot failures are masked; the parent's report job 0% hit-rate
+    # guard is the sole workflow gate (#163).
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        entry: ${{ fromJSON(inputs.libs_json) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Touch artifact cache
+        id: touch
+        # Mirror of scrape-pack.yml + scrape-batch.yml's per-lib cache
+        # key — drift breaks the keepalive (different key = different
+        # cache entry = no refresh, LRU evicts the live entry instead).
+        # Per-entry hash since #153; semantic global signals since #193;
+        # batched into ≤256-slot reusable calls since #202.
+        uses: actions/cache/restore@v5
+        with:
+          path: artifacts/${{ matrix.entry.slug }}
+          key: artifact-${{ matrix.entry.slug }}-${{ matrix.entry.version }}-${{ matrix.entry.cache_hash }}-emb${{ inputs.embedder_signature }}-schema${{ inputs.schema_version }}
+      - name: Record hit/miss
+        # Per-slot summary row — satisfies the per-slot markdown
+        # requirement from #128. The aggregated table + totals live in
+        # the parent's `report` job, which derives hit/miss
+        # independently via `gh api .../actions/caches`.
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="miss"
+          if [ "${{ steps.touch.outputs.cache-hit }}" = "true" ]; then
+            status="hit"
+          fi
+          {
+            echo "### cache-keepalive — \`${{ matrix.entry.lib_id }}\` @ \`${{ matrix.entry.version }}\`"
+            echo ""
+            echo "| lib | version | status |"
+            echo "| --- | --- | --- |"
+            echo "| \`${{ matrix.entry.lib_id }}\` | \`${{ matrix.entry.version }}\` | $status |"
+          } >> "$GITHUB_STEP_SUMMARY"
