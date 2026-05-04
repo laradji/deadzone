@@ -46,10 +46,13 @@ COPY dist/linux_${TARGETARCH}/deadzone /staged/deadzone
 COPY dist/linux_${TARGETARCH}/lib/ /staged/lib/
 COPY LICENSE NOTICE README.md /staged/
 
-# Stage 2 — final distroless image. cc-debian12 ships glibc + libgcc
-# (libonnxruntime needs both); :nonroot creates uid/gid 65532 with
+# Stage 2 — final distroless image. cc-debian13 (trixie) ships glibc
+# 2.41+ which matches what the binary links against on the
+# ubuntu-24.04 build runner (glibc 2.39). cc-debian12 (bookworm,
+# glibc 2.36) is too old and produces "GLIBC_2.39 not found" at
+# `dlopen` time. :nonroot creates uid/gid 65532 with
 # HOME=/home/nonroot and an entrypoint that runs as that uid.
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=staging /staged/deadzone /usr/local/bin/deadzone
 COPY --from=staging /staged/lib/     /usr/local/lib/
 COPY --from=staging /staged/LICENSE /staged/NOTICE /staged/README.md /
