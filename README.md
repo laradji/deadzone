@@ -82,7 +82,7 @@ shasum -a 256 --ignore-missing -c "deadzone_${VERSION}_checksums.txt"   # macOS
 
 That's the quick-start. On first launch it fetches `deadzone.db` matched to this binary's version, SHA256-verifies, caches it under the platform data dir, and serves. Second launch onwards: zero network. Upgrade the binary and the DB re-fetches on next launch; don't, and the cache is served forever.
 
-MCP client wire-up:
+MCP client wire-up — native binary (Brew tap, tarball, or AppImage):
 
 ```json
 {
@@ -91,6 +91,25 @@ MCP client wire-up:
       "type": "stdio",
       "command": "/path/to/deadzone",
       "args": ["server"]
+    }
+  }
+}
+```
+
+MCP client wire-up — container (multi-arch on `ghcr.io`). The named volume keeps the auto-fetched `deadzone.db` warm across MCP server restarts; without it, every reload re-downloads ~70 MB:
+
+```json
+{
+  "mcpServers": {
+    "deadzone": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "deadzone-cache:/home/nonroot/.local/share/deadzone",
+        "ghcr.io/laradji/deadzone:latest",
+        "server"
+      ]
     }
   }
 }
