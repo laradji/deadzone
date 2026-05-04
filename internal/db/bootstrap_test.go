@@ -14,12 +14,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // dbBootstrapEnv lists the env vars Bootstrap reads. Every test
 // neutralizes them via t.Setenv so a developer's local
-// DEADZONE_DB_CACHE / DEADZONE_DB_OFFLINE doesn't bleed in.
-var dbBootstrapEnv = []string{EnvCacheDir, EnvOffline}
+// DEADZONE_DB_CACHE / DEADZONE_DB_OFFLINE / DEADZONE_DB_AUTOUPDATE
+// doesn't bleed in.
+var dbBootstrapEnv = []string{EnvCacheDir, EnvOffline, EnvAutoUpdate}
 
 func clearBootstrapEnv(t *testing.T) {
 	t.Helper()
@@ -48,21 +50,38 @@ func newFakeRelease(t *testing.T, tag, content string) fakeRelease {
 // behind a single httptest server so the fake "browser_download_url"
 // values can point back at the same host.
 //
+// Three URL families are served:
+//
+//  1. /repos/<owner>/<repo>/releases/{tags/<t>,latest} — the JSON API
+//     used by the version-bump fetch path (existing).
+//  2. /dl/<tag>/<asset> — the synthetic "browser_download_url" the
+//     JSON above advertises; lets the API path stay decoupled from
+//     the production asset URL shape.
+//  3. /<owner>/<repo>/releases/download/<tag>/<asset> — mirrors the
+//     real assetDownloadBase URL shape so the auto-update probe
+//     (#197) hits the fixture instead of github.com when withAPIBase
+//     has wired the probe base accordingly.
+//
 // releases maps tag → fakeRelease so a single fixture can serve both
 // /releases/tags/<t> and the synthetic "latest" pick. The tags slice
 // preserves insertion order — latestTag returns the last-added tag so
 // tests that simulate "newer release dropped" can append to it
 // mid-test.
 type fixtureServer struct {
-	srv         *httptest.Server
-	releases    map[string]fakeRelease
-	tagOrder    []string
-	apiCalls    atomic.Int32
-	dbCalls     atomic.Int32
-	sha256Calls atomic.Int32
-	failAPI     atomic.Bool // when true, API endpoints return 500
-	corruptSHA  atomic.Bool // when true, sha256 comes back as zeroes (mismatch)
-	missingDB   atomic.Bool // when true, the JSON omits the deadzone.db asset
+	srv          *httptest.Server
+	releases     map[string]fakeRelease
+	tagOrder     []string
+	apiCalls     atomic.Int32
+	dbCalls      atomic.Int32
+	sha256Calls  atomic.Int32
+	probeCalls   atomic.Int32 // sha256 GETs on the /releases/download path (auto-update probe)
+	probeDLCalls atomic.Int32 // db GETs on the /releases/download path (auto-update applied)
+	failAPI      atomic.Bool  // when true, API endpoints return 500
+	corruptSHA   atomic.Bool  // when true, sha256 comes back as zeroes (mismatch)
+	missingDB    atomic.Bool  // when true, the JSON omits the deadzone.db asset
+	probeHang    atomic.Bool  // when true, /releases/download/<tag>/.sha256 hangs past the probe budget
+	probeSHA     atomic.Value // override remote sha as a string; empty/unset → use rel.dbHash
+	probeBody    atomic.Value // override the bytes served at /releases/download/<tag>/deadzone.db
 }
 
 func (f *fixtureServer) latestTag() string {
@@ -150,19 +169,69 @@ func newFixtureServer(t *testing.T, releases ...fakeRelease) *fixtureServer {
 			http.Error(w, "unknown asset", http.StatusNotFound)
 		}
 	})
+	// Mirror the production asset URL shape so the #197 probe can hit
+	// this fixture: GET /<owner>/<repo>/releases/download/<tag>/<asset>.
+	mux.HandleFunc("/laradji/deadzone/releases/download/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/laradji/deadzone/releases/download/"), "/")
+		if len(parts) != 2 {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		tag, asset := parts[0], parts[1]
+		rel, ok := fs.releases[tag]
+		if !ok {
+			http.Error(w, "unknown tag", http.StatusNotFound)
+			return
+		}
+		switch asset {
+		case sha256AssetName:
+			fs.probeCalls.Add(1)
+			if fs.probeHang.Load() {
+				// Hang past the probe budget so the client times out.
+				// 5×budget gives a comfortable margin for slow CI.
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * probeBudget):
+				}
+				return
+			}
+			hash := rel.dbHash
+			if v, ok := fs.probeSHA.Load().(string); ok && v != "" {
+				hash = v
+			}
+			fmt.Fprintf(w, "%s  %s\n", hash, dbAssetName)
+		case dbAssetName:
+			fs.probeDLCalls.Add(1)
+			body := rel.dbBody
+			if v, ok := fs.probeBody.Load().([]byte); ok && v != nil {
+				body = v
+			}
+			_, _ = w.Write(body)
+		default:
+			http.Error(w, "unknown asset", http.StatusNotFound)
+		}
+	})
 	fs.srv = httptest.NewServer(mux)
 	t.Cleanup(fs.srv.Close)
 	return fs
 }
 
-// withAPIBase swaps the package-level releasesAPIBase for the duration
-// of the test. The cleanup restores the production value so a failing
-// test can't poison sibling tests in the same binary.
+// withAPIBase swaps both releasesAPIBase AND assetDownloadBase to the
+// fixture URL for the duration of the test. The two are coupled by
+// convention: a test that mocks the GitHub API also mocks the asset
+// CDN, otherwise the auto-update probe (which hits the CDN directly)
+// would leak real github.com requests on every cache-hit test. The
+// cleanup restores both so a failing test can't poison siblings.
 func withAPIBase(t *testing.T, base string) {
 	t.Helper()
-	orig := releasesAPIBase
+	origAPI := releasesAPIBase
+	origAsset := assetDownloadBase
 	releasesAPIBase = base
-	t.Cleanup(func() { releasesAPIBase = orig })
+	assetDownloadBase = base
+	t.Cleanup(func() {
+		releasesAPIBase = origAPI
+		assetDownloadBase = origAsset
+	})
 }
 
 // seedCache writes dbBody + tag sidecar into dir so the tag-match
@@ -228,11 +297,13 @@ func TestBootstrap_FirstFetch(t *testing.T) {
 	}
 }
 
-// TestBootstrap_TagMatchZeroAPICalls is the headline zero-network
-// path for steady-state startup: cache exists, its sidecar tag equals
-// the binary's AppVersion → Bootstrap returns the cached path without
-// any HTTP traffic at all (PR #110 review item 1: must assert zero
-// API calls, not just zero asset downloads).
+// TestBootstrap_TagMatchZeroAPICalls pins the opt-out fast path:
+// cache exists, sidecar tag == AppVersion, AND SkipAutoUpdateProbe is
+// set → Bootstrap returns the cached path without any HTTP traffic at
+// all. Pre-#197 this WAS the steady state; post-#197 the steady state
+// includes a 78-byte probe, so this test specifically asserts the
+// DEADZONE_DB_AUTOUPDATE=0 escape hatch still produces the legacy
+// zero-network behaviour.
 func TestBootstrap_TagMatchZeroAPICalls(t *testing.T) {
 	clearBootstrapEnv(t)
 	rel := newFakeRelease(t, "v1.0.0", "fake-db-content")
@@ -243,8 +314,9 @@ func TestBootstrap_TagMatchZeroAPICalls(t *testing.T) {
 	seedCache(t, cacheDir, "cached-bytes", "v1.0.0")
 
 	path, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
-		CacheDir:   cacheDir,
-		AppVersion: "v1.0.0",
+		CacheDir:            cacheDir,
+		AppVersion:          "v1.0.0",
+		SkipAutoUpdateProbe: true,
 	})
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
@@ -260,6 +332,9 @@ func TestBootstrap_TagMatchZeroAPICalls(t *testing.T) {
 	}
 	if n := fix.dbCalls.Load(); n != 0 {
 		t.Errorf("db asset hit %d times on tag match, want 0", n)
+	}
+	if n := fix.probeCalls.Load(); n != 0 {
+		t.Errorf("probe hit %d times with SkipAutoUpdateProbe=true, want 0", n)
 	}
 	got, _ := os.ReadFile(path)
 	if string(got) != "cached-bytes" {
@@ -597,6 +672,10 @@ func TestBootstrap_Matrix(t *testing.T) {
 		appVersion string // "v1.0.0" | "v1.1.0" | "dev"
 		cachedTag  string // "" = no cache; otherwise sidecar value
 		offline    bool
+		// skipProbe pins the matrix to the legacy "zero-network on tag
+		// match" contract regardless of the #197 probe default. Probe
+		// behaviour is exercised separately in TestBootstrap_AutoUpdate_*.
+		skipProbe bool
 
 		wantErrSubstr string // "" = expect success
 		wantBody      string // expected installed DB body when success
@@ -608,6 +687,7 @@ func TestBootstrap_Matrix(t *testing.T) {
 			name:        "hit-online-release",
 			appVersion:  "v1.0.0",
 			cachedTag:   "v1.0.0",
+			skipProbe:   true,
 			wantBody:    "cached-bytes",
 			wantAPIHits: 0,
 			wantDBHits:  0,
@@ -691,8 +771,9 @@ func TestBootstrap_Matrix(t *testing.T) {
 			}
 
 			path, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
-				CacheDir:   cacheDir,
-				AppVersion: tc.appVersion,
+				CacheDir:            cacheDir,
+				AppVersion:          tc.appVersion,
+				SkipAutoUpdateProbe: tc.skipProbe,
 			})
 
 			if tc.wantErrSubstr != "" {

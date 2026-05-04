@@ -53,6 +53,13 @@ import (
 const (
 	EnvCacheDir = "DEADZONE_DB_CACHE"
 	EnvOffline  = "DEADZONE_DB_OFFLINE"
+	// EnvAutoUpdate gates the boot-time freshness probe added in #197.
+	// Default (unset, or any non-"0"/"false" value) is enabled.
+	// Setting "0" / "false" opts the implicit server-boot path out;
+	// `fetch-db` still probes regardless because the env var only
+	// governs the implicit path — explicit `fetch-db` is by definition
+	// a user-driven refresh.
+	EnvAutoUpdate = "DEADZONE_DB_AUTOUPDATE"
 
 	BootstrapDefaultRepo = "laradji/deadzone"
 
@@ -60,23 +67,43 @@ const (
 	// builds. Bootstrap falls back to /releases/latest on it.
 	DevVersion = "dev"
 
-	dbAssetName     = "deadzone.db"
-	sha256AssetName = "deadzone.db.sha256"
-	tagSidecarName  = "deadzone.db.release"
+	dbAssetName       = "deadzone.db"
+	sha256AssetName   = "deadzone.db.sha256"
+	tagSidecarName    = "deadzone.db.release"
+	dbDownloadNewName = "deadzone.db.new"
+
+	// probeBudget caps the wall-clock spent on the boot-time freshness
+	// probe (#197). Sub-100-byte response, fixed budget — no env
+	// override (issue ADR: "keep the surface small").
+	probeBudget = 3 * time.Second
 )
 
-// Two HTTP clients with different timeouts (PR #110 review item 2):
-// metadata responses are tiny JSON, so a hung API call shouldn't make
-// a user wait 15 minutes before failing. The asset download is the
-// bandwidth-heavy one and keeps the long ceiling.
+// Three HTTP clients with different timeouts (PR #110 review item 2,
+// extended for #197):
+//   - metadata: 30s, sized for the GitHub API JSON responses.
+//   - asset:    15min, sized for the ~50 MB deadzone.db transfer.
+//   - probe:    3s,  sized for the boot-time freshness probe (#197).
+//     The probe's whole point is "fail fast and fall back to cache" —
+//     reusing metadataHTTPClient (30s) would let an offline boot stall
+//     ten times longer than the spec budget.
 var (
 	metadataHTTPClient = &http.Client{Timeout: 30 * time.Second}
 	assetHTTPClient    = &http.Client{Timeout: 15 * time.Minute}
+	probeHTTPClient    = &http.Client{Timeout: probeBudget}
 )
 
 // releasesAPIBase is the GitHub API root. Split out so tests can point
 // Bootstrap at a local httptest server.
 var releasesAPIBase = "https://api.github.com"
+
+// assetDownloadBase is the asset-CDN root. The probe and the
+// version-bump fallback download deadzone.db / deadzone.db.sha256
+// directly from /<repo>/releases/download/<tag>/<asset>, bypassing the
+// API JSON detour. This costs one extra round-trip in the unhappy
+// path (a 404 here means the asset truly doesn't exist on the tag,
+// which the issue treats as a soft-fail) but saves one in the happy
+// path of every boot. Split out so tests can override.
+var assetDownloadBase = "https://github.com"
 
 // gitDescribeBetweenTagsRe recognises `git describe --tags --always`
 // output for commits that aren't themselves a tagged release:
@@ -107,6 +134,16 @@ type BootstrapOptions struct {
 	// fetch-db --force uses this; the server path leaves it false so
 	// a no-op startup stays zero-network.
 	Force bool
+	// SkipAutoUpdateProbe disables the boot-time freshness probe added
+	// in #197 even when the cache is hot and online. The server path
+	// sets this from DEADZONE_DB_AUTOUPDATE=0; fetch-db NEVER sets it
+	// (the probe is precisely what `fetch-db` is for, no-flag).
+	SkipAutoUpdateProbe bool
+	// Caller is a free-form label that flows into the structured logs
+	// the auto-update probe emits (`db.update_*` events). The two
+	// production callers are "server" and "fetch-db"; tests leave it
+	// empty.
+	Caller string
 }
 
 // Bootstrap ensures a deadzone.db is present at the default cache
@@ -147,13 +184,13 @@ func BootstrapWithOptions(ctx context.Context, opts BootstrapOptions) (string, b
 	offline := os.Getenv(EnvOffline) == "1"
 
 	// readSidecar accepts both the v0 single-line tag (legacy binaries)
-	// and the v1 JSON object. We only consume .Tag here — the sha256
-	// and fetched_at fields feed the auto-update probe added in #197,
-	// which is layered on top of this fast-path lookup.
-	cachedTag := ""
+	// and the v1 JSON object. The full sidecar (sha256, fetched_at)
+	// feeds the auto-update probe.
+	var cachedSidecar sidecar
 	if s, err := readSidecar(tagPath); err == nil {
-		cachedTag = s.Tag
+		cachedSidecar = s
 	}
+	cachedTag := cachedSidecar.Tag
 
 	isDev := isDevVersion(opts.AppVersion)
 
@@ -163,6 +200,25 @@ func BootstrapWithOptions(ctx context.Context, opts BootstrapOptions) (string, b
 	// don't nag" is the ergonomic choice for local iteration.
 	if cached && !opts.Force {
 		if isDev || cachedTag == opts.AppVersion {
+			// Auto-update probe (#197). Runs ONLY on a confirmed tag
+			// match (skipping dev fallback — there's no specific
+			// release to probe), and only when not opted out and not
+			// in offline mode. All non-success outcomes other than a
+			// hash-verified corrupt download are soft-fails: the
+			// cached DB serves and the probe error is swallowed.
+			if !isDev && cachedTag == opts.AppVersion && !opts.SkipAutoUpdateProbe && !offline {
+				updated, err := probeAndMaybeSwap(ctx, repo, opts.AppVersion, dbPath, tagPath, cachedSidecar, opts.Caller)
+				if err != nil {
+					return "", false, err
+				}
+				return dbPath, updated, nil
+			}
+			if !isDev && cachedTag == opts.AppVersion && opts.SkipAutoUpdateProbe {
+				slog.Info("db.update_check_skipped", "tag", cachedTag, "reason", "disabled_via_env", "caller", opts.Caller)
+			}
+			if !isDev && cachedTag == opts.AppVersion && offline {
+				slog.Info("db.update_check_skipped", "tag", cachedTag, "reason", "offline_mode", "caller", opts.Caller)
+			}
 			return dbPath, false, nil
 		}
 	}
@@ -471,4 +527,232 @@ func fetchSHA256(ctx context.Context, url string) (string, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// probeAndMaybeSwap is the auto-update probe added in #197. It runs
+// inside the fast-path branch when (a) the cache exists, (b) its tag
+// matches the binary's AppVersion, (c) the caller hasn't opted out
+// via SkipAutoUpdateProbe, and (d) we're not in offline mode.
+//
+// Soft-fail policy (issue ADR): every non-success outcome OTHER than
+// a sha-verified corrupt download is treated as a recoverable
+// transient — the cached DB stays and we return (false, nil). The
+// only error path that propagates is the corrupt-download case:
+// `deadzone.db.new` is deleted and the caller gets a non-nil error
+// so boot does NOT proceed against an unverified DB.
+//
+// Sidecar legacy handling: a v0 sidecar carries no sha256, so we
+// compute it once from the on-disk file and rewrite the sidecar
+// before issuing the probe. Subsequent boots take the cheap path.
+func probeAndMaybeSwap(ctx context.Context, repo, tag, dbPath, tagPath string, side sidecar, caller string) (bool, error) {
+	localSHA := side.SHA256
+	if localSHA == "" {
+		// First boot post-upgrade onto a v0 sidecar. Compute the sha
+		// once so the next boot takes the cheap path. A failure here
+		// (e.g. the cache file vanished between fileExists and now) is
+		// classified as parse_error and soft-fails the probe — boot
+		// continues, the next attempt will retry.
+		h, err := hashFile(dbPath)
+		if err != nil {
+			slog.Info("db.update_check_skipped", "tag", tag, "reason", "parse_error", "caller", caller, "err", err.Error())
+			return false, nil
+		}
+		localSHA = h
+		side.SHA256 = h
+		if side.FetchedAt.IsZero() {
+			// Best-effort: stamp the on-disk mtime so the field has
+			// SOME signal even on the legacy upgrade path. Falls back
+			// to "now" if stat fails.
+			if info, statErr := os.Stat(dbPath); statErr == nil {
+				side.FetchedAt = info.ModTime().UTC()
+			} else {
+				side.FetchedAt = time.Now().UTC()
+			}
+		}
+		if err := writeSidecar(tagPath, side); err != nil {
+			slog.Warn("server.db_tag_sidecar_write_failed", "err", err.Error(), "path", tagPath)
+		}
+	}
+
+	slog.Debug("db.update_check_start", "tag", tag, "local_sha256", localSHA, "caller", caller)
+
+	remoteSHA, reason, err := probeFetchSHA(ctx, repo, tag)
+	if err != nil {
+		slog.Info("db.update_check_skipped", "tag", tag, "reason", reason, "caller", caller, "err", err.Error())
+		return false, nil
+	}
+
+	if remoteSHA == localSHA {
+		slog.Debug("db.update_check_no_change", "tag", tag, "sha256", remoteSHA, "caller", caller)
+		return false, nil
+	}
+
+	slog.Info("db.update_available", "tag", tag, "local_sha256", localSHA, "remote_sha256", remoteSHA, "caller", caller)
+
+	start := time.Now()
+	bytesDL, phase, err := probeDownloadAndSwap(ctx, repo, tag, dbPath, remoteSHA)
+	if err != nil {
+		slog.Error("db.update_failed", "tag", tag, "phase", phase, "err", err.Error(), "caller", caller)
+		// Hash mismatch on the downloaded bytes is the ONE case the
+		// issue says must abort boot. Any other download-phase failure
+		// (network drop mid-stream, disk full) is recoverable on the
+		// next boot, so we soft-fall-back to the cache. The phase
+		// returned by probeDownloadAndSwap distinguishes the two.
+		if phase == "verify" {
+			return false, fmt.Errorf("db: auto-update %w", err)
+		}
+		return false, nil
+	}
+
+	side = sidecar{Tag: tag, SHA256: remoteSHA, FetchedAt: time.Now().UTC()}
+	if err := writeSidecar(tagPath, side); err != nil {
+		slog.Warn("server.db_tag_sidecar_write_failed", "err", err.Error(), "path", tagPath)
+	}
+
+	slog.Info("db.update_applied",
+		"tag", tag,
+		"old_sha256", localSHA,
+		"new_sha256", remoteSHA,
+		"bytes_downloaded", bytesDL,
+		"duration_ms", time.Since(start).Milliseconds(),
+		"caller", caller,
+	)
+	return true, nil
+}
+
+// probeFetchSHA does the cheap GET on the deadzone.db.sha256 asset.
+// Returns (sha, "", nil) on success, ("", reason, err) on every
+// failure mode the issue's structured-log table enumerates.
+//
+// The reason vocabulary maps to slog's `reason` field on
+// db.update_check_skipped: network_timeout, network_error,
+// parse_error.
+func probeFetchSHA(ctx context.Context, repo, tag string) (sha, reason string, err error) {
+	url := fmt.Sprintf("%s/%s/releases/download/%s/%s", assetDownloadBase, repo, tag, sha256AssetName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "parse_error", err
+	}
+	resp, err := probeHTTPClient.Do(req)
+	if err != nil {
+		// http.Client wraps deadline exceeded inside *url.Error whose
+		// Timeout() reports true. Distinguishing this from a generic
+		// network error matters because the issue's
+		// db.update_check_skipped log surfaces "network_timeout"
+		// specifically (operators want to know "your network is slow"
+		// vs "your network is broken").
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", "network_timeout", err
+		}
+		var netErr interface{ Timeout() bool }
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return "", "network_timeout", err
+		}
+		return "", "network_error", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "network_error", fmt.Errorf("get %s: status %d", url, resp.StatusCode)
+	}
+	// 4 KiB is generous for a one-line sha256 file; cap defends
+	// against a hostile mirror responding with infinite bytes.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", "network_error", fmt.Errorf("read sha256 body: %w", err)
+	}
+	fields := strings.Fields(string(body))
+	if len(fields) == 0 {
+		return "", "parse_error", errors.New("sha256 file is empty")
+	}
+	hash := strings.ToLower(fields[0])
+	if len(hash) != 64 {
+		return "", "parse_error", fmt.Errorf("malformed sha256 %q (want 64 hex chars)", hash)
+	}
+	return hash, "", nil
+}
+
+// probeDownloadAndSwap downloads deadzone.db to a deterministic
+// .new path, sha-verifies against expectedSHA, and atomically renames
+// over the live cache. The deterministic name (deadzone.db.new) was
+// called out by the issue spec; the existing fetchAndInstall uses
+// CreateTemp instead because it has no expected name to coordinate
+// against.
+//
+// Returns (bytesWritten, phase, err) where phase ∈ {download, verify,
+// rename, ""} so the caller can populate the structured-log
+// `db.update_failed.phase` field. An empty phase means success.
+func probeDownloadAndSwap(ctx context.Context, repo, tag, dbPath, expectedSHA string) (int64, string, error) {
+	url := fmt.Sprintf("%s/%s/releases/download/%s/%s", assetDownloadBase, repo, tag, dbAssetName)
+	cacheDir := filepath.Dir(dbPath)
+	newPath := filepath.Join(cacheDir, dbDownloadNewName)
+
+	// Truncate any leftover .new from a torn previous run before we
+	// commit to overwriting it; otherwise a partial download that
+	// died after streaming but before rename would silently corrupt
+	// the next attempt.
+	f, err := os.Create(newPath)
+	if err != nil {
+		return 0, "download", fmt.Errorf("create %s: %w", newPath, err)
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = f.Close()
+			_ = os.Remove(newPath)
+		}
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, "download", fmt.Errorf("new request: %w", err)
+	}
+	// Reuse the long-timeout asset client — the probe budget governs
+	// only the sha sidecar GET, not the multi-MB download.
+	resp, err := assetHTTPClient.Do(req)
+	if err != nil {
+		return 0, "download", fmt.Errorf("get %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, "download", fmt.Errorf("get %s: status %d", url, resp.StatusCode)
+	}
+
+	hasher := sha256.New()
+	n, err := io.Copy(io.MultiWriter(f, hasher), resp.Body)
+	if err != nil {
+		return n, "download", fmt.Errorf("stream %s: %w", url, err)
+	}
+	if err := f.Close(); err != nil {
+		return n, "download", fmt.Errorf("close %s: %w", newPath, err)
+	}
+
+	got := hex.EncodeToString(hasher.Sum(nil))
+	if got != expectedSHA {
+		// "verify" is the one phase the caller MUST treat as fatal —
+		// the cache stays intact and we explicitly leave cleanup=true
+		// so the corrupt .new file is removed.
+		return n, "verify", fmt.Errorf("sha256 mismatch on %s: got %s, want %s", url, got, expectedSHA)
+	}
+
+	if err := os.Rename(newPath, dbPath); err != nil {
+		return n, "rename", fmt.Errorf("rename %s -> %s: %w", newPath, dbPath, err)
+	}
+	cleanup = false
+	return n, "", nil
+}
+
+// hashFile streams path through sha256 and returns the hex digest.
+// Used by the auto-update probe when migrating a v0 sidecar (which
+// has no recorded sha256) to v1.
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
