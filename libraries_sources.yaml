@@ -13,11 +13,16 @@
 #                                  DEADZONE_AGENT_ENDPOINT[_*] env vars;
 #                                  see README "Scraping non-trivial doc
 #                                  sources" for the full contract)
-#              - godoc             Go source parsed via go/doc. Third-party
-#                                  modules: proxy.golang.org zip + sumdb
-#                                  verify. Stdlib: GitHub Contents API
-#                                  (golang/go is not a Go module). See
-#                                  #198 and docs/research/go-stdlib-ingestion.md.
+#              - godoc             Go source parsed via go/doc.
+#                                  Stdlib: GitHub Contents API
+#                                  (golang/go is not a Go module).
+#                                  Third-party modules: proxy.golang.org
+#                                  zip + sumdb verify — capability is
+#                                  shipped but **policy is opt-in only**:
+#                                  prefer github-md for third-party Go
+#                                  modules unless empirical evaluation
+#                                  shows godoc retrieval beats narrative.
+#                                  See #198 (impl) and #133 (open research).
 #   urls     list of doc URLs to fetch
 #
 # Optional:
@@ -2160,30 +2165,22 @@ libraries:
       - https://raw.githubusercontent.com/grafana/faro-web-sdk/{ref}/docs/sources/tutorials/use-cdn-library.md
 
   # ── kind: godoc ──────────────────────────────────────────────
-  # First entries exercising the Go source-parsing path (#198).
-  # Two shapes are validated end-to-end:
-  #   1. Third-party module via proxy.golang.org + sum.golang.org
-  #      (cobra ≈ 5 MB zip, 25-80 chunks expected).
-  #   2. Stdlib package via GitHub Contents API (encoding/json,
-  #      ~68 chunks per the research doc §4 measurement).
-  # Granularity decision deferred per #198 acceptance criteria —
-  # we start with one stdlib lib_id and validate retrieval before
-  # expanding to the full 195-package set.
+  # Current policy (locked 2026-05-04): kind: godoc is reserved for
+  # the Go stdlib only. Third-party Go modules continue to use
+  # kind: github-md — their narrative docs (READMEs, hugo sites,
+  # mkdocs) typically beat go/doc-emitted API reference for the kinds
+  # of queries an LLM-augmented coding agent runs (concept-finding,
+  # idiomatic-pattern lookup, completions/build-config questions).
+  # The proxy.golang.org + sumdb fetch path is shipped and tested
+  # (#198) but no third-party entry is currently configured.
   #
-  # Note: /spf13/cobra also has a kind: github-md entry above
-  # (versions "1.9" and "1.10") covering README + site content. The
-  # godoc entry below is complementary (API reference, not narrative)
-  # and lands on a distinct artifact slug ("spf13_cobra" vs
-  # "spf13_cobra_1.9"). Whether to dedupe is a registry policy
-  # decision deferred to a follow-up; both indexes are useful for
-  # different query types and the disk overhead is negligible.
-
-  - lib_id: /spf13/cobra
-    description: Cobra is a library for creating powerful modern CLI applications, with subcommands, POSIX-compliant flag parsing, shell completions, and man-page generation. Powers kubectl, hugo, gh, and many other Go-based CLIs. (godoc-indexed API reference; the github-md entry above carries the narrative README + site content.)
-    kind: godoc
-    ref: v1.10.2
-    urls:
-      - https://proxy.golang.org/github.com/spf13/cobra/@v/{ref}.zip
+  # Revisit if a specific lib surfaces a real gap (e.g. its github-md
+  # corpus misses signatures the LLM keeps hallucinating); the
+  # research lane for "godoc vs github-md per lib" lives in #133.
+  #
+  # The Go stdlib has no narrative alternative — go/doc is the only
+  # source — so /golang/go/<package> entries below are the single
+  # canonical place this kind is exercised in production.
 
   - lib_id: /golang/go/encoding/json
     description: Encoding and decoding of JSON as defined in RFC 7159. The Go standard library's reference JSON implementation, providing Marshal, Unmarshal, Encoder, Decoder, and the json.RawMessage type.
