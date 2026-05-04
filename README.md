@@ -43,10 +43,14 @@ ARCH=amd64    # or arm64
 # self-mounting AppImage
 curl -L -O "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.AppImage"
 chmod +x "deadzone_${VERSION}_linux_${ARCH}.AppImage"
+mv "deadzone_${VERSION}_linux_${ARCH}.AppImage" deadzone
 
 # or plain tarball (no FUSE needed)
-curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.tar.gz" | tar xz
+curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzone_${VERSION}_linux_${ARCH}.tar.gz" \
+  | tar xz --strip-components=1
 ```
+
+Both flavors land a `deadzone` executable in your current directory, so the `./deadzone server` snippet below works as-is.
 
 Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
 
