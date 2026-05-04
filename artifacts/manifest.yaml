@@ -1,12 +1,12 @@
 release:
-    tag: v0.5.0
+    tag: v0.6.0
     asset: deadzone.db
-    sha256: 87f3a3a7bfcf122dc4e234765aa7111559fe10ddabc82e5712d453e326cb7ae8
-    size: 50417664
-    indexed_at: 2026-05-03T13:34:20.65997561Z
+    sha256: 2bcfad6941602bb75efb40a0f81a310d59075336378cf4cf9bc0bb0522629134
+    size: 4096
+    indexed_at: 2026-05-04T16:09:10.618596118Z
     embedder:
         kind: hugot
         model: nomic-ai/nomic-embed-text-v1.5
         dim: 768
-    lib_count: 67
-    doc_count: 8820
+    lib_count: 0
+    doc_count: 0
