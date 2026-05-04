@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -818,4 +820,386 @@ func TestBootstrap_Matrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// =============================================================================
+// Auto-update probe (#197) — test helpers and integration tests.
+// =============================================================================
+
+// capturedRecord is a frozen view of one slog.Record. The auto-update
+// integration tests assert on Msg + a small subset of Attrs (notably
+// `reason` for skipped events and `phase` for failed events) so the
+// capture only flattens what the production code emits.
+type capturedRecord struct {
+	Level slog.Level
+	Msg   string
+	Attrs map[string]any
+}
+
+// captureHandler is a slog.Handler that records every event into an
+// in-memory slice. Replaces slog.Default() for the duration of a
+// subtest so we can assert that probeAndMaybeSwap emits the right
+// db.update_* events with the right `reason`/`phase` labels.
+type captureHandler struct {
+	mu      sync.Mutex
+	records []capturedRecord
+}
+
+func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	rec := capturedRecord{Level: r.Level, Msg: r.Message, Attrs: map[string]any{}}
+	r.Attrs(func(a slog.Attr) bool {
+		rec.Attrs[a.Key] = a.Value.Any()
+		return true
+	})
+	h.mu.Lock()
+	h.records = append(h.records, rec)
+	h.mu.Unlock()
+	return nil
+}
+func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *captureHandler) WithGroup(_ string) slog.Handler      { return h }
+
+// findRecord returns the first captured record whose Msg equals msg,
+// or nil if none. Used by per-subtest assertions like
+// "db.update_check_skipped was emitted with reason=network_timeout".
+func (h *captureHandler) findRecord(msg string) *capturedRecord {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.records {
+		if h.records[i].Msg == msg {
+			return &h.records[i]
+		}
+	}
+	return nil
+}
+
+// withCapturedLog swaps slog.Default for a captureHandler for the
+// duration of the test. Restores the original logger on cleanup so
+// subsequent tests in the same binary aren't muted.
+func withCapturedLog(t *testing.T) *captureHandler {
+	t.Helper()
+	h := &captureHandler{}
+	orig := slog.Default()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+	return h
+}
+
+// withProbeTimeout swaps probeHTTPClient for a fresh client with the
+// given timeout. The default 3-second budget makes the timeout-path
+// test slow; production behaviour is preserved (3s is what real boots
+// will see) but unit tests can drop it to 50ms paired with a 200ms
+// fixture hang for a 4-millisecond-ish test runtime.
+func withProbeTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	orig := probeHTTPClient
+	probeHTTPClient = &http.Client{Timeout: d}
+	t.Cleanup(func() { probeHTTPClient = orig })
+}
+
+// seedCacheV1 writes a v1 JSON sidecar carrying a known sha alongside
+// dbBody. Used by probe tests that need the cached sha to be
+// well-defined (vs the legacy seedCache which writes a v0 tag-only
+// line, forcing the probe to recompute the sha on first run).
+func seedCacheV1(t *testing.T, dir, dbBody, tag, sha string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, dbAssetName), []byte(dbBody), 0o644); err != nil {
+		t.Fatalf("seed cache db: %v", err)
+	}
+	side := sidecar{Tag: tag, SHA256: sha, FetchedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if err := writeSidecar(filepath.Join(dir, tagSidecarName), side); err != nil {
+		t.Fatalf("seed sidecar v1: %v", err)
+	}
+}
+
+// shaOf is a test helper for "the sha256 of this string", used to
+// keep probe-test fixture setups readable.
+func shaOf(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// TestBootstrap_AutoUpdate_NoChange — fixture: cached DB sha == remote
+// sha. Probe fires, sees no change, returns the cached path. No
+// download, sidecar unchanged, no .new file ever exists.
+func TestBootstrap_AutoUpdate_NoChange(t *testing.T) {
+	clearBootstrapEnv(t)
+	logs := withCapturedLog(t)
+
+	const body = "stable-content"
+	rel := newFakeRelease(t, "v1.0.0", body) // fixture sha == cached sha
+	fix := newFixtureServer(t, rel)
+	withAPIBase(t, fix.srv.URL)
+
+	cacheDir := t.TempDir()
+	seedCacheV1(t, cacheDir, body, "v1.0.0", shaOf(body))
+
+	path, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+		CacheDir:   cacheDir,
+		AppVersion: "v1.0.0",
+		Caller:     "server",
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	if upgraded {
+		t.Errorf("upgraded=true on no-change probe, want false")
+	}
+	if got, _ := os.ReadFile(path); string(got) != body {
+		t.Errorf("cached body mutated on no-change probe: %q", got)
+	}
+	if n := fix.probeCalls.Load(); n != 1 {
+		t.Errorf("probeCalls = %d, want 1", n)
+	}
+	if n := fix.probeDLCalls.Load(); n != 0 {
+		t.Errorf("probeDLCalls = %d on no-change, want 0", n)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, dbDownloadNewName)); !os.IsNotExist(err) {
+		t.Errorf("%s left behind on no-change path", dbDownloadNewName)
+	}
+	if logs.findRecord("db.update_check_no_change") == nil {
+		t.Errorf("db.update_check_no_change not logged")
+	}
+}
+
+// TestBootstrap_AutoUpdate_Applied — fixture: cached DB sha != remote
+// sha. Probe fires, downloads, atomic-swaps, rewrites the sidecar.
+// The cached body must be the new content; sidecar.SHA256 must be
+// the new sha.
+func TestBootstrap_AutoUpdate_Applied(t *testing.T) {
+	clearBootstrapEnv(t)
+	logs := withCapturedLog(t)
+
+	const newBody = "fresh-corpus-v2"
+	rel := newFakeRelease(t, "v1.0.0", newBody)
+	fix := newFixtureServer(t, rel)
+	withAPIBase(t, fix.srv.URL)
+
+	cacheDir := t.TempDir()
+	const oldBody = "stale-corpus-v1"
+	seedCacheV1(t, cacheDir, oldBody, "v1.0.0", shaOf(oldBody))
+
+	path, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+		CacheDir:   cacheDir,
+		AppVersion: "v1.0.0",
+		Caller:     "server",
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	if !upgraded {
+		t.Errorf("upgraded=false on probe-applied, want true")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != newBody {
+		t.Errorf("body = %q after probe-apply, want %q", got, newBody)
+	}
+	side, err := readSidecar(filepath.Join(cacheDir, tagSidecarName))
+	if err != nil {
+		t.Fatalf("read sidecar: %v", err)
+	}
+	if side.SHA256 != shaOf(newBody) {
+		t.Errorf("sidecar SHA256 = %q after apply, want sha of new body", side.SHA256)
+	}
+	if side.Tag != "v1.0.0" {
+		t.Errorf("sidecar Tag = %q, want v1.0.0", side.Tag)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, dbDownloadNewName)); !os.IsNotExist(err) {
+		t.Errorf("%s not cleaned up after successful swap", dbDownloadNewName)
+	}
+	if n := fix.probeDLCalls.Load(); n != 1 {
+		t.Errorf("probeDLCalls = %d, want 1", n)
+	}
+	rec := logs.findRecord("db.update_applied")
+	if rec == nil {
+		t.Fatalf("db.update_applied not logged")
+	}
+	if b, ok := rec.Attrs["bytes_downloaded"].(int64); !ok || b == 0 {
+		t.Errorf("db.update_applied.bytes_downloaded = %v, want non-zero int64", rec.Attrs["bytes_downloaded"])
+	}
+}
+
+// TestBootstrap_AutoUpdate_NetworkTimeout — fixture hangs past the
+// probe budget. The probe must soft-fail with reason=network_timeout,
+// the cached DB stays untouched, BootstrapWithOptions returns nil.
+//
+// Test pacing: we drop the probe client timeout to 50ms and the
+// fixture hang to ~200ms (via the standard probeHang flag, which uses
+// a hardcoded 5×probeBudget hang in the fixture). The fixture's hang
+// is much longer than the test client timeout, so the timeout fires.
+func TestBootstrap_AutoUpdate_NetworkTimeout(t *testing.T) {
+	clearBootstrapEnv(t)
+	withProbeTimeout(t, 50*time.Millisecond)
+	logs := withCapturedLog(t)
+
+	const body = "stable-content"
+	rel := newFakeRelease(t, "v1.0.0", body)
+	fix := newFixtureServer(t, rel)
+	fix.probeHang.Store(true)
+	withAPIBase(t, fix.srv.URL)
+
+	cacheDir := t.TempDir()
+	seedCacheV1(t, cacheDir, body, "v1.0.0", shaOf(body))
+
+	_, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+		CacheDir:   cacheDir,
+		AppVersion: "v1.0.0",
+		Caller:     "server",
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap returned err on probe timeout (must soft-fail): %v", err)
+	}
+	if upgraded {
+		t.Errorf("upgraded=true on probe timeout, want false")
+	}
+	if got, _ := os.ReadFile(filepath.Join(cacheDir, dbAssetName)); string(got) != body {
+		t.Errorf("cached body mutated on probe timeout: %q", got)
+	}
+	rec := logs.findRecord("db.update_check_skipped")
+	if rec == nil {
+		t.Fatalf("db.update_check_skipped not logged on timeout")
+	}
+	if r, _ := rec.Attrs["reason"].(string); r != "network_timeout" {
+		t.Errorf("skipped.reason = %q, want network_timeout", r)
+	}
+}
+
+// TestBootstrap_AutoUpdate_CorruptDownload — fixture advertises one
+// sha (probeSHA) but serves bytes that hash to a different one. The
+// download verifier must catch the mismatch, delete the .new file,
+// leave the cache intact, and propagate a non-nil error from
+// BootstrapWithOptions so the boot does NOT proceed against an
+// unverified DB.
+func TestBootstrap_AutoUpdate_CorruptDownload(t *testing.T) {
+	clearBootstrapEnv(t)
+	logs := withCapturedLog(t)
+
+	const cachedBody = "stale-content"
+	const realBody = "actual-served-bytes"
+	rel := newFakeRelease(t, "v1.0.0", realBody)
+	fix := newFixtureServer(t, rel)
+	// Advertise a sha that doesn't match what we'll serve. The probe
+	// will see (advertised != cached) → trigger download → download
+	// streams realBody → hasher produces sha(realBody) ≠ advertised
+	// → verify-phase mismatch.
+	fakeSHA := strings.Repeat("a", 64)
+	fix.probeSHA.Store(fakeSHA)
+	withAPIBase(t, fix.srv.URL)
+
+	cacheDir := t.TempDir()
+	seedCacheV1(t, cacheDir, cachedBody, "v1.0.0", shaOf(cachedBody))
+
+	_, _, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+		CacheDir:   cacheDir,
+		AppVersion: "v1.0.0",
+		Caller:     "server",
+	})
+	if err == nil {
+		t.Fatalf("Bootstrap returned nil error on corrupt download")
+	}
+	if !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Errorf("error %q must mention 'sha256 mismatch' (issue AC: error contains the phrase)", err)
+	}
+	// Cache untouched.
+	if got, _ := os.ReadFile(filepath.Join(cacheDir, dbAssetName)); string(got) != cachedBody {
+		t.Errorf("cached body mutated on corrupt download: %q", got)
+	}
+	// .new cleaned up.
+	if _, err := os.Stat(filepath.Join(cacheDir, dbDownloadNewName)); !os.IsNotExist(err) {
+		t.Errorf("%s not deleted after corrupt download", dbDownloadNewName)
+	}
+	// Sidecar untouched (still has the cached sha, not the fake one).
+	side, _ := readSidecar(filepath.Join(cacheDir, tagSidecarName))
+	if side.SHA256 != shaOf(cachedBody) {
+		t.Errorf("sidecar SHA256 = %q after corrupt download, want unchanged %q", side.SHA256, shaOf(cachedBody))
+	}
+	rec := logs.findRecord("db.update_failed")
+	if rec == nil {
+		t.Fatalf("db.update_failed not logged on corrupt download")
+	}
+	if p, _ := rec.Attrs["phase"].(string); p != "verify" {
+		t.Errorf("failed.phase = %q, want verify", p)
+	}
+}
+
+// TestBootstrap_AutoUpdate_FetchDBIgnoresOptOut pins the env-var
+// scoping contract: with DEADZONE_DB_AUTOUPDATE=0 set in the
+// environment, the explicit `fetch-db` caller (which leaves
+// SkipAutoUpdateProbe at its zero value) STILL runs the probe and
+// applies the update. The implicit server caller (which threads the
+// env var into SkipAutoUpdateProbe) does NOT.
+//
+// We exercise both shapes from inside this single test to keep them
+// adjacent: the contract ("env governs server only, not fetch-db")
+// is one rule, and one test that lives or dies by both halves makes
+// regressions louder than two siblings.
+func TestBootstrap_AutoUpdate_FetchDBIgnoresOptOut(t *testing.T) {
+	clearBootstrapEnv(t)
+	t.Setenv(EnvAutoUpdate, "0")
+	logs := withCapturedLog(t)
+
+	const newBody = "fresh-bytes"
+	rel := newFakeRelease(t, "v1.0.0", newBody)
+	fix := newFixtureServer(t, rel)
+	withAPIBase(t, fix.srv.URL)
+
+	const oldBody = "old-bytes"
+
+	t.Run("server-respects-optout", func(t *testing.T) {
+		cacheDir := t.TempDir()
+		seedCacheV1(t, cacheDir, oldBody, "v1.0.0", shaOf(oldBody))
+
+		_, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+			CacheDir:   cacheDir,
+			AppVersion: "v1.0.0",
+			// SkipAutoUpdateProbe=true is what server.go would set
+			// from autoUpdateDisabled() given DEADZONE_DB_AUTOUPDATE=0.
+			SkipAutoUpdateProbe: true,
+			Caller:              "server",
+		})
+		if err != nil {
+			t.Fatalf("Bootstrap: %v", err)
+		}
+		if upgraded {
+			t.Errorf("upgraded=true under DEADZONE_DB_AUTOUPDATE=0 server boot, want false")
+		}
+		if got, _ := os.ReadFile(filepath.Join(cacheDir, dbAssetName)); string(got) != oldBody {
+			t.Errorf("cached body changed under opt-out: %q", got)
+		}
+		rec := logs.findRecord("db.update_check_skipped")
+		if rec == nil {
+			t.Fatalf("db.update_check_skipped not logged on opt-out")
+		}
+		if r, _ := rec.Attrs["reason"].(string); r != "disabled_via_env" {
+			t.Errorf("skipped.reason = %q, want disabled_via_env", r)
+		}
+	})
+
+	t.Run("fetch-db-ignores-optout", func(t *testing.T) {
+		cacheDir := t.TempDir()
+		seedCacheV1(t, cacheDir, oldBody, "v1.0.0", shaOf(oldBody))
+		probeBefore := fix.probeCalls.Load()
+
+		_, upgraded, err := BootstrapWithOptions(context.Background(), BootstrapOptions{
+			CacheDir:   cacheDir,
+			AppVersion: "v1.0.0",
+			// SkipAutoUpdateProbe deliberately NOT set — fetchdb.go
+			// leaves it at its zero value regardless of env. The probe
+			// must run and the swap must happen.
+			Caller: "fetch-db",
+		})
+		if err != nil {
+			t.Fatalf("Bootstrap: %v", err)
+		}
+		if !upgraded {
+			t.Errorf("upgraded=false on fetch-db with mismatched cache, want true")
+		}
+		if got, _ := os.ReadFile(filepath.Join(cacheDir, dbAssetName)); string(got) != newBody {
+			t.Errorf("cached body = %q after fetch-db apply, want %q", got, newBody)
+		}
+		if got := fix.probeCalls.Load() - probeBefore; got != 1 {
+			t.Errorf("probeCalls delta = %d on fetch-db, want 1 (env opt-out must NOT apply)", got)
+		}
+	})
 }
