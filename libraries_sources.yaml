@@ -13,6 +13,11 @@
 #                                  DEADZONE_AGENT_ENDPOINT[_*] env vars;
 #                                  see README "Scraping non-trivial doc
 #                                  sources" for the full contract)
+#              - godoc             Go source parsed via go/doc. Third-party
+#                                  modules: proxy.golang.org zip + sumdb
+#                                  verify. Stdlib: GitHub Contents API
+#                                  (golang/go is not a Go module). See
+#                                  #198 and docs/research/go-stdlib-ingestion.md.
 #   urls     list of doc URLs to fetch
 #
 # Optional:
@@ -2154,6 +2159,37 @@ libraries:
       - https://raw.githubusercontent.com/grafana/faro-web-sdk/{ref}/docs/sources/tutorials/use-angular.md
       - https://raw.githubusercontent.com/grafana/faro-web-sdk/{ref}/docs/sources/tutorials/use-cdn-library.md
 
+  # ── kind: godoc ──────────────────────────────────────────────
+  # First entries exercising the Go source-parsing path (#198).
+  # Two shapes are validated end-to-end:
+  #   1. Third-party module via proxy.golang.org + sum.golang.org
+  #      (cobra ≈ 5 MB zip, 25-80 chunks expected).
+  #   2. Stdlib package via GitHub Contents API (encoding/json,
+  #      ~68 chunks per the research doc §4 measurement).
+  # Granularity decision deferred per #198 acceptance criteria —
+  # we start with one stdlib lib_id and validate retrieval before
+  # expanding to the full 195-package set.
+  #
+  # Note: /spf13/cobra also has a kind: github-md entry above
+  # (versions "1.9" and "1.10") covering README + site content. The
+  # godoc entry below is complementary (API reference, not narrative)
+  # and lands on a distinct artifact slug ("spf13_cobra" vs
+  # "spf13_cobra_1.9"). Whether to dedupe is a registry policy
+  # decision deferred to a follow-up; both indexes are useful for
+  # different query types and the disk overhead is negligible.
 
+  - lib_id: /spf13/cobra
+    description: Cobra is a library for creating powerful modern CLI applications, with subcommands, POSIX-compliant flag parsing, shell completions, and man-page generation. Powers kubectl, hugo, gh, and many other Go-based CLIs. (godoc-indexed API reference; the github-md entry above carries the narrative README + site content.)
+    kind: godoc
+    ref: v1.10.2
+    urls:
+      - https://proxy.golang.org/github.com/spf13/cobra/@v/{ref}.zip
+
+  - lib_id: /golang/go/encoding/json
+    description: Encoding and decoding of JSON as defined in RFC 7159. The Go standard library's reference JSON implementation, providing Marshal, Unmarshal, Encoder, Decoder, and the json.RawMessage type.
+    kind: godoc
+    ref: go1.26.2
+    urls:
+      - https://api.github.com/repos/golang/go/contents/src/encoding/json?ref={ref}
 
 

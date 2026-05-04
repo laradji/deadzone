@@ -30,11 +30,12 @@ func TestStateFile_RoundTrip(t *testing.T) {
 			Model: "nomic-ai/nomic-embed-text-v1.5",
 			Dim:   768,
 		},
-		Ref:       "v1.2.3",
-		CreatedAt: created,
-		UpdatedAt: updated,
-		URLCount:  6,
-		DocCount:  42,
+		Ref:         "v1.2.3",
+		CreatedAt:   created,
+		UpdatedAt:   updated,
+		URLCount:    6,
+		DocCount:    42,
+		GoToolchain: "go1.26.2",
 	}
 	if err := want.Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -70,6 +71,41 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	}
 	if got.Ref != want.Ref {
 		t.Errorf("Ref = %q, want %q", got.Ref, want.Ref)
+	}
+	if got.GoToolchain != want.GoToolchain {
+		t.Errorf("GoToolchain = %q, want %q", got.GoToolchain, want.GoToolchain)
+	}
+}
+
+// TestStateFile_EmptyGoToolchainOmittedOnDisk pins the on-disk shape
+// for sidecars produced by builds that don't (yet) set GoToolchain
+// — and for non-godoc artifacts where the toolchain is informational.
+// omitempty keeps pre-#198 sidecars stable and avoids a noisy
+// `go_toolchain: ""` line when the field is unset.
+func TestStateFile_EmptyGoToolchainOmittedOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "x_y")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(libDir, "state.yaml")
+
+	s := &packs.StateFile{
+		LibID:         "/x/y",
+		SchemaVersion: 5,
+		Embedder:      packs.EmbedderState{Kind: "hugot", Model: "m", Dim: 8},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "go_toolchain:") {
+		t.Errorf("expected no go_toolchain: line when field is empty, got:\n%s", string(data))
 	}
 }
 

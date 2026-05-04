@@ -6,6 +6,7 @@ require (
 	github.com/knights-analytics/hugot v0.7.2
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/mod v0.35.0
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
 	turso.tech/database/tursogo v0.5.3

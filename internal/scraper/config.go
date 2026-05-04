@@ -41,6 +41,14 @@ const (
 	// LocalAI, OpenAI, ...). The catch-all path for HTML doc sites and
 	// any other format that isn't trivially raw markdown. See #27.
 	KindScrapeViaAgent = "scrape-via-agent"
+
+	// KindGodoc parses Go source files via go/parser + go/doc to emit
+	// one db.Doc per exported identifier. Source bytes come from
+	// proxy.golang.org for third-party modules (sumdb-verified) or from
+	// the GitHub Contents API for the stdlib (golang/go is not a Go
+	// module, so the proxy doesn't serve it). See #198 and
+	// docs/research/go-stdlib-ingestion.md.
+	KindGodoc = "godoc"
 )
 
 // validKinds enumerates the source kind discriminators known to the
@@ -50,6 +58,7 @@ var validKinds = map[string]bool{
 	KindGithubMD:       true,
 	KindGithubRST:      true,
 	KindScrapeViaAgent: true,
+	KindGodoc:          true,
 }
 
 // Config is the parsed libraries_sources.yaml file.
@@ -278,7 +287,7 @@ func (l LibrarySource) validate() error {
 		return fmt.Errorf("kind is required")
 	}
 	if !validKinds[l.Kind] {
-		return fmt.Errorf("unknown kind %q (valid: %s, %s, %s)", l.Kind, KindGithubMD, KindGithubRST, KindScrapeViaAgent)
+		return fmt.Errorf("unknown kind %q (valid: %s, %s, %s, %s)", l.Kind, KindGithubMD, KindGithubRST, KindScrapeViaAgent, KindGodoc)
 	}
 	for _, u := range l.URLs {
 		if strings.TrimSpace(u) == "" {
