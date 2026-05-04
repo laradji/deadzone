@@ -124,6 +124,17 @@ func shouldSkipDir(rel string) bool {
 	if strings.Contains(rel, "/testdata/") || strings.HasSuffix(rel, "/testdata") {
 		return true
 	}
+	// Go convention: directories prefixed with `_` are excluded by
+	// `go build` and friends. They typically hold code-generation
+	// helpers (e.g. runtime/_gen/, simd/archsimd/_gen/simdgen) that
+	// exist in the local toolchain checkout but are NOT shipped on
+	// github.com/golang/go's src/ tree — including them produces 404s
+	// at scrape time. See https://pkg.go.dev/cmd/go#hdr-Package_lists.
+	for _, seg := range strings.Split(rel, "/") {
+		if strings.HasPrefix(seg, "_") {
+			return true
+		}
+	}
 	return false
 }
 

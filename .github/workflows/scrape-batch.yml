@@ -103,6 +103,16 @@ jobs:
       - name: Scrape (cache miss)
         if: steps.artifact-cache.outputs.cache-hit != 'true'
         shell: bash
+        env:
+          # Authenticated GitHub API quota is 5000 req/h vs 60 req/h
+          # anonymous. The kind: godoc fetcher reads GITHUB_TOKEN to
+          # call api.github.com/repos/golang/go/contents/... with a
+          # Bearer token (internal/scraper/godoc/fetch.go). With 194
+          # godoc stdlib entries fanning across the matrix, anonymous
+          # would 403-out roughly half the slots when several runners
+          # share an outbound IP — tag-driven scrape-pack runs that
+          # produce a release-quality DB cannot afford that.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           args=(scrape --artifacts ./artifacts --lib "${{ matrix.entry.lib_id }}")
