@@ -210,12 +210,18 @@ func TestBootstrap_FirstFetch(t *testing.T) {
 	if string(got) != string(rel.dbBody) {
 		t.Errorf("installed body = %q, want %q", got, rel.dbBody)
 	}
-	tag, err := os.ReadFile(filepath.Join(cacheDir, tagSidecarName))
+	side, err := readSidecar(filepath.Join(cacheDir, tagSidecarName))
 	if err != nil {
 		t.Fatalf("read tag sidecar: %v", err)
 	}
-	if strings.TrimSpace(string(tag)) != rel.tag {
-		t.Errorf("tag sidecar = %q, want %q", tag, rel.tag)
+	if side.Tag != rel.tag {
+		t.Errorf("sidecar Tag = %q, want %q", side.Tag, rel.tag)
+	}
+	if side.SHA256 != rel.dbHash {
+		t.Errorf("sidecar SHA256 = %q, want %q", side.SHA256, rel.dbHash)
+	}
+	if side.FetchedAt.IsZero() {
+		t.Errorf("sidecar FetchedAt is zero, want a real timestamp")
 	}
 	if n := fix.dbCalls.Load(); n != 1 {
 		t.Errorf("db asset hit %d times, want 1", n)
@@ -289,9 +295,12 @@ func TestBootstrap_BinaryUpgradeSwapsDB(t *testing.T) {
 	if string(got) != string(relNew.dbBody) {
 		t.Errorf("after upgrade body = %q, want %q", got, relNew.dbBody)
 	}
-	tag, _ := os.ReadFile(filepath.Join(cacheDir, tagSidecarName))
-	if strings.TrimSpace(string(tag)) != relNew.tag {
-		t.Errorf("tag sidecar = %q, want %q", tag, relNew.tag)
+	side, err := readSidecar(filepath.Join(cacheDir, tagSidecarName))
+	if err != nil {
+		t.Fatalf("read tag sidecar: %v", err)
+	}
+	if side.Tag != relNew.tag {
+		t.Errorf("sidecar Tag = %q, want %q", side.Tag, relNew.tag)
 	}
 }
 
@@ -460,9 +469,12 @@ func TestBootstrap_DevFallsBackToLatest(t *testing.T) {
 	if string(got) != string(rel.dbBody) {
 		t.Errorf("dev fallback body = %q, want %q", got, rel.dbBody)
 	}
-	tag, _ := os.ReadFile(filepath.Join(cacheDir, tagSidecarName))
-	if strings.TrimSpace(string(tag)) != rel.tag {
-		t.Errorf("tag sidecar = %q, want %q", tag, rel.tag)
+	side, err := readSidecar(filepath.Join(cacheDir, tagSidecarName))
+	if err != nil {
+		t.Fatalf("read tag sidecar: %v", err)
+	}
+	if side.Tag != rel.tag {
+		t.Errorf("sidecar Tag = %q, want %q", side.Tag, rel.tag)
 	}
 }
 

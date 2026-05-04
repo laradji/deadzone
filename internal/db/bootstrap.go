@@ -146,9 +146,13 @@ func BootstrapWithOptions(ctx context.Context, opts BootstrapOptions) (string, b
 	cached := fileExists(dbPath)
 	offline := os.Getenv(EnvOffline) == "1"
 
+	// readSidecar accepts both the v0 single-line tag (legacy binaries)
+	// and the v1 JSON object. We only consume .Tag here — the sha256
+	// and fetched_at fields feed the auto-update probe added in #197,
+	// which is layered on top of this fast-path lookup.
 	cachedTag := ""
-	if b, err := os.ReadFile(tagPath); err == nil {
-		cachedTag = strings.TrimSpace(string(b))
+	if s, err := readSidecar(tagPath); err == nil {
+		cachedTag = s.Tag
 	}
 
 	isDev := isDevVersion(opts.AppVersion)
@@ -417,7 +421,13 @@ func fetchAndInstall(ctx context.Context, meta releaseMeta, dbPath, tagPath stri
 	}
 	cleanup = false
 
-	if err := os.WriteFile(tagPath, []byte(meta.Tag+"\n"), 0o644); err != nil {
+	// We already have the verified sha in `got` from the streaming
+	// hasher, so persisting it costs nothing and saves the next boot's
+	// auto-update probe a 50 MB rehash. Sidecar write failure is
+	// non-fatal: the DB is in place and serving; a missing/stale sidecar
+	// only forces the next boot to re-fetch (wasteful but correct).
+	side := sidecar{Tag: meta.Tag, SHA256: got, FetchedAt: time.Now().UTC()}
+	if err := writeSidecar(tagPath, side); err != nil {
 		slog.Warn("server.db_tag_sidecar_write_failed", "err", err.Error(), "path", tagPath)
 	}
 	return nil
