@@ -1,8 +1,7 @@
 // Package godoc parses Go source trees via go/parser + go/doc and
 // emits one db.Doc per exported identifier. It is the parse half of
 // kind: godoc; the source-bytes half (proxy.golang.org / GitHub
-// Contents API) lives in fetch.go. See #198 and
-// docs/research/go-stdlib-ingestion.md.
+// Contents API) lives in fetch.go. Design + ACs: #198.
 package godoc
 
 import (
@@ -28,12 +27,17 @@ import (
 // ignored.
 //
 // libID is stamped onto every emitted Doc (db.Doc.LibID). The chunk
-// shape matches §3 of docs/research/go-stdlib-ingestion.md:
+// shape contract is:
 //
 //   - Package overview: Title="<pkg> package"
 //   - Func:             Title="<pkg>.<Name>"
 //   - Type:             Title="<pkg>.<Name>" (methods/ctors rolled into Content)
 //   - Const/Var group:  Title="<pkg>.<first-name> ..."
+//
+// TestParseGodoc_GoldenFixture in parse_test.go locks this contract
+// against testdata/sample.golden — that's the canonical source of
+// truth, edits here must keep the golden in sync (regenerate via
+// UPDATE_GOLDEN=1 go test ./internal/scraper/godoc/).
 //
 // The output is deterministic: packages are visited in directory-sort
 // order, and within each package idents are sorted by name. Declaration

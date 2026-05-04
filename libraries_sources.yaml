@@ -22,7 +22,8 @@
 #                                  prefer github-md for third-party Go
 #                                  modules unless empirical evaluation
 #                                  shows godoc retrieval beats narrative.
-#                                  See #198 (impl) and #133 (open research).
+#                                  See #198 (impl + ACs) and #133 (research,
+#                                  closed — output was #198's locked design).
 #   urls     list of doc URLs to fetch
 #
 # Optional:
@@ -2175,8 +2176,9 @@ libraries:
   # (#198) but no third-party entry is currently configured.
   #
   # Revisit if a specific lib surfaces a real gap (e.g. its github-md
-  # corpus misses signatures the LLM keeps hallucinating); the
-  # research lane for "godoc vs github-md per lib" lives in #133.
+  # corpus misses signatures the LLM keeps hallucinating). The "godoc
+  # vs github-md per lib" evaluation is policy-deferred — file a new
+  # research issue if scope expands beyond stdlib.
   #
   # The Go stdlib has no narrative alternative — go/doc is the only
   # source — so /golang/go/<package> entries below are the single

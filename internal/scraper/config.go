@@ -46,8 +46,7 @@ const (
 	// one db.Doc per exported identifier. Source bytes come from
 	// proxy.golang.org for third-party modules (sumdb-verified) or from
 	// the GitHub Contents API for the stdlib (golang/go is not a Go
-	// module, so the proxy doesn't serve it). See #198 and
-	// docs/research/go-stdlib-ingestion.md.
+	// module, so the proxy doesn't serve it). Design + ACs: #198.
 	KindGodoc = "godoc"
 )
 
