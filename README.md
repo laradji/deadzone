@@ -53,12 +53,12 @@ curl -L "https://github.com/laradji/deadzone/releases/download/${VERSION}/deadzo
 Both flavors land a `deadzone` executable in your current directory, so the `./deadzone server` snippet below works as-is.
 
 ```sh
-# Container — multi-arch (linux/amd64 + linux/arm64), auto-fetches the DB on first run
+# Container — multi-arch (linux/amd64 + linux/arm64), ships with the DB baked, runs offline by default
 docker pull ghcr.io/laradji/deadzone:latest
 docker run --rm -i ghcr.io/laradji/deadzone:latest server
 ```
 
-The image bakes the binary plus `libonnxruntime` and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). On first launch `deadzone server` downloads `deadzone.db` (~50 MB) from the GitHub Release matching the binary's compiled-in version, SHA256-verifies, and caches it under the container's data dir; subsequent runs are zero-network. To refresh the index, pull a newer tag.
+The image bakes the binary, `libonnxruntime`, and `deadzone.db` (~100 MB total), and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). `DEADZONE_DB_OFFLINE=1` is set in the image so first launch is instant — no download, no volume mount, no `--network` access required. To refresh the index, pull a newer tag.
 
 Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
 
@@ -96,7 +96,7 @@ MCP client wire-up — native binary (Brew tap, tarball, or AppImage):
 }
 ```
 
-MCP client wire-up — container (multi-arch on `ghcr.io`). The named volume keeps the auto-fetched `deadzone.db` warm across MCP server restarts; without it, every reload re-downloads ~70 MB:
+MCP client wire-up — container (multi-arch on `ghcr.io`). The image ships with `deadzone.db` baked, so no volume mount is needed and every container start is offline-instant:
 
 ```json
 {
@@ -104,12 +104,7 @@ MCP client wire-up — container (multi-arch on `ghcr.io`). The named volume kee
     "deadzone": {
       "type": "stdio",
       "command": "docker",
-      "args": [
-        "run", "--rm", "-i",
-        "-v", "deadzone-cache:/home/nonroot/.local/share/deadzone",
-        "ghcr.io/laradji/deadzone:latest",
-        "server"
-      ]
+      "args": ["run", "--rm", "-i", "ghcr.io/laradji/deadzone:latest", "server"]
     }
   }
 }
@@ -191,7 +186,7 @@ Escape hatches for air-gapped boxes:
 | `DEADZONE_ORT_CACHE`      | Override the ORT library cache dir.                                                     |
 | `DEADZONE_HUGOT_CACHE`    | Override the model-weights cache dir.                                                   |
 | `DEADZONE_DB_CACHE`       | Override the `deadzone.db` cache dir.                                                   |
-| `DEADZONE_DB_OFFLINE=1`   | Refuse any network call. Fails loudly if nothing is cached.                             |
+| `DEADZONE_DB_OFFLINE=1`   | Refuse any network call. Fails loudly if nothing is cached. Set by default in the container image (which ships `deadzone.db` baked). |
 | `DEADZONE_DB_AUTOUPDATE=0` | Disable the boot-time DB freshness probe (the probe runs by default; `fetch-db` always probes regardless of this flag). |
 
 Default cache paths per platform:

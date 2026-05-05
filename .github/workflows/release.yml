@@ -269,175 +269,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Multi-arch OCI image published to GHCR alongside the existing tarball
-  # / AppImage / Homebrew artifacts (#196). Strictly additive — the
-  # tarball + AppImage paths still ship as today; this job adds a third
-  # install path documented in README.
-  #
-  # The Dockerfile does no compilation; the per-arch binaries from the
-  # `build` matrix are downloaded as artifacts and COPYd in. libonnxruntime
-  # is fetched at job time using `./deadzone ort-meta` to read the pinned
-  # URL/SHA from the binary's own constants (internal/ort.pinnedReleases) —
-  # no parallel YAML copy that could drift on a future ORT bump.
-  #
-  # `needs: smoke` means: only image binaries that already proved they
-  # launch on a clean runner. `release` (below) gains a `needs: docker`
-  # entry so the Release object isn't published until the OCI push has
-  # succeeded — a tag landing without its image is the failure mode we
-  # explicitly avoid.
-  docker:
-    name: docker (ghcr.io)
-    needs: smoke
-    runs-on: ubuntu-24.04
-    # `packages: write` is required for the GHCR push via GITHUB_TOKEN.
-    # `contents: read` is the default; making it explicit signals that
-    # this job reads source (the Dockerfile + actions) and nothing else.
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: deadzone-linux-*
-          merge-multiple: true
-          path: dist-tarballs
-
-      - name: Resolve version metadata
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Mirror the build/release jobs: tag push → tag name, dispatch → git describe.
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="$GITHUB_REF_NAME"
-          else
-            version="$(git describe --tags --dirty --always)"
-          fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      # Lay out dist/linux_<arch>/{deadzone, lib/} for both arches so
-      # the Dockerfile's COPY dist/linux_${TARGETARCH}/... finds what it
-      # expects under each buildx platform. The amd64 binary runs on
-      # the runner directly to call ./deadzone ort-meta — single source
-      # of truth for the ORT URL/SHA per arch.
-      - name: Stage build context
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          for arch in amd64 arm64; do
-            tar -xzf "dist-tarballs/deadzone_${VERSION}_linux_${arch}.tar.gz" -C /tmp
-            mkdir -p "dist/linux_${arch}/lib"
-            mv "/tmp/deadzone_${VERSION}_linux_${arch}/deadzone" "dist/linux_${arch}/deadzone"
-            chmod +x "dist/linux_${arch}/deadzone"
-          done
-          # ort-meta is CGO-linked through hugot but only reads the
-          # pinned-constants table — no embedder load, no network. Run
-          # the amd64 binary on the amd64 runner and reuse its JSON
-          # output for both arches.
-          meta=$(./dist/linux_amd64/deadzone ort-meta)
-          echo "${meta}"
-          for arch in amd64 arm64; do
-            url=$(echo "${meta}" | jq -r --arg a "${arch}" '.platforms[] | select(.goarch==$a) | .url')
-            sha=$(echo "${meta}" | jq -r --arg a "${arch}" '.platforms[] | select(.goarch==$a) | .sha256')
-            test -n "${url}" && test -n "${sha}" || { echo "ort-meta missing entry for linux/${arch}" >&2; exit 1; }
-            tmp=$(mktemp -d)
-            curl -fL -o "${tmp}/ort.tgz" "${url}"
-            echo "${sha}  ${tmp}/ort.tgz" | sha256sum -c -
-            tar -C "${tmp}" -xzf "${tmp}/ort.tgz"
-            # Copy both the real ELF (libonnxruntime.so.<version>) and
-            # the unversioned symlink alias — distroless has no
-            # ldconfig so dlopen needs the file present under the
-            # exact name hugot's WithOnnxLibraryPath asks for.
-            find "${tmp}" -maxdepth 4 \( -type f -o -type l \) -name 'libonnxruntime.so*' -exec cp -P {} "dist/linux_${arch}/lib/" \;
-            ls -l "dist/linux_${arch}/lib/"
-            rm -rf "${tmp}"
-          done
-
-      # QEMU is needed for the runtime smoke (`docker run --platform
-      # linux/arm64 …` on an amd64 runner). The buildx build itself
-      # doesn't need it — the Dockerfile only does COPY, no RUN.
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Compute the lowercased image ref so the `latest` and `<tag>`
-      # tags are valid (GHCR rejects mixed-case repo paths). github.repository
-      # carries the canonical owner/name, which may include capitals.
-      - name: Compute image ref
-        id: img
-        shell: bash
-        run: |
-          set -euo pipefail
-          ref="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
-
-      # On a tag push: publish to ghcr with both <tag> and :latest. On
-      # workflow_dispatch (dry-run): build the multi-arch manifest in
-      # the buildx cache without --push so the staging steps and
-      # Dockerfile validity are exercised end-to-end without touching
-      # the registry. Smoke steps below skip when the image isn't
-      # pushed because docker run can't reach a buildx-cached image
-      # by reference.
-      - name: Build + push multi-arch image
-        id: build_push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
-          tags: |
-            ${{ steps.img.outputs.ref }}:${{ steps.meta.outputs.version }}
-            ${{ steps.img.outputs.ref }}:latest
-          labels: |
-            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-
-      # Two --version smoke steps, one per arch. --network none because
-      # the --version path short-circuits before any embedder or DB load
-      # — the only thing this validates is that the binary launches
-      # inside the distroless rootfs (GLIBC compat + dlopen of
-      # libonnxruntime + ldflags injection).
-      #
-      # We deliberately do NOT run a `server` smoke here even though it
-      # would exercise the end-to-end MCP handshake. Reason: the docker
-      # job runs BEFORE the `release` job creates the GitHub Release
-      # object, so the binary's `internal/db.Bootstrap` would fail to
-      # fetch deadzone.db from the just-tagged release ("no
-      # deadzone.db published for this binary version"). That smoke is
-      # structurally impossible at this point in the pipeline; the
-      # native binary's `smoke` job already validates the bootstrap
-      # logic against a previously-published release. End-to-end
-      # validation of the new image happens manually after the operator
-      # uploads deadzone.db (just dbrelease <tag> or scrape-pack.yml
-      # with non-empty tag).
-      #
-      # Skipped on dry-run dispatch because the image isn't pushed and
-      # docker run can't address a buildx-only build by name.
-      - name: Smoke amd64 --version (offline)
-        if: github.event_name == 'push' && github.ref_type == 'tag'
-        run: docker run --rm --platform linux/amd64 --network none ${{ steps.img.outputs.ref }}:${{ steps.meta.outputs.version }} --version
-
-      - name: Smoke arm64 --version (offline)
-        if: github.event_name == 'push' && github.ref_type == 'tag'
-        run: docker run --rm --platform linux/arm64 --network none ${{ steps.img.outputs.ref }}:${{ steps.meta.outputs.version }} --version
-
+  # NOTE (#203): the multi-arch OCI image build job formerly hosted
+  # here moved to scrape-pack.yml after this issue. Rationale: the image
+  # now bakes deadzone.db, which is only produced (and uploaded to the
+  # GH Release as the dbrelease asset) by scrape-pack.yml's consolidate
+  # job. Building the image here would race the dbrelease step on the
+  # same tag. Placing the docker build downstream of dbrelease in
+  # scrape-pack.yml gives a clean temporal ordering: tarballs ship
+  # here, then the operator dispatches scrape-pack.yml with the same
+  # tag, which produces the DB, releases it, and pushes the OCI image.
   release:
     name: publish release
-    needs: [build, smoke, appimage, docker]
+    needs: [build, smoke, appimage]
     runs-on: ubuntu-24.04
     # The job runs for both tag pushes and workflow_dispatch so the
     # dry-run path can validate the tarball aggregation on a branch.
