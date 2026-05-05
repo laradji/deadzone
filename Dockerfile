@@ -13,14 +13,22 @@
 # what the brew tap / tarball install give: a single binary + libs, no
 # system packages.
 #
-# Why no DB baked: deadzone.db is fetched on first `server` launch from
-# the GitHub Release matching the binary's compiled-in version (see
-# internal/db/bootstrap.go). Baking it would chain `docker` → `release`
-# → re-tag with a window where :latest points at a binary-only image,
-# and would prevent an out-of-band `dbrelease` re-upload from reaching
-# image users without a fresh image push. Tradeoff: --network none
-# fails on first launch, which is fine for the MCP-client use case
-# where network is the default.
+# Why DB baked (#203, reverses #196's no-bake decision):
+# `docker run --rm` produces a fresh container per MCP invocation, so
+# every Claude Desktop / Cursor / Continue restart with the previous
+# no-bake image re-downloaded the ~72 MB deadzone.db from GitHub
+# Releases (5-15 s of latency per MCP session start). Baking the DB
+# at /home/nonroot/.local/share/deadzone/deadzone.db (the path
+# internal/db.DefaultCacheDir resolves to with HOME=/home/nonroot)
+# plus DEADZONE_DB_OFFLINE=1 short-circuits internal/db.Bootstrap to
+# the baked file, eliminates the auto-fetch on first launch, and
+# drops the named-volume workaround from the README's MCP wire-up.
+# The "no tag-build race" guarantee from #196 is preserved by moving
+# the docker build out of release.yml and into scrape-pack.yml, where
+# it runs AFTER `dbrelease` has produced and uploaded the DB.
+# Native binaries (Brew tap / tarball / AppImage) are unaffected —
+# they continue to use the auto-fetch + boot-time freshness probe
+# (#197). Image size grows ~25 MB → ~100 MB, accepted trade-off.
 
 # Stage 1 — collect the per-arch payload from the build context. Alpine
 # is the cheapest image with a real `cp`; the staging stage exists so
@@ -73,11 +81,39 @@ ENV DEADZONE_ORT_LIB_PATH=/usr/local/lib
 # /etc/passwd entry.
 ENV HOME=/home/nonroot
 
+# Bake the consolidated deadzone.db at the path internal/db.DefaultCacheDir
+# resolves to for the nonroot user (Linux fallback: $HOME/.local/share/deadzone).
+# The build context staging step in scrape-pack.yml drops `deadzone.db` at
+# the root of the build context — `just docker-build` does the same after
+# `just consolidate`. Path matching DefaultCacheDir means the image needs
+# no DEADZONE_DB_CACHE override.
+COPY deadzone.db /home/nonroot/.local/share/deadzone/deadzone.db
+
+# Bake the cache sidecar alongside the DB. internal/db.Bootstrap reads
+# `deadzone.db.release` (a JSON {tag, sha256, fetched_at} object — see
+# internal/db/sidecar.go) BEFORE trusting the cached DB: a present DB
+# without a matching sidecar tag fails the version-pin check and errors
+# out under OFFLINE=1 (bootstrap.go:228-233). The sidecar is generated
+# in the docker job from the release tag and the DB's sha256; `dbrelease`
+# does not upload it because it's a local-cache artefact, not a release
+# asset.
+COPY deadzone.db.release /home/nonroot/.local/share/deadzone/deadzone.db.release
+
+# Force the baked file to win unconditionally. With OFFLINE=1, Bootstrap
+# never contacts the network — neither for the initial fetch nor for the
+# #197 boot-time freshness probe — so `docker run --network none ... server`
+# is a meaningful end-to-end test of the MCP handshake against the baked DB.
+# Image refresh story: a new scrape-pack.yml run with a non-empty tag
+# clobbers ghcr.io/laradji/deadzone:<tag> and :latest with a fresh image
+# carrying the freshly-released DB, mirroring what `dbrelease` does to the
+# GH-Releases asset.
+ENV DEADZONE_DB_OFFLINE=1
+
 # OCI labels — image.version is appended at build time via
-# docker/build-push-action's `labels:` input (see release.yml). The
-# rest are stable across releases and live here so a `docker inspect`
-# of any tag carries the provenance even if a future CI change forgets
-# to re-set them.
+# docker/build-push-action's `labels:` input (see scrape-pack.yml's
+# docker job, post-#203). The rest are stable across releases and
+# live here so a `docker inspect` of any tag carries the provenance
+# even if a future CI change forgets to re-set them.
 LABEL org.opencontainers.image.source="https://github.com/laradji/deadzone"
 LABEL org.opencontainers.image.title="deadzone"
 LABEL org.opencontainers.image.description="Local-first MCP doc server with semantic search"
