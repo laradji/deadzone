@@ -302,6 +302,8 @@ just dbrelease v0.X.0
 git add artifacts/manifest.yaml && git commit -m "release v0.X.0" && git push
 ```
 
+A stable-tag push fans out fully through CI: `release.yml` -> `chain-release.yml` dispatches `scrape-pack.yml` -> `chain-image.yml` dispatches `docker-publish.yml` (one workflow per concern, chained via `workflow_run`).
+
 **Manual Homebrew fallback.** The tap auto-bump fires on `release.published` ([#148](https://github.com/laradji/deadzone/pull/148)). If `RELEASE_PUBLISH_TOKEN` expires and the chain breaks, run it by hand:
 
 ```sh
