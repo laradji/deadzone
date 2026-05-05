@@ -1,0 +1,107 @@
+# chain-release — auto-dispatches scrape-pack.yml when release.yml
+# finishes successfully on a stable tag push. Eliminates the manual
+# `gh workflow run scrape-pack.yml -f tag=...` operator step that was
+# the only thing standing between release.yml's tarballs and the
+# docker image / dbrelease pipeline.
+#
+# Why a separate workflow rather than extending release.yml: the
+# `workflow_run` trigger only fires for workflows that exist on the
+# default branch and operates from the default-branch copy of the
+# trigger file regardless of which ref ran the upstream — keeping it
+# in its own file means the dispatch logic is reviewable in one place
+# and the release.yml diff stays scoped to release concerns.
+#
+# Skip conditions (each handled below):
+#   - Original release.yml run was NOT a tag push (workflow_dispatch
+#     dry-runs against branches: skip — there's no Release object to
+#     attach the DB to).
+#   - Original run did NOT succeed (failure / cancelled / skipped:
+#     skip — scrape-pack would race the still-empty Release object).
+#   - Tag is a pre-release (rc/beta/alpha/dev suffixes: skip —
+#     auto-dispatching a 25-40 min scrape on every nightly RC would
+#     burn cache LRU + publish unfinished images. Operators who DO
+#     want a scrape on a pre-release can dispatch scrape-pack.yml
+#     manually, which remains supported).
+#
+# Auth: dispatch uses the default GITHUB_TOKEN with `actions: write`
+# scoped to this job. workflow_dispatch via the REST API is explicitly
+# allowed for the default token (the anti-recursion gate that blocks
+# `push` events from triggering downstream workflows does NOT apply
+# to direct workflow_dispatch calls). No PAT required.
+
+name: chain-release
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  actions: write # required for `gh workflow run` to dispatch scrape-pack.yml
+  contents: read
+
+# Serialize per-tag so two near-simultaneous release.yml completions
+# (e.g. a force-push retag race like the v0.6.0 cascade) don't both
+# fire scrape-pack.yml against the same tag in parallel. scrape-pack
+# already has its own concurrency: scrape-pack group, but having the
+# dispatch chain serialize too means we don't waste CI minutes on a
+# scrape-pack run that will queue behind a sibling.
+concurrency:
+  group: chain-release-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch-scrape-pack:
+    name: dispatch scrape-pack on stable tag
+    runs-on: ubuntu-latest
+    # Three gates, all must pass:
+    #   1. Upstream release.yml succeeded.
+    #   2. It was triggered by a tag push (event == 'push' AND head_branch
+    #      starts with 'v' — workflow_run.head_branch is the tag name on
+    #      tag-push runs).
+    #   3. (Inside the steps) tag matches the stable-release regex.
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    steps:
+      - name: Resolve tag from triggering run
+        id: tag
+        env:
+          REF: ${{ github.event.workflow_run.head_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Stable-release filter: v<major>.<minor>.<patch> only, no
+          # pre-release suffixes. Bash regex ([[ ... =~ ]]) is enough —
+          # the ref came from GitHub, not user input, so we can keep
+          # the pattern strict.
+          if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::tag $REF is not a stable release (must match ^v[0-9]+\.[0-9]+\.[0-9]+\$); skipping auto-dispatch — operators can run scrape-pack.yml manually if a scrape is desired for this tag"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch scrape-pack.yml
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The notice line is the diagnostic an operator sees if they
+          # wonder "why is scrape-pack running?" — points back at the
+          # release.yml run that chained into this one. Mirrors the
+          # provenance trail the bot-authored manifest commits already
+          # carry on `main`.
+          echo "::notice::auto-dispatching scrape-pack.yml for tag $TAG (chained from release.yml run #${UPSTREAM_RUN_ID}: ${UPSTREAM_RUN_URL})"
+          gh workflow run scrape-pack.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f lib="" \
+            -f tag="$TAG"
