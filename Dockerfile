@@ -52,6 +52,11 @@ COPY dist/linux_${TARGETARCH}/deadzone /staged/deadzone
 # given against the file directly. Globbing keeps the Dockerfile
 # version-agnostic so an ORT bump only touches internal/ort.
 COPY dist/linux_${TARGETARCH}/lib/ /staged/lib/
+# Hugot model weights staged by scrape-pack.yml's `Stage build context`
+# step: 6 files under dist/linux_<arch>/models/<dest_dirname>/, where
+# dest_dirname matches embed.ModelDestDirname() (the "/" → "_"
+# substitution of nomic-ai/nomic-embed-text-v1.5). See #207.
+COPY dist/linux_${TARGETARCH}/models/ /staged/models/
 COPY LICENSE NOTICE README.md /staged/
 
 # Stage 2 — final distroless image. cc-debian13 (trixie) ships glibc
@@ -108,6 +113,28 @@ COPY deadzone.db.release /home/nonroot/.local/share/deadzone/deadzone.db.release
 # carrying the freshly-released DB, mirroring what `dbrelease` does to the
 # GH-Releases asset.
 ENV DEADZONE_DB_OFFLINE=1
+
+# Bake the hugot model files (#207) at the path embed.DefaultCacheDir()
+# resolves to when DEADZONE_HUGOT_CACHE is set. Without this, the
+# embedder's NewHugot would fall through to hugot.DownloadModel on first
+# server launch and pull ~138 MB from huggingface — turning every
+# `docker run --rm` (i.e. every Claude Desktop / Cursor / Continue
+# restart) into a 5-15 s first-byte stall, and breaking
+# `--network none` outright. The COPY lays out
+# /home/nonroot/.cache/deadzone/models/<dest_dirname>/{config.json,
+# model_quantized.onnx, special_tokens_map.json, tokenizer.json,
+# tokenizer_config.json, vocab.txt} — the exact 6-file shape
+# hugot.NewPipeline expects in its ModelPath dir. The dest_dirname
+# subdir matches embed.ModelDestDirname() — the "/" → "_" substitution
+# of the model name applied by hugot's downloader. See
+# internal/embed/model_pin.go for the pinned-revision rationale and
+# internal/embed/hugot.go:127 for the lookup path.
+#
+# The image grows from ~100 MB (post-#203) to ~230 MB. Accepted
+# trade-off: one larger pull replaces a per-MCP-session re-download,
+# and the image becomes a self-contained MCP-server-in-a-box.
+COPY --from=staging /staged/models/ /home/nonroot/.cache/deadzone/models/
+ENV DEADZONE_HUGOT_CACHE=/home/nonroot/.cache/deadzone/models
 
 # OCI labels — image.version is appended at build time via
 # docker/build-push-action's `labels:` input (see scrape-pack.yml's

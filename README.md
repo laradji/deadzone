@@ -58,7 +58,7 @@ docker pull ghcr.io/laradji/deadzone:latest
 docker run --rm -i ghcr.io/laradji/deadzone:latest server
 ```
 
-The image bakes the binary, `libonnxruntime`, and `deadzone.db` (~100 MB total), and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). `DEADZONE_DB_OFFLINE=1` is set in the image so first launch is instant — no download, no volume mount, no `--network` access required. To refresh the index, pull a newer tag.
+The image bakes the binary, `libonnxruntime`, `deadzone.db`, and the `nomic-embed-text-v1.5` ONNX weights (~230 MB total), and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). `DEADZONE_DB_OFFLINE=1` is set in the image so first launch is instant — no download, no volume mount, no `--network` access required. To refresh the index, pull a newer tag.
 
 Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
 
