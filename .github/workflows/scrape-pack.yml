@@ -292,7 +292,8 @@ jobs:
             echo "**Totals:** $scraped scraped, $cached cached, $failed failed"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Multi-arch OCI image with deadzone.db baked in (#203).
+  # Multi-arch OCI image with deadzone.db (#203) + libonnxruntime (#196)
+  # + hugot model weights (#207) all baked in.
   #
   # Sibling to consolidate (not inline) so the GHCR push has its own
   # job-scoped permissions, a separate runner, and a separable CI status.
@@ -306,12 +307,15 @@ jobs:
   # runner allocation. consolidate's manifest-commit + dbrelease steps
   # share the same gate, so they're already correlated.
   #
-  # `--network none` smoke is now meaningful: with deadzone.db baked and
-  # DEADZONE_DB_OFFLINE=1 set in the image, the MCP `initialize` handshake
-  # exercises the full server boot path without contacting the network.
-  # Pre-#203 this smoke was a `--version` short-circuit because Bootstrap
-  # would have tried to fetch the DB from the very release we're pushing
-  # against (chicken-and-egg).
+  # `--network none` smoke is meaningful end-to-end post-#207: with the
+  # full stack baked (deadzone.db + DEADZONE_DB_OFFLINE=1 from #203,
+  # libonnxruntime via DEADZONE_ORT_LIB_PATH from #196, and the hugot
+  # model files at DEADZONE_HUGOT_CACHE from #207), the MCP `initialize`
+  # handshake exercises the complete server boot path without ever
+  # touching the network. Pre-#203 this smoke was a `--version`
+  # short-circuit (chicken-and-egg with the DB fetch); pre-#207 the
+  # server stage ran with default network because hugot's model
+  # download bypassed the offline gate. Both gaps are now closed.
   docker:
     name: docker (ghcr.io)
     needs: consolidate
@@ -383,11 +387,20 @@ jobs:
           cat deadzone.db.release
 
       # Same staging shape as the deleted release.yml docker job: lay out
-      # dist/linux_<arch>/{deadzone, lib/} for both arches so Dockerfile's
-      # COPY dist/linux_${TARGETARCH}/... finds the binary + libonnxruntime
-      # under each buildx platform. ort-meta is read once from the amd64
-      # binary (no network, no embedder load — pure constants table) and
-      # reused for both arches.
+      # dist/linux_<arch>/{deadzone, lib/, models/} for both arches so
+      # Dockerfile's COPY dist/linux_${TARGETARCH}/... finds the binary,
+      # libonnxruntime, and the hugot model weights under each buildx
+      # platform. ort-meta and hugot-meta are read once from the amd64
+      # binary (no network, no embedder load — pure constants tables)
+      # and reused for both arches.
+      #
+      # The hugot model files are arch-agnostic (HF serves identical
+      # bytes regardless of consumer platform) but we duplicate them
+      # under each arch's dist/ subdir to keep the Dockerfile's
+      # COPY-from-${TARGETARCH} pattern uniform across libonnxruntime
+      # (genuinely arch-specific) and models (not). Disk overhead is
+      # ~138 MB × 2 = ~276 MB on the runner, which the GH-hosted
+      # ubuntu-24.04 runner has plenty of.
       - name: Stage build context
         env:
           TAG: ${{ inputs.tag }}
@@ -418,6 +431,35 @@ jobs:
             ls -l "dist/linux_${arch}/lib/"
             rm -rf "${tmp}"
           done
+
+          # Stage the hugot model weights so the OCI image is fully
+          # offline-capable on first launch (#207). Without this, the
+          # hugot embedder would download the ~131 MB ONNX file (plus
+          # tokenizer/config) on first server construction inside the
+          # container, making `docker run --network none server` panic
+          # on the dial. The model is fetched once from a pinned HF
+          # commit (internal/embed/model_pin.go) and SHA256-verified
+          # before it hits the build context — same defence-in-depth
+          # the ort-meta loop above gives libonnxruntime.
+          hugot_meta=$(./dist/linux_amd64/deadzone hugot-meta)
+          echo "${hugot_meta}"
+          dest_dirname=$(echo "${hugot_meta}" | jq -r '.dest_dirname')
+          test -n "${dest_dirname}" || { echo "hugot-meta missing dest_dirname" >&2; exit 1; }
+          # Fetch each file once into a shared temp dir, then copy into
+          # both arch trees. Re-fetching per arch would double bandwidth
+          # for byte-identical files and waste a minute on every run.
+          shared=$(mktemp -d)
+          while IFS=$'\t' read -r url sha dest; do
+            test -n "${url}" && test -n "${sha}" && test -n "${dest}" || { echo "hugot-meta missing entry: url=${url} sha=${sha} dest=${dest}" >&2; exit 1; }
+            curl -fL -o "${shared}/${dest}" "${url}"
+            echo "${sha}  ${shared}/${dest}" | sha256sum -c -
+          done < <(echo "${hugot_meta}" | jq -r '.files[] | [.url, .sha256, .dest_name] | @tsv')
+          for arch in amd64 arm64; do
+            mkdir -p "dist/linux_${arch}/models/${dest_dirname}"
+            cp "${shared}"/* "dist/linux_${arch}/models/${dest_dirname}/"
+            ls -lh "dist/linux_${arch}/models/${dest_dirname}/"
+          done
+          rm -rf "${shared}"
 
       # QEMU is required for the per-arch `docker run --platform linux/arm64`
       # smoke after push, on this amd64 runner. The buildx build itself
@@ -455,41 +497,42 @@ jobs:
             org.opencontainers.image.version=${{ inputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      # Two-stage smoke per arch:
+      # Two-stage smoke per arch, BOTH stages now run under --network none
+      # post-#207 (model weights baked alongside the DB + libonnxruntime):
       #   1. `--version --network none`: proves the binary launches inside
       #      the distroless rootfs (GLIBC compat + dlopen libonnxruntime
       #      + ldflags injection) with zero network access. Same shape
       #      as the pre-#203 release.yml docker job's smoke.
-      #   2. `server <piped-initialize>` with default network: proves the
-      #      end-to-end MCP path against the baked DB + sidecar. Network
-      #      is needed because the hugot embedder downloads the ~131 MB
-      #      ONNX model on first construction (internal/embed/hugot.go:128)
-      #      — model weights are deliberately NOT baked per #203's "do
-      #      not bake any other state" out-of-scope. The MCP `initialize`
-      #      response carries the server name + protocolVersion echo,
-      #      both anchors checked below.
+      #   2. `server <piped-initialize> --network none`: proves the
+      #      end-to-end MCP path against the FULL baked stack — DB
+      #      (#203) + libonnxruntime (#196) + hugot model weights
+      #      (#207). The MCP `initialize` response carries the server
+      #      name + protocolVersion echo, both anchors checked below.
       #
-      # The AC's `--network none server` smoke is downgraded because it
-      # conflicts with the model-weights-not-baked decision: hugot would
-      # fail to download the model under --network none. Validating the
-      # baked DB itself is achieved indirectly — if Bootstrap fell back
-      # to fetching `deadzone.db` from the GH Release, the network smoke
-      # would still pass (network is available) but we'd have failed
-      # the bake's purpose. A logs-based assertion (no `db.fetch_*`
-      # event) is left as a follow-up if the regression risk warrants it.
+      # Pre-#207 the server smoke ran with default network because the
+      # hugot embedder downloaded the ~131 MB ONNX model on first
+      # construction. With the model now staged into the image at build
+      # time (see Stage build context above), hugot.NewHugot's
+      # os.Stat-checks inside the container succeed and DownloadModel is
+      # never reached — `--network none` becomes a meaningful end-to-end
+      # assertion that nothing in the boot path silently dials out. This
+      # also subsumes the PR #206 follow-up note about a logs-based
+      # "no db.fetch_* event" assertion: the kernel-level network
+      # namespace makes any unexpected dial fail loud at the syscall
+      # level, no log scraping needed.
       - name: Smoke amd64 --version (offline)
         env:
           IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
         run: docker run --rm --platform linux/amd64 --network none "$IMG" --version
 
-      - name: Smoke amd64 server (MCP initialize, baked DB)
+      - name: Smoke amd64 server (MCP initialize, fully offline)
         env:
           IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
-          out=$(echo "${init}" | docker run --rm -i --platform linux/amd64 "$IMG" server)
+          out=$(echo "${init}" | docker run --rm -i --platform linux/amd64 --network none "$IMG" server)
           echo "${out}"
           echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
           echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }
@@ -499,14 +542,14 @@ jobs:
           IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
         run: docker run --rm --platform linux/arm64 --network none "$IMG" --version
 
-      - name: Smoke arm64 server (MCP initialize, baked DB)
+      - name: Smoke arm64 server (MCP initialize, fully offline)
         env:
           IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
-          out=$(echo "${init}" | docker run --rm -i --platform linux/arm64 "$IMG" server)
+          out=$(echo "${init}" | docker run --rm -i --platform linux/arm64 --network none "$IMG" server)
           echo "${out}"
           echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
           echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }
