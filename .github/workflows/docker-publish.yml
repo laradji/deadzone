@@ -1,0 +1,293 @@
+# docker-publish — build + push the multi-arch OCI image to GHCR with
+# deadzone.db (#203), libonnxruntime (#196), and the hugot model
+# weights (#207) all baked in.
+#
+# Split out of scrape-pack.yml in #209 (v0.7.1). Until 0.7.0 this body
+# lived as the `docker` job inside scrape-pack.yml; the coupling was
+# artificial — the job already pulls the DB off the GH Release object
+# (same as the tarballs) so `needs: consolidate` was just an ordering
+# hint, not a data dependency. Splitting buys an order-of-magnitude
+# faster fix-and-retry loop on docker-only bugs (~5 min `gh run rerun
+# --failed` vs. a ~25-40 min scrape-pack re-dispatch).
+#
+# Two triggers:
+#   - workflow_call: invoked by chain-image.yml on every successful
+#     scrape-pack run for a stable tag. This is the production path.
+#   - workflow_dispatch: manual hotfix path. An operator can rebuild
+#     the image for an existing tag (`gh workflow run docker-publish.yml
+#     -f tag=v0.7.0`) without re-running the 25-40 min scrape pipeline.
+#
+# Auth uses the default GITHUB_TOKEN with `permissions: packages: write`
+# at the workflow level — same scope chain-release / chain-image already
+# rely on. No PAT.
+
+name: docker-publish
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build the image for (e.g. v0.7.0)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build the image for (e.g. v0.7.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: docker-publish (${{ inputs.tag }})
+    # Defensive — chain-image.yml already filters empty / pre-release
+    # tags, but a manual workflow_dispatch with an empty tag should
+    # fail-fast rather than push `ghcr.io/laradji/deadzone:` (no tag).
+    if: inputs.tag != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute image ref
+        id: img
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GHCR rejects mixed-case repo paths; lowercase github.repository
+          # so a future capitalised owner/name doesn't break the push.
+          ref="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
+      # Pull both the per-arch tarballs (from release.yml's earlier run on
+      # the same tag) and the deadzone.db (uploaded by scrape-pack.yml's
+      # consolidate → dbrelease step) off the GH Release. Failing to find
+      # either is a structural mismatch — we abort, the operator triages.
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-tarballs
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'deadzone_*_linux_*.tar.gz' \
+            --dir dist-tarballs
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'deadzone.db' \
+            --output deadzone.db
+          ls -lh dist-tarballs/ deadzone.db
+
+      # Generate the sidecar (`deadzone.db.release`) that internal/db.Bootstrap
+      # checks before trusting the cached DB. Without this file, Bootstrap
+      # sees `cachedTag=""` ≠ `AppVersion=<tag>` and refuses to serve the
+      # baked DB — even with DEADZONE_DB_OFFLINE=1, the offline branch
+      # (bootstrap.go:228-233) errors out on the version mismatch.
+      # Format is the v1 JSON shape from internal/db/sidecar.go:
+      #   {"tag": "vX.Y.Z", "sha256": "<hex>", "fetched_at": "<RFC3339>"}
+      # `dbrelease` does NOT upload this file (it's a local-cache artefact),
+      # so we synthesise it from the just-downloaded DB and the tag input.
+      - name: Generate cache sidecar
+        env:
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum deadzone.db | awk '{print $1}')
+          fetched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # jq -n with --arg gives us safe JSON quoting for the tag, sha, and
+          # timestamp without manual escaping.
+          jq -n \
+            --arg tag "$TAG" \
+            --arg sha "$sha" \
+            --arg fetched_at "$fetched_at" \
+            '{tag: $tag, sha256: $sha, fetched_at: $fetched_at}' \
+            > deadzone.db.release
+          cat deadzone.db.release
+
+      # Same staging shape as the deleted release.yml docker job: lay out
+      # dist/linux_<arch>/{deadzone, lib/, models/} for both arches so
+      # Dockerfile's COPY dist/linux_${TARGETARCH}/... finds the binary,
+      # libonnxruntime, and the hugot model weights under each buildx
+      # platform. ort-meta and hugot-meta are read once from the amd64
+      # binary (no network, no embedder load — pure constants tables)
+      # and reused for both arches.
+      #
+      # The hugot model files are arch-agnostic (HF serves identical
+      # bytes regardless of consumer platform) but we duplicate them
+      # under each arch's dist/ subdir to keep the Dockerfile's
+      # COPY-from-${TARGETARCH} pattern uniform across libonnxruntime
+      # (genuinely arch-specific) and models (not). Disk overhead is
+      # ~138 MB × 2 = ~276 MB on the runner, which the GH-hosted
+      # ubuntu-24.04 runner has plenty of.
+      - name: Stage build context
+        env:
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            tar -xzf "dist-tarballs/deadzone_${TAG}_linux_${arch}.tar.gz" -C /tmp
+            mkdir -p "dist/linux_${arch}/lib"
+            mv "/tmp/deadzone_${TAG}_linux_${arch}/deadzone" "dist/linux_${arch}/deadzone"
+            chmod +x "dist/linux_${arch}/deadzone"
+          done
+          meta=$(./dist/linux_amd64/deadzone ort-meta)
+          echo "${meta}"
+          for arch in amd64 arm64; do
+            url=$(echo "${meta}" | jq -r --arg a "${arch}" '.platforms[] | select(.goarch==$a) | .url')
+            sha=$(echo "${meta}" | jq -r --arg a "${arch}" '.platforms[] | select(.goarch==$a) | .sha256')
+            test -n "${url}" && test -n "${sha}" || { echo "ort-meta missing entry for linux/${arch}" >&2; exit 1; }
+            tmp=$(mktemp -d)
+            curl -fL -o "${tmp}/ort.tgz" "${url}"
+            echo "${sha}  ${tmp}/ort.tgz" | sha256sum -c -
+            tar -C "${tmp}" -xzf "${tmp}/ort.tgz"
+            # Both libonnxruntime.so (symlink) and the real ELF must
+            # land — distroless has no ldconfig so dlopen needs the
+            # exact name hugot's WithOnnxLibraryPath asks for.
+            find "${tmp}" -maxdepth 4 \( -type f -o -type l \) -name 'libonnxruntime.so*' -exec cp -P {} "dist/linux_${arch}/lib/" \;
+            ls -l "dist/linux_${arch}/lib/"
+            rm -rf "${tmp}"
+          done
+
+          # Stage the hugot model weights so the OCI image is fully
+          # offline-capable on first launch (#207). Without this, the
+          # hugot embedder would download the ~131 MB ONNX file (plus
+          # tokenizer/config) on first server construction inside the
+          # container, making `docker run --network none server` panic
+          # on the dial. The model is fetched once from a pinned HF
+          # commit (internal/embed/model_pin.go) and SHA256-verified
+          # before it hits the build context — same defence-in-depth
+          # the ort-meta loop above gives libonnxruntime.
+          hugot_meta=$(./dist/linux_amd64/deadzone hugot-meta)
+          echo "${hugot_meta}"
+          dest_dirname=$(echo "${hugot_meta}" | jq -r '.dest_dirname')
+          test -n "${dest_dirname}" || { echo "hugot-meta missing dest_dirname" >&2; exit 1; }
+          # Fetch each file once into a shared temp dir, then copy into
+          # both arch trees. Re-fetching per arch would double bandwidth
+          # for byte-identical files and waste a minute on every run.
+          shared=$(mktemp -d)
+          while IFS=$'\t' read -r url sha dest; do
+            test -n "${url}" && test -n "${sha}" && test -n "${dest}" || { echo "hugot-meta missing entry: url=${url} sha=${sha} dest=${dest}" >&2; exit 1; }
+            curl -fL -o "${shared}/${dest}" "${url}"
+            echo "${sha}  ${shared}/${dest}" | sha256sum -c -
+          done < <(echo "${hugot_meta}" | jq -r '.files[] | [.url, .sha256, .dest_name] | @tsv')
+          for arch in amd64 arm64; do
+            mkdir -p "dist/linux_${arch}/models/${dest_dirname}"
+            cp "${shared}"/* "dist/linux_${arch}/models/${dest_dirname}/"
+            ls -lh "dist/linux_${arch}/models/${dest_dirname}/"
+          done
+          rm -rf "${shared}"
+
+      # QEMU is required for the per-arch `docker run --platform linux/arm64`
+      # smoke after push, on this amd64 runner. The buildx build itself
+      # doesn't need it — Dockerfile is COPY-only, no RUN.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Always push (no dry-run path here; this job only runs on
+      # inputs.tag != ''). buildx pushes the multi-arch manifest and both
+      # per-arch images atomically; the smoke steps below validate each
+      # arch by tag pull. A smoke failure leaves the freshly-pushed image
+      # in place — the operator re-dispatches with a fixed Dockerfile or
+      # build context, and the clobber-on-push semantics restore a good
+      # state.
+      - name: Build + push multi-arch image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
+            ${{ steps.img.outputs.ref }}:latest
+          labels: |
+            org.opencontainers.image.version=${{ inputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # Two-stage smoke per arch, BOTH stages now run under --network none
+      # post-#207 (model weights baked alongside the DB + libonnxruntime):
+      #   1. `--version --network none`: proves the binary launches inside
+      #      the distroless rootfs (GLIBC compat + dlopen libonnxruntime
+      #      + ldflags injection) with zero network access. Same shape
+      #      as the pre-#203 release.yml docker job's smoke.
+      #   2. `server <piped-initialize> --network none`: proves the
+      #      end-to-end MCP path against the FULL baked stack — DB
+      #      (#203) + libonnxruntime (#196) + hugot model weights
+      #      (#207). The MCP `initialize` response carries the server
+      #      name + protocolVersion echo, both anchors checked below.
+      #
+      # Pre-#207 the server smoke ran with default network because the
+      # hugot embedder downloaded the ~131 MB ONNX model on first
+      # construction. With the model now staged into the image at build
+      # time (see Stage build context above), hugot.NewHugot's
+      # os.Stat-checks inside the container succeed and DownloadModel is
+      # never reached — `--network none` becomes a meaningful end-to-end
+      # assertion that nothing in the boot path silently dials out. This
+      # also subsumes the PR #206 follow-up note about a logs-based
+      # "no db.fetch_* event" assertion: the kernel-level network
+      # namespace makes any unexpected dial fail loud at the syscall
+      # level, no log scraping needed.
+      - name: Smoke amd64 --version (offline)
+        env:
+          IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
+        run: docker run --rm --platform linux/amd64 --network none "$IMG" --version
+
+      - name: Smoke amd64 server (MCP initialize, fully offline)
+        env:
+          IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
+        shell: bash
+        # `{ echo "${init}"; sleep 5; } | docker run -i ...` keeps stdin
+        # open for 5 s after the request is written, so the server can
+        # write + flush its initialize response on stdout BEFORE the
+        # pipe close triggers EOF shutdown. A bare `echo "${init}" |
+        # docker run -i ...` races the response flush against EOF on a
+        # fully-baked image where server boot is sub-second (post-#207),
+        # surfacing as `mcp run: server is closing: EOF` in the server
+        # log and an empty `out` here. Pre-#207 the slow first-launch
+        # DB download (~3 s) masked the race. See #209 decision block;
+        # do NOT simplify back to a bare `echo | docker run` without
+        # re-introducing the regression.
+        run: |
+          set -euo pipefail
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
+          out=$( { echo "${init}"; sleep 5; } | docker run --rm -i --platform linux/amd64 --network none "$IMG" server)
+          echo "${out}"
+          echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
+          echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }
+
+      - name: Smoke arm64 --version (offline)
+        env:
+          IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
+        run: docker run --rm --platform linux/arm64 --network none "$IMG" --version
+
+      - name: Smoke arm64 server (MCP initialize, fully offline)
+        env:
+          IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
+        shell: bash
+        # Same stdin-held-open pattern as the amd64 server smoke above.
+        # See the comment on that step for the rationale (#209).
+        run: |
+          set -euo pipefail
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
+          out=$( { echo "${init}"; sleep 5; } | docker run --rm -i --platform linux/arm64 --network none "$IMG" server)
+          echo "${out}"
+          echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
+          echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }

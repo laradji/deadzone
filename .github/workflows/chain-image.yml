@@ -1,0 +1,106 @@
+# chain-image — auto-dispatches docker-publish.yml when scrape-pack.yml
+# finishes successfully on a stable tag. Sibling chain link to
+# chain-release.yml (which dispatches scrape-pack from release.yml);
+# this one closes the loop by dispatching docker-publish from
+# scrape-pack. End-to-end on a stable tag push the chain is:
+#
+#   release.yml -> chain-release -> scrape-pack -> chain-image -> docker-publish
+#
+# Why a separate workflow rather than extending scrape-pack.yml: the
+# `workflow_run` trigger only fires for files that exist on the default
+# branch, and operates from the default-branch copy of the trigger file
+# regardless of which ref ran the upstream — keeping the dispatch
+# logic in its own file means scrape-pack.yml stays scoped to scrape +
+# consolidate + dbrelease + manifest concerns, and the dispatch logic
+# is reviewable in one place. Same architectural pattern as
+# chain-release.yml.
+#
+# Skip conditions (each handled below):
+#   - Upstream scrape-pack run did NOT succeed (failure / cancelled /
+#     skipped: skip — no DB asset on the GH Release to bake).
+#   - Upstream scrape-pack run was dispatched WITHOUT a tag (the
+#     #126 cache-warm path: skip — there's no tag to publish under).
+#   - Tag is a pre-release (rc/beta/alpha/dev suffixes: skip —
+#     same policy as chain-release; operators dispatch
+#     docker-publish.yml manually if they want a pre-release image).
+#
+# Auth: dispatch uses the default GITHUB_TOKEN with `actions: write`
+# scoped to this job. No PAT.
+
+name: chain-image
+
+on:
+  workflow_run:
+    workflows: ["scrape-pack"]
+    types: [completed]
+
+permissions:
+  actions: write # required for `gh workflow run` to dispatch docker-publish.yml
+  contents: read
+
+# Key on the upstream run-id (not the tag) so a rerun of the SAME
+# scrape-pack run doesn't double-fire docker-publish, while two scrape-pack
+# runs against the same tag (e.g. operator hotfix re-dispatch) each get
+# their own chain-image run and don't queue behind each other.
+concurrency:
+  group: chain-image-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch-docker-publish:
+    name: dispatch docker-publish on stable tag
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Resolve tag from upstream run
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The `inputs` field on the run JSON gives us the
+          # workflow_dispatch inputs the upstream scrape-pack run was
+          # invoked with. scrape-pack runs are always dispatch-mode
+          # (chain-release dispatches it on stable-tag pushes; operators
+          # dispatch it manually for cache-warm or hotfix runs), so
+          # `.inputs.tag` is the authoritative source — empty for the
+          # cache-warm path, populated for everything else.
+          tag=$(gh api "repos/${{ github.repository }}/actions/runs/${UPSTREAM_RUN_ID}" --jq '.inputs.tag // empty')
+          if [[ -z "$tag" ]]; then
+            echo "::notice::scrape-pack run #${UPSTREAM_RUN_ID} had empty tag (cache-warm path); skipping docker-publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Stable-release filter, identical to chain-release.yml: only
+          # v<major>.<minor>.<patch> auto-publishes. Pre-release tags
+          # (rc/beta/alpha/dev) require a manual `gh workflow run
+          # docker-publish.yml -f tag=...` if the operator wants an image.
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::tag $tag is not a stable release (must match ^v[0-9]+\.[0-9]+\.[0-9]+\$); skipping auto-dispatch — operators can run docker-publish.yml manually if an image is desired for this tag"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch docker-publish.yml
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Provenance breadcrumb: the notice line is what an operator
+          # sees if they wonder "why is docker-publish running?" —
+          # points back at the scrape-pack run that chained into this
+          # one. Mirrors chain-release.yml's notice idiom.
+          echo "::notice::auto-dispatching docker-publish.yml for tag $TAG (chained from scrape-pack run #${UPSTREAM_RUN_ID}: ${UPSTREAM_RUN_URL})"
+          gh workflow run docker-publish.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f tag="$TAG"
