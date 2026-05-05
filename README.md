@@ -58,7 +58,15 @@ docker pull ghcr.io/laradji/deadzone:latest
 docker run --rm -i ghcr.io/laradji/deadzone:latest server
 ```
 
-The image bakes the binary, `libonnxruntime`, `deadzone.db`, and the `nomic-embed-text-v1.5` ONNX weights (~230 MB total), and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). `DEADZONE_DB_OFFLINE=1` is set in the image so first launch is instant — no download, no volume mount, no `--network` access required. To refresh the index, pull a newer tag.
+The image bakes the binary, `libonnxruntime`, `deadzone.db`, and the `nomic-embed-text-v1.5` ONNX weights (~230 MB total), and runs as a non-root user out of [distroless](https://github.com/GoogleContainerTools/distroless) (no shell, no package manager). `DEADZONE_DB_OFFLINE=1` is set in the image so first launch is instant — no download, no volume mount, no `--network` access required.
+
+**Refreshing the DB.** The image is offline-first by design: there is no runtime auto-update. The native binary's boot-time freshness probe is short-circuited inside the container so `docker run --rm` doesn't re-download the DB on every Claude Desktop / Cursor / Continue restart. To pick up a newer corpus, pull a fresh image and restart your MCP client:
+
+```sh
+docker pull ghcr.io/laradji/deadzone:latest
+```
+
+Each `scrape-pack` dispatch with a non-empty tag clobbers `:latest` (and `:<tag>`) with a fresh image carrying the freshly-released DB, so `docker pull` is the canonical refresh path — same shape as any other container image.
 
 Windows is blocked upstream — no `libtokenizers.a`. Use WSL.
 
