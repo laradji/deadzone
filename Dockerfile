@@ -92,17 +92,20 @@ ENV HOME=/home/nonroot
 # the root of the build context — `just docker-build` does the same after
 # `just consolidate`. Path matching DefaultCacheDir means the image needs
 # no DEADZONE_DB_CACHE override.
-COPY deadzone.db /home/nonroot/.local/share/deadzone/deadzone.db
-
-# Bake the cache sidecar alongside the DB. internal/db.Bootstrap reads
-# `deadzone.db.release` (a JSON {tag, sha256, fetched_at} object — see
-# internal/db/sidecar.go) BEFORE trusting the cached DB: a present DB
-# without a matching sidecar tag fails the version-pin check and errors
-# out under OFFLINE=1 (bootstrap.go:228-233). The sidecar is generated
-# in the docker job from the release tag and the DB's sha256; `dbrelease`
-# does not upload it because it's a local-cache artefact, not a release
-# asset.
-COPY deadzone.db.release /home/nonroot/.local/share/deadzone/deadzone.db.release
+# --chown=nonroot:nonroot is critical: a bare COPY creates the
+# intermediate /home/nonroot/.local/share/deadzone/ subdirs as ROOT-
+# owned, which leaves /home/nonroot/.local/ root-owned. The runtime
+# user (uid 65532, nonroot) then can't create siblings under
+# /home/nonroot/ at runtime — notably tursogo's lib extraction at
+# /home/nonroot/.cache/turso-go/, which panics with EACCES on mkdir.
+# v0.6.0 didn't trip this because the only COPY into /home/nonroot/
+# was this one and tursogo's cache is under a different subdir;
+# v0.7.0 (#207) added a second COPY under /home/nonroot/.cache/ which
+# made every existing-but-unowned parent directory a permission trap.
+# Every COPY into /home/nonroot/ from here on MUST --chown so the
+# intermediate dirs are nonroot-writable for runtime cache creation.
+COPY --chown=nonroot:nonroot deadzone.db /home/nonroot/.local/share/deadzone/deadzone.db
+COPY --chown=nonroot:nonroot deadzone.db.release /home/nonroot/.local/share/deadzone/deadzone.db.release
 
 # Force the baked file to win unconditionally. With OFFLINE=1, Bootstrap
 # never contacts the network — neither for the initial fetch nor for the
@@ -133,7 +136,7 @@ ENV DEADZONE_DB_OFFLINE=1
 # The image grows from ~100 MB (post-#203) to ~230 MB. Accepted
 # trade-off: one larger pull replaces a per-MCP-session re-download,
 # and the image becomes a self-contained MCP-server-in-a-box.
-COPY --from=staging /staged/models/ /home/nonroot/.cache/deadzone/models/
+COPY --chown=nonroot:nonroot --from=staging /staged/models/ /home/nonroot/.cache/deadzone/models/
 ENV DEADZONE_HUGOT_CACHE=/home/nonroot/.cache/deadzone/models
 
 # OCI labels — image.version is appended at build time via
