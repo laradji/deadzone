@@ -254,8 +254,8 @@ jobs:
         env:
           IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
         shell: bash
-        # `{ echo "${init}"; sleep 5; } | docker run -i ...` keeps stdin
-        # open for 5 s after the request is written, so the server can
+        # `{ echo "${init}"; sleep 30; } | docker run -i ...` keeps stdin
+        # open for 30 s after the request is written, so the server can
         # write + flush its initialize response on stdout BEFORE the
         # pipe close triggers EOF shutdown. A bare `echo "${init}" |
         # docker run -i ...` races the response flush against EOF on a
@@ -265,10 +265,13 @@ jobs:
         # DB download (~3 s) masked the race. See #209 decision block;
         # do NOT simplify back to a bare `echo | docker run` without
         # re-introducing the regression.
+        # `sleep 30` is sized for QEMU arm64 emulation (~7 s server boot
+        # under translation vs ~0.5 s native), not arbitrary; bumping
+        # below ~15 s re-introduces the regression. See #211.
         run: |
           set -euo pipefail
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
-          out=$( { echo "${init}"; sleep 5; } | docker run --rm -i --platform linux/amd64 --network none "$IMG" server)
+          out=$( { echo "${init}"; sleep 30; } | docker run --rm -i --platform linux/amd64 --network none "$IMG" server)
           echo "${out}"
           echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
           echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }
@@ -283,11 +286,15 @@ jobs:
           IMG: ${{ steps.img.outputs.ref }}:${{ inputs.tag }}
         shell: bash
         # Same stdin-held-open pattern as the amd64 server smoke above.
-        # See the comment on that step for the rationale (#209).
+        # See the comment on that step for the rationale (#209). The
+        # `sleep 30` is the load-bearing constant for THIS arch — arm64
+        # smoke runs under QEMU translation on the amd64 runner (~7 s
+        # server boot), so anything below ~15 s flakes here even when
+        # amd64 stays green. See #211.
         run: |
           set -euo pipefail
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
-          out=$( { echo "${init}"; sleep 5; } | docker run --rm -i --platform linux/arm64 --network none "$IMG" server)
+          out=$( { echo "${init}"; sleep 30; } | docker run --rm -i --platform linux/arm64 --network none "$IMG" server)
           echo "${out}"
           echo "${out}" | grep -q '"name":"deadzone"' || { echo "smoke FAIL: missing name=deadzone" >&2; exit 1; }
           echo "${out}" | grep -q '"protocolVersion":"2025-06-18"' || { echo "smoke FAIL: missing protocolVersion=2025-06-18" >&2; exit 1; }
