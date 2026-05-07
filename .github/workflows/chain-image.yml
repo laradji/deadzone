@@ -78,20 +78,25 @@ jobs:
       - name: Resolve tag from upstream run
         id: tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_TITLE: ${{ github.event.workflow_run.display_title }}
         shell: bash
         run: |
           set -euo pipefail
-          # The `inputs` field on the run JSON gives us the
-          # workflow_dispatch inputs the upstream scrape-pack run was
-          # invoked with. scrape-pack runs are always dispatch-mode
-          # (chain-release dispatches it on stable-tag pushes; operators
-          # dispatch it manually for cache-warm or hotfix runs), so
-          # `.inputs.tag` is the authoritative source — empty for the
-          # cache-warm path, populated for everything else.
-          tag=$(gh api "repos/${{ github.repository }}/actions/runs/${UPSTREAM_RUN_ID}" --jq '.inputs.tag // empty')
-          if [[ -z "$tag" ]]; then
+          # scrape-pack.yml encodes its `inputs.tag` value in its
+          # top-level `run-name:`, which surfaces here as
+          # `display_title`: `scrape-pack (v<x.y.z>)` for tagged runs,
+          # `scrape-pack (cache-warm)` for the #126 cache-warm path. We
+          # parse the parenthesized payload back out — the runs REST
+          # endpoint does NOT expose workflow_dispatch inputs (#218), so
+          # the display_title is our only cross-workflow_run channel for
+          # the dispatch tag.
+          if [[ "$UPSTREAM_TITLE" =~ \(([^\)]+)\) ]]; then
+            tag="${BASH_REMATCH[1]}"
+          else
+            tag=""
+          fi
+          if [[ "$tag" == "cache-warm" || -z "$tag" ]]; then
             echo "::notice::scrape-pack run #${UPSTREAM_RUN_ID} had empty tag (cache-warm path); skipping docker-publish"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0

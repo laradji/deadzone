@@ -20,6 +20,15 @@
 
 name: scrape-pack
 
+# Embed inputs.tag in the run-name so the chain-image consumer can
+# recover it from `github.event.workflow_run.display_title` — the runs
+# REST endpoint does NOT expose workflow_dispatch inputs, and run-name
+# is the established pattern for ferrying dispatch metadata across the
+# workflow_run boundary (#218). Format is locked: chain-image.yml's
+# parser expects exactly one parenthesized payload, either
+# `scrape-pack (v<x.y.z>)` or `scrape-pack (cache-warm)`.
+run-name: ${{ inputs.tag && format('scrape-pack ({0})', inputs.tag) || 'scrape-pack (cache-warm)' }}
+
 on:
   workflow_dispatch:
     inputs:
