@@ -26,6 +26,17 @@
 #
 # Auth: dispatch uses the default GITHUB_TOKEN with `actions: write`
 # scoped to this job. No PAT.
+#
+# Debugging "chain-image stopped firing" (#212): first verify the
+# workflows registry shows chain-image `state: active` and that
+# `workflows: ["scrape-pack"]` below matches scrape-pack.yml's `name:`
+# field exactly (case-sensitive). If both check out, suspect the
+# first-run-after-add gotcha — GitHub does not always register a
+# freshly-landed `workflow_run` trigger in time for the first upstream
+# completion (the v0.7.1 cycle hit this: sibling chain-release fired,
+# chain-image didn't, despite identical trigger shape). The second
+# upstream completion picks up reliably. Manual fallback meanwhile:
+# `gh workflow run docker-publish.yml --ref main -f tag=<tag>`.
 
 name: chain-image
 
@@ -52,6 +63,18 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     steps:
+      - name: Fired
+        # Job-start breadcrumb (#212): grep `chain-image fired` in run
+        # logs to confirm the trigger ran without scanning the
+        # downstream dispatch step (whose notice the skip gates can
+        # swallow). Mirrors chain-release.yml's notice idiom.
+        env:
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          echo "::notice::chain-image fired for scrape-pack run #${UPSTREAM_RUN_ID}: ${UPSTREAM_RUN_URL}"
+
       - name: Resolve tag from upstream run
         id: tag
         env:
