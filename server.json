@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.laradji/deadzone",
+  "title": "Deadzone",
+  "description": "Local-first MCP doc server. Semantic search over library docs — no cloud, no API key, no telemetry. Single Go binary, MCP stdio, vector index pinned to the binary version.",
+  "websiteUrl": "https://github.com/laradji/deadzone",
+  "repository": {
+    "url": "https://github.com/laradji/deadzone",
+    "source": "github"
+  },
+  "version": "0.7.4",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/laradji/deadzone:v0.7.4",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "server"
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tool": "manual",
+      "version": "0.7.4",
+      "build_info": {
+        "platforms": ["linux/amd64", "linux/arm64"],
+        "baked_assets": ["deadzone.db", "onnx_runtime", "embedding_model"],
+        "base_image": "distroless",
+        "approx_size_mb": 230
+      }
+    }
+  }
+}
