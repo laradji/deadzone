@@ -207,9 +207,20 @@ jobs:
           # exactly what scrape-pack.yml's cache step writes, otherwise
           # this job reports phantom misses on entries that are actually
           # alive in the cache.
+          # Pure-bash substring match against a pre-framed haystack so we
+          # never put `caches` through a pipe under `set -o pipefail`.
+          # The earlier `printf '%s\n' "$caches" | grep -Fxq -- "$expected"`
+          # form silently broke once the repo's cache list crossed ~500
+          # entries: grep's `-q` early-exits on first match, SIGPIPEs the
+          # `printf` writer, pipefail surfaces 141 from the pipeline, the
+          # `if` branch goes false, and every probed slot reports `miss`
+          # — exactly the 0/253 false-positive that #163's 0% guard was
+          # meant to catch as drift. The bash glob walks the same
+          # haystack once per slot and stays in-process.
+          haystack=$'\n'"$caches"$'\n'
           while IFS=$'\t' read -r lib_id version slug cache_hash; do
             expected="artifact-${slug}-${version}-${cache_hash}-emb${EMBEDDER_SIGNATURE}-schema${SCHEMA_VERSION}"
-            if printf '%s\n' "$caches" | grep -Fxq -- "$expected"; then
+            if [[ "$haystack" == *$'\n'"$expected"$'\n'* ]]; then
               status="hit"; hit=$((hit + 1))
             else
               status="miss"; miss=$((miss + 1))
