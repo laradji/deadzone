@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.laradji/deadzone",
   "title": "Deadzone",
-  "description": "Local-first MCP doc server. Semantic search over library docs — no cloud, no API key, no telemetry. Single Go binary, MCP stdio, vector index pinned to the binary version.",
+  "description": "Local-first MCP server: semantic search over library docs. No cloud, no API key, no telemetry.",
   "websiteUrl": "https://github.com/laradji/deadzone",
   "repository": {
     "url": "https://github.com/laradji/deadzone",
