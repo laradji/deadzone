@@ -23,11 +23,17 @@
 #     want a scrape on a pre-release can dispatch scrape-pack.yml
 #     manually, which remains supported).
 #
-# Auth: dispatch uses the default GITHUB_TOKEN with `actions: write`
-# scoped to this job. workflow_dispatch via the REST API is explicitly
-# allowed for the default token (the anti-recursion gate that blocks
-# `push` events from triggering downstream workflows does NOT apply
-# to direct workflow_dispatch calls). No PAT required.
+# Auth: dispatch uses CHAIN_DISPATCH_TOKEN, a fine-grained PAT scoped
+# to laradji/deadzone with `Actions: read+write` only. The default
+# GITHUB_TOKEN cannot be used here: GitHub's anti-recursion gate
+# allows the dispatch itself (scrape-pack runs successfully) but
+# SUPPRESSES the downstream `workflow_run` trigger on its completion,
+# so chain-image.yml never fires when the dispatching actor is
+# `github-actions[bot]`. A PAT re-enables the chain by making the
+# triggering_actor a real user. Same failure mode that #148 solved
+# for release.yml -> update-package-channels.yml; see #216 for the
+# v0.7.2 diagnostic that confirmed the gate applies on every tag
+# push, not just first-run-after-add.
 
 name: chain-release
 
@@ -84,10 +90,25 @@ jobs:
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
+      # Fail fast: a missing/rotated PAT otherwise surfaces as a 401 deep
+      # in `gh workflow run` and looks like a transient dispatch failure.
+      # Mirrors release.yml's RELEASE_PUBLISH_TOKEN check. Gated on
+      # skip != 'true' so pre-release tags don't trip the validation
+      # when no dispatch is needed anyway. See #216.
+      - name: Validate secrets
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          CHAIN_DISPATCH_TOKEN: ${{ secrets.CHAIN_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$CHAIN_DISPATCH_TOKEN" ]; then
+            echo "::error::CHAIN_DISPATCH_TOKEN missing or empty - required PAT (Actions: read+write on this repo) so scrape-pack's completion spawns chain-image.yml. The default GITHUB_TOKEN is anti-recursion-gated and would suppress the workflow_run downstream. See repo settings -> secrets and #216."
+            exit 1
+          fi
+
       - name: Dispatch scrape-pack.yml
         if: steps.tag.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.CHAIN_DISPATCH_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
           UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
           UPSTREAM_RUN_URL: ${{ github.event.workflow_run.html_url }}
